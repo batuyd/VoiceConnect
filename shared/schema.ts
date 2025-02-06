@@ -18,7 +18,7 @@ export const friendships = pgTable("friendships", {
   id: serial("id").primaryKey(),
   senderId: integer("sender_id").notNull(),
   receiverId: integer("receiver_id").notNull(),
-  status: text("status").notNull(), // 'pending', 'accepted', 'rejected'
+  status: text("status").notNull(), 
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -53,15 +53,17 @@ export const serverMembers = pgTable("server_members", {
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
 });
 
-// Kullanıcı kayıt şeması - email ve telefon validasyonları ile
-export const insertUserSchema = createInsertSchema(users).extend({
-  email: z.string().email("Geçersiz email adresi"),
-  phone: z.string().regex(/^\+?[1-9]\d{1,14}$/, "Geçersiz telefon numarası"),
-  password: z.string().min(8, "Şifre en az 8 karakter olmalıdır"),
+const baseUserSchema = createInsertSchema(users);
+
+export const insertUserSchema = baseUserSchema.extend({
   username: z.string()
     .min(3, "Kullanıcı adı en az 3 karakter olmalıdır")
     .max(20, "Kullanıcı adı en fazla 20 karakter olabilir")
     .regex(/^[a-zA-Z0-9_]+$/, "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir"),
+  password: z.string().min(8, "Şifre en az 8 karakter olmalıdır"),
+  email: z.string().email("Geçersiz email adresi").optional(),
+  phone: z.string().optional(),
+  avatar: z.string().optional(),
 });
 
 export const insertServerSchema = createInsertSchema(servers);

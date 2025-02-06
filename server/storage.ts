@@ -93,13 +93,17 @@ export class MemStorage implements IStorage {
     ];
 
     const user: User = {
-      ...insertUser,
       id,
-      avatar: defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)],
+      username: insertUser.username,
+      password: insertUser.password,
+      email: insertUser.email || `user${id}@placeholder.com`,
+      phone: insertUser.phone || `+${Math.floor(Math.random() * 100000000000)}`,
+      avatar: insertUser.avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)],
       twoFactorEnabled: false,
       twoFactorSecret: null,
       createdAt: new Date(),
     };
+
     this.users.set(id, user);
     return user;
   }
