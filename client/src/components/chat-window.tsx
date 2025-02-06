@@ -15,12 +15,13 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 // Common emoji list
-const commonEmojis = ["👍", "❤️", "😄", "🎉", "🤔", "👀", "🔥", "💯", "✨", "🙌"];
+const commonEmojis = ["👍", "❤️", "😄", "🎉", "🤔", "👀", "🔥", "💯", "✨", "🙌", "😂", "🤗", "👋", "🌟", "💖", "🎮", "🎨", "🎵", "🌈", "✅"];
 
 export function ChatWindow({ channel }: { channel: Channel }) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const [message, setMessage] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const { data: messages = [] } = useQuery<MessageWithReactions[]>({
     queryKey: [`/api/channels/${channel.id}/messages`],
@@ -77,6 +78,10 @@ export function ChatWindow({ channel }: { channel: Channel }) {
     if (!message.trim()) return;
     sendMessageMutation.mutate(message);
     setMessage("");
+  };
+
+  const handleEmojiSelect = (emoji: string) => {
+    setMessage(prev => prev + emoji);
   };
 
   return (
@@ -181,12 +186,43 @@ export function ChatWindow({ channel }: { channel: Channel }) {
           }}
           className="flex gap-2"
         >
-          <Input
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder={`${t('chat.messagePlaceholder')} #${channel.name}`}
-            className="flex-1"
-          />
+          <div className="flex-1 relative">
+            <Input
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder={`${t('chat.messagePlaceholder')} #${channel.name}`}
+              className="text-white placeholder:text-gray-400 bg-gray-700"
+            />
+            <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-1/2 -translate-y-1/2"
+                >
+                  <Smile className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-2">
+                <div className="grid grid-cols-6 gap-1">
+                  {commonEmojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => {
+                        handleEmojiSelect(emoji);
+                        setShowEmojiPicker(false);
+                      }}
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-lg"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
           <Button type="submit" size="icon">
             <Send className="h-4 w-4" />
           </Button>
