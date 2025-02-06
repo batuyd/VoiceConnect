@@ -155,6 +155,7 @@ export interface IStorage {
 
   skipCurrentMedia(channelId: number): Promise<Channel>;
   clearMediaQueue(channelId: number): Promise<void>;
+  deleteChannel(channelId: number): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -967,6 +968,23 @@ export class MemStorage implements IStorage {
 
     channel.mediaQueue = [];
     this.channels.set(channelId, channel);
+  }
+  async deleteChannel(channelId: number): Promise<void> {
+    this.channels.delete(channelId);
+
+    // Kanala ait mesajları temizle
+    const messageIds = Array.from(this.messages.entries())
+      .filter(([_, message]) => message.channelId === channelId)
+      .map(([id]) => id);
+
+    messageIds.forEach(id => this.messages.delete(id));
+
+    // Kanala ait reaksiyonları temizle
+    const reactionIds = Array.from(this.reactions.entries())
+      .filter(([_, reaction]) => messageIds.includes(reaction.messageId))
+      .map(([id]) => id);
+
+    reactionIds.forEach(id => this.reactions.delete(id));
   }
 }
 

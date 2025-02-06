@@ -7,7 +7,6 @@ import { WebSocketServer } from 'ws';
 import NodeMediaServer from 'node-media-server';
 import fetch from 'node-fetch';
 
-
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
@@ -58,6 +57,27 @@ export function registerRoutes(app: Express): Server {
     );
     res.status(201).json(channel);
   });
+
+  // Kanal silme endpoint'i
+  app.delete("/api/channels/:channelId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.deleteChannel(parseInt(req.params.channelId));
+      res.sendStatus(200);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
 
   app.get("/api/servers/:serverId/members", async (req, res) => {
     if (!req.user) return res.sendStatus(401);

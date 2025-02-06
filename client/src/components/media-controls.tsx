@@ -132,11 +132,11 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   if (!channel) return null;
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-2">
+    <div className="space-y-4 p-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border rounded-lg shadow-sm">
+      <div className="flex items-center gap-2">
         <Dialog>
           <DialogTrigger asChild>
-            <Button variant="outline">
+            <Button variant="outline" className="w-full">
               {isVoiceChannel ? (
                 <>
                   <Music className="w-4 h-4 mr-2" />
@@ -150,13 +150,13 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
               )}
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>
                 {isVoiceChannel ? t('media.searchMusic') : t('media.searchVideo')}
               </DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-4 mt-4">
               <div className="flex gap-2">
                 <Input
                   placeholder={t('media.searchPlaceholder')}
