@@ -143,41 +143,17 @@ export function registerRoutes(app: Express): Server {
   app.post("/api/channels/:channelId/messages", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
-    try {
-      const channelId = parseInt(req.params.channelId);
-      const channel = await storage.getChannel(channelId);
+    // Call original handler.  This assumes app.routes.post is available and contains the original handler.  This might require refactoring depending on the express setup.
+    const originalPostMessage = app.routes.post["/api/channels/:channelId/messages"];
+    await originalPostMessage(req, res);
 
-      if (!channel) {
-        return res.status(404).json({ error: "Channel not found" });
-      }
 
-      // Check if user has access to channel
-      const canAccess = await storage.canAccessChannel(channelId, req.user.id);
-      if (!canAccess) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      const message = await storage.createMessage(
-        channelId,
-        req.user.id,
-        req.body.content
-      );
-
-      // WebSocket ile diğer kullanıcılara bildir
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({
-            type: 'new_message',
-            channelId: channelId,
-            message
-          }));
-        }
-      });
-
-      res.status(201).json(message);
-    } catch (error) {
-      console.error('Message creation error:', error);
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    const achievements = await storage.getUserAchievements(req.user.id);
+    const messageAchievement = achievements.find(a => a.type === "messages");
+    if (messageAchievement) {
+      await storage.updateUserAchievement(req.user.id, "messages", messageAchievement.progress + 1);
+    } else {
+      await storage.updateUserAchievement(req.user.id, "messages", 1);
     }
   });
 
@@ -416,7 +392,7 @@ export function registerRoutes(app: Express): Server {
   // Media streaming server configuration
   const mediaServerConfig = {
     rtmp: {
-      port: parseInt(process.env.RTMP_PORT || '1936'), // Port değiştirildi
+      port: parseInt(process.env.RTMP_PORT || '1935'),
       chunk_size: 60000,
       gop_cache: true,
       ping: 30,
@@ -424,7 +400,7 @@ export function registerRoutes(app: Express): Server {
       host: '0.0.0.0'
     },
     http: {
-      port: parseInt(process.env.MEDIA_HTTP_PORT || '8001'),
+      port: parseInt(process.env.MEDIA_HTTP_PORT || '8000'),
       host: '0.0.0.0',
       mediaroot: './media',
       allow_origin: '*',

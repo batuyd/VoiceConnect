@@ -8,7 +8,6 @@ import { insertUserSchema, User as SelectUser, InsertUser } from "@shared/schema
 import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/use-language";
-import { useLocation } from "wouter";
 
 type AuthContextType = {
   user: SelectUser | null;
@@ -26,7 +25,6 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const { t } = useLanguage();
-  const [, setLocation] = useLocation();
 
   const {
     data: user,
@@ -36,26 +34,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: ["/api/user"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
-    staleTime: 30000,
+    staleTime: 30000, // Cache valid for 30 seconds
   });
 
+  // Oturum durumu değişikliklerinde temizleme işlemleri
   useEffect(() => {
-    const cleanup = () => {
+    let cleanup = () => {
       // Medya akışlarını temizle
       Array.from(document.querySelectorAll('audio, video'))
-        .forEach(media => {
-          const mediaEl = media as HTMLMediaElement;
-          if (mediaEl.srcObject instanceof MediaStream) {
-            mediaEl.srcObject.getTracks().forEach(track => track.stop());
-            mediaEl.srcObject = null;
-          }
+        .map(media => (media as HTMLMediaElement).srcObject)
+        .filter(stream => stream instanceof MediaStream)
+        .forEach(stream => {
+          stream?.getTracks().forEach(track => track.stop());
         });
     };
 
+    // Oturum durumu değiştiğinde temizlik yap
     if (!user) {
       cleanup();
     }
 
+    // Component unmount olduğunda temizlik yap
     return cleanup;
   }, [user?.id]);
 
@@ -73,8 +72,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (user: SelectUser) => {
       queryClient.setQueryData(["/api/user"], user);
+      // Bağımlı sorguları geçersiz kıl
       queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
-      setLocation("/");
       toast({
         description: t('auth.loginSuccess'),
       });
@@ -104,7 +103,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     onSuccess: (user: SelectUser) => {
       queryClient.setQueryData(["/api/user"], user);
       queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
-      setLocation("/");
       toast({
         description: t('auth.registrationSuccess'),
       });
@@ -125,14 +123,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!res.ok) {
           throw new Error(t('auth.errors.logoutFailed'));
         }
+        // Medya akışlarını temizle
+        Array.from(document.querySelectorAll('audio, video'))
+          .map(media => (media as HTMLMediaElement).srcObject)
+          .filter(stream => stream instanceof MediaStream)
+          .forEach(stream => {
+            stream?.getTracks().forEach(track => track.stop());
+          });
       } catch (error: any) {
         throw new Error(error.message || t('auth.errors.logoutFailed'));
       }
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);
-      queryClient.clear();
-      setLocation("/auth");
+      queryClient.clear(); // Tüm önbelleği temizle
       toast({
         description: t('auth.logoutSuccess'),
       });

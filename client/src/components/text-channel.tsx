@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 interface TextChannelProps {
   channel: Channel;
   isOwner: boolean;
-  onSelect: (channel: Channel | null) => void;
+  onSelect: () => void;
   isSelected: boolean;
 }
 
@@ -24,9 +24,6 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
       await apiRequest("DELETE", `/api/channels/${channel.id}`);
     },
     onSuccess: () => {
-      if (isSelected) {
-        onSelect(null);
-      }
       queryClient.invalidateQueries({ queryKey: [`/api/servers/${channel.serverId}/channels`] });
       toast({
         description: t('server.channelDeleted'),
@@ -40,32 +37,23 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
     },
   });
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (window.confirm(t('server.confirmDeleteChannel'))) {
-      deleteChannelMutation.mutate();
-    }
-  };
-
   return (
     <div className="space-y-2">
-      <div 
-        className={`flex items-center justify-between p-2 rounded cursor-pointer hover:bg-gray-700 ${
-          isSelected ? "bg-gray-700" : ""
-        }`}
-        onClick={() => onSelect(isSelected ? null : channel)}
-        role="button"
-        tabIndex={0}
-      >
-        <div className="flex items-center space-x-2 flex-1">
+      <div className={`flex items-center justify-between p-2 rounded hover:bg-gray-700 ${
+        isSelected ? "bg-gray-700" : ""
+      }`}>
+        <button
+          onClick={onSelect}
+          className="flex items-center space-x-2 flex-1"
+        >
           <Hash className="h-4 w-4 text-gray-400" />
           <span>{channel.name}</span>
-        </div>
+        </button>
         {isOwner && (
           <Button
             variant="ghost"
             size="icon"
-            onClick={handleDelete}
+            onClick={() => deleteChannelMutation.mutate()}
             disabled={deleteChannelMutation.isPending}
           >
             <Trash2 className="h-4 w-4" />
