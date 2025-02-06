@@ -15,6 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 import { Switch } from "@/components/ui/switch";
+import { UserLevelDisplay } from "@/components/user-level-display";
+import { GiftSection } from "@/components/gift-section";
 
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -199,6 +201,18 @@ export default function ProfilePage() {
                     profileForm.setValue("showLastSeen", checked)
                   }
                 />
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">{t('profile.level.title')}</h3>
+                <UserLevelDisplay userId={user?.id} />
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">{t('profile.gifts.title')}</h3>
+                <GiftSection />
               </div>
             </div>
 

@@ -161,6 +161,40 @@ export function registerRoutes(app: Express): Server {
     res.json(achievements);
   });
 
+  // Gift related routes
+  app.get("/api/gifts", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const gifts = await storage.getGifts();
+    res.json(gifts);
+  });
+
+  app.post("/api/gifts/send", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const giftHistory = await storage.sendGift(
+        req.user.id,
+        req.body.receiverId,
+        req.body.giftId,
+        req.body.message
+      );
+      res.status(201).json(giftHistory);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/gifts/history", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const history = await storage.getGiftHistory(req.user.id);
+    res.json(history);
+  });
+
+  // Level related routes
+  app.get("/api/user/level", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const userLevel = await storage.getUserLevel(req.user.id);
+    res.json(userLevel);
+  });
 
   const httpServer = createServer(app);
   return httpServer;

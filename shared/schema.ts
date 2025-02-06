@@ -130,6 +130,36 @@ export const userAchievements = pgTable("user_achievements", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const gifts = pgTable("gifts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  price: decimal("price").notNull(),
+  icon: text("icon").notNull(),
+  experiencePoints: integer("experience_points").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const userLevels = pgTable("user_levels", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  level: integer("level").notNull().default(1),
+  currentExperience: integer("current_experience").notNull().default(0),
+  nextLevelExperience: integer("next_level_experience").notNull().default(100),
+  title: text("title").notNull().default("Yeni Üye"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const giftHistory = pgTable("gift_history", {
+  id: serial("id").primaryKey(),
+  senderId: integer("sender_id").notNull(),
+  receiverId: integer("receiver_id").notNull(),
+  giftId: integer("gift_id").notNull(),
+  coinAmount: decimal("coin_amount").notNull(),
+  message: text("message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 const baseUserSchema = createInsertSchema(users);
 
 export const insertUserSchema = baseUserSchema.extend({
@@ -167,6 +197,9 @@ export const insertUserCoinsSchema = createInsertSchema(userCoins);
 export const insertCoinTransactionSchema = createInsertSchema(coinTransactions);
 export const insertCoinProductSchema = createInsertSchema(coinProducts);
 export const insertUserAchievementSchema = createInsertSchema(userAchievements);
+export const insertGiftSchema = createInsertSchema(gifts);
+export const insertUserLevelSchema = createInsertSchema(userLevels);
+export const insertGiftHistorySchema = createInsertSchema(giftHistory);
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -181,8 +214,15 @@ export type UserCoins = typeof userCoins.$inferSelect;
 export type CoinTransaction = typeof coinTransactions.$inferSelect;
 export type CoinProduct = typeof coinProducts.$inferSelect;
 export type UserAchievement = typeof userAchievements.$inferSelect;
+export type Gift = typeof gifts.$inferSelect;
+export type UserLevel = typeof userLevels.$inferSelect;
+export type GiftHistory = typeof giftHistory.$inferSelect;
 
 export type MessageWithReactions = Message & {
   user: User;
   reactions: (Reaction & { user: User })[];
+};
+
+export type UserWithLevel = User & {
+  level: UserLevel;
 };

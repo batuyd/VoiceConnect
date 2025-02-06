@@ -8,6 +8,36 @@ import type { UserCoins, CoinTransaction, CoinProduct, UserAchievement } from "@
 
 const MemoryStore = createMemoryStore(session);
 
+interface Gift {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  icon: string;
+  experiencePoints: number;
+  createdAt: Date;
+}
+
+interface GiftHistory {
+  id: number;
+  senderId: number;
+  receiverId: number;
+  giftId: number;
+  coinAmount: number;
+  message: string | null;
+  createdAt: Date;
+}
+
+interface UserLevel {
+  id: number;
+  userId: number;
+  level: number;
+  currentExperience: number;
+  nextLevelExperience: number;
+  title: string;
+  createdAt: Date;
+}
+
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -71,6 +101,16 @@ export interface IStorage {
   getUserAchievements(userId: number): Promise<UserAchievement[]>;
   updateUserAchievement(userId: number, type: string, progress: number): Promise<UserAchievement>;
   claimDailyReward(userId: number): Promise<CoinTransaction>;
+
+  // Gift related methods
+  getGifts(): Promise<Gift[]>;
+  sendGift(senderId: number, receiverId: number, giftId: number, message?: string): Promise<GiftHistory>;
+  getGiftHistory(userId: number): Promise<GiftHistory[]>;
+
+  // Level related methods
+  getUserLevel(userId: number): Promise<UserLevel>;
+  addExperience(userId: number, amount: number): Promise<UserLevel>;
+  calculateTitle(level: number): string;
 }
 
 export class MemStorage implements IStorage {
@@ -88,6 +128,9 @@ export class MemStorage implements IStorage {
   private coinTransactions: Map<number, CoinTransaction>;
   private coinProducts: Map<number, CoinProduct>;
   private userAchievements: Map<number, UserAchievement>;
+  private gifts: Map<number, Gift>;
+  private userLevels: Map<number, UserLevel>;
+  private giftHistory: Map<number, GiftHistory>;
 
   constructor() {
     this.users = new Map();
@@ -106,8 +149,12 @@ export class MemStorage implements IStorage {
     this.coinTransactions = new Map();
     this.coinProducts = new Map();
     this.userAchievements = new Map();
+    this.gifts = new Map();
+    this.userLevels = new Map();
+    this.giftHistory = new Map();
 
     this.initializeCoinProducts();
+    this.initializeGifts();
   }
 
   private initializeCoinProducts() {
@@ -145,6 +192,49 @@ export class MemStorage implements IStorage {
     ];
 
     products.forEach(product => this.coinProducts.set(product.id, product));
+  }
+
+  private initializeGifts() {
+    const gifts = [
+      {
+        id: this.currentId++,
+        name: "Çiçek",
+        description: "Güzel bir çiçek buketi",
+        price: 50,
+        icon: "🌸",
+        experiencePoints: 10,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Kalp",
+        description: "Sevgi dolu bir kalp",
+        price: 100,
+        icon: "❤️",
+        experiencePoints: 20,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Yıldız",
+        description: "Parlak bir yıldız",
+        price: 200,
+        icon: "⭐",
+        experiencePoints: 40,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Taç",
+        description: "Gösterişli bir taç",
+        price: 500,
+        icon: "👑",
+        experiencePoints: 100,
+        createdAt: new Date(),
+      },
+    ];
+
+    gifts.forEach(gift => this.gifts.set(gift.id, gift));
   }
 
   async getUser(id: number): Promise<User | undefined> {
@@ -552,7 +642,7 @@ export class MemStorage implements IStorage {
 
   private getAchievementGoal(type: string): number {
     const goals: Record<string, number> = {
-      voice_time: 3600, 
+      voice_time: 3600,
       referrals: 5,
       reactions: 50,
       messages: 100,
@@ -593,11 +683,123 @@ export class MemStorage implements IStorage {
 
     return this.addCoins(
       userId,
-      50, 
+      50,
       'daily_reward',
       'Daily login reward',
       { claimedAt: now }
     );
+  }
+
+  async getGifts(): Promise<Gift[]> {
+    return Array.from(this.gifts.values());
+  }
+
+  async sendGift(senderId: number, receiverId: number, giftId: number, message?: string): Promise<GiftHistory> {
+    const gift = this.gifts.get(giftId);
+    if (!gift) {
+      throw new Error("Gift not found");
+    }
+
+    const senderCoins = await this.getUserCoins(senderId);
+    if (!senderCoins || senderCoins.balance < gift.price) {
+      throw new Error("Insufficient coins");
+    }
+
+    // Deduct coins from sender
+    await this.addCoins(
+      senderId,
+      -gift.price,
+      'gift_sent',
+      `Sent gift: ${gift.name}`,
+      { giftId, receiverId }
+    );
+
+    // Add experience to receiver
+    await this.addExperience(receiverId, gift.experiencePoints);
+
+    // Record gift history
+    const giftHistory: GiftHistory = {
+      id: this.currentId++,
+      senderId,
+      receiverId,
+      giftId,
+      coinAmount: gift.price,
+      message: message || null,
+      createdAt: new Date(),
+    };
+
+    this.giftHistory.set(giftHistory.id, giftHistory);
+    return giftHistory;
+  }
+
+  async getGiftHistory(userId: number): Promise<GiftHistory[]> {
+    return Array.from(this.giftHistory.values())
+      .filter(gh => gh.senderId === userId || gh.receiverId === userId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async getUserLevel(userId: number): Promise<UserLevel> {
+    let userLevel = Array.from(this.userLevels.values())
+      .find(ul => ul.userId === userId);
+
+    if (!userLevel) {
+      userLevel = {
+        id: this.currentId++,
+        userId,
+        level: 1,
+        currentExperience: 0,
+        nextLevelExperience: 100,
+        title: this.calculateTitle(1),
+        createdAt: new Date(),
+      };
+      this.userLevels.set(userLevel.id, userLevel);
+    }
+
+    return userLevel;
+  }
+
+  async addExperience(userId: number, amount: number): Promise<UserLevel> {
+    const userLevel = await this.getUserLevel(userId);
+    userLevel.currentExperience += amount;
+
+    // Level up if enough experience
+    while (userLevel.currentExperience >= userLevel.nextLevelExperience) {
+      userLevel.currentExperience -= userLevel.nextLevelExperience;
+      userLevel.level += 1;
+      userLevel.nextLevelExperience = Math.floor(userLevel.nextLevelExperience * 1.5);
+      userLevel.title = this.calculateTitle(userLevel.level);
+
+      // Award coins for leveling up
+      await this.addCoins(
+        userId,
+        userLevel.level * 50,
+        'level_up',
+        `Level up reward: Level ${userLevel.level}`,
+        { level: userLevel.level }
+      );
+    }
+
+    this.userLevels.set(userLevel.id, userLevel);
+    return userLevel;
+  }
+
+  calculateTitle(level: number): string {
+    const titles = {
+      1: "Yeni Üye",
+      5: "Aktif Üye",
+      10: "Bronz Üye",
+      20: "Gümüş Üye",
+      30: "Altın Üye",
+      50: "Elmas Üye",
+      75: "Veteran Üye",
+      100: "Efsane Üye"
+    };
+
+    const eligibleTitles = Object.entries(titles)
+      .filter(([reqLevel]) => parseInt(reqLevel) <= level)
+      .sort((a, b) => parseInt(b[0]) - parseInt(a[0]));
+
+    return eligibleTitles[0]?.[1] || "Yeni Üye";
   }
 }
 
