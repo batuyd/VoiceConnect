@@ -10,6 +10,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { MediaControls } from "./media-controls";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useWebSocket } from "@/hooks/use-websocket";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -19,12 +20,18 @@ interface VoiceChannelProps {
 export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
+  const { requestPermissions, selectedInputDevice } = useAudioSettings();
+  const [isConnected, setIsConnected] = useState(false);
+  const { sendMessage } = useWebSocket(channel.id);
 
   const deleteChannelMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("DELETE", `/api/channels/${channel.id}`);
     },
     onSuccess: () => {
+      if (isConnected) {
+        handleDisconnect();
+      }
       queryClient.invalidateQueries({ queryKey: [`/api/servers/${channel.serverId}/channels`] });
       toast({
         description: t('server.channelDeleted'),
@@ -38,6 +45,54 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     },
   });
 
+  const handleConnect = async () => {
+    try {
+      const granted = await requestPermissions();
+      if (!granted) {
+        toast({
+          description: t('audio.permissionDenied'),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!selectedInputDevice) {
+        toast({
+          description: t('audio.noInputDevice'),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setIsConnected(true);
+      sendMessage({
+        type: 'join_voice',
+        channelId: channel.id
+      });
+    } catch (error) {
+      console.error('Error connecting to voice channel:', error);
+      toast({
+        description: t('audio.connectionError'),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDisconnect = () => {
+    setIsConnected(false);
+    sendMessage({
+      type: 'leave_voice',
+      channelId: channel.id
+    });
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(t('server.confirmDeleteChannel'))) {
+      deleteChannelMutation.mutate();
+    }
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg overflow-hidden">
       <div className="p-3 flex items-center justify-between bg-gray-800">
@@ -47,11 +102,19 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         </div>
 
         <div className="flex items-center space-x-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={isConnected ? handleDisconnect : handleConnect}
+          >
+            {isConnected ? t('voice.disconnect') : t('voice.connect')}
+          </Button>
+
           {isOwner && (
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => deleteChannelMutation.mutate()}
+              onClick={handleDelete}
               disabled={deleteChannelMutation.isPending}
             >
               <Trash2 className="h-4 w-4" />
@@ -59,6 +122,12 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           )}
         </div>
       </div>
+
+      {isConnected && (
+        <div className="p-3 bg-gray-900">
+          <MediaControls channelId={channel.id} isVoiceChannel={true} />
+        </div>
+      )}
     </div>
   );
 }

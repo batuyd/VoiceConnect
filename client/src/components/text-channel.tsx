@@ -24,8 +24,10 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
       await apiRequest("DELETE", `/api/channels/${channel.id}`);
     },
     onSuccess: () => {
+      if (isSelected) {
+        onSelect(null);
+      }
       queryClient.invalidateQueries({ queryKey: [`/api/servers/${channel.serverId}/channels`] });
-      onSelect(null); // Kanal silindiğinde seçimi kaldır
       toast({
         description: t('server.channelDeleted'),
       });
@@ -38,10 +40,11 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
     },
   });
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onSelect(isSelected ? null : channel);
+    if (window.confirm(t('server.confirmDeleteChannel'))) {
+      deleteChannelMutation.mutate();
+    }
   };
 
   return (
@@ -50,7 +53,9 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
         className={`flex items-center justify-between p-2 rounded cursor-pointer hover:bg-gray-700 ${
           isSelected ? "bg-gray-700" : ""
         }`}
-        onClick={handleClick}
+        onClick={() => onSelect(isSelected ? null : channel)}
+        role="button"
+        tabIndex={0}
       >
         <div className="flex items-center space-x-2 flex-1">
           <Hash className="h-4 w-4 text-gray-400" />
@@ -60,10 +65,7 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
           <Button
             variant="ghost"
             size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              deleteChannelMutation.mutate();
-            }}
+            onClick={handleDelete}
             disabled={deleteChannelMutation.isPending}
           >
             <Trash2 className="h-4 w-4" />
