@@ -11,6 +11,7 @@ import HomePage from "@/pages/home-page";
 import ProfilePage from "@/pages/profile-page";
 import SettingsPage from "@/pages/settings-page";
 import { CoinDisplay } from "@/components/coin-display";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import React from "react";
 
@@ -25,6 +26,7 @@ function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
       {children}
+      {user && <SettingsDialog />}
     </div>
   );
 }
