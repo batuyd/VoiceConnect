@@ -26,10 +26,9 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState([50]);
 
-  // In a real implementation, this would be fetched from the server
   const { data: channelMembers = [] } = useQuery({
     queryKey: [`/api/channels/${channel.id}/members`],
-    enabled: isJoined // Only fetch when user joins the channel
+    enabled: isJoined
   });
 
   const deleteChannelMutation = useMutation({
@@ -52,17 +51,13 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
 
   const handleVolumeChange = (newVolume: number[]) => {
     setVolume(newVolume);
-    // In a real implementation, this would update the actual audio volume
     console.log('Volume changed to:', newVolume[0]);
   };
 
   return (
     <div className="space-y-2">
-      <div
-        className={`flex flex-col p-2 rounded ${
-          isJoined ? "bg-emerald-900/50" : "hover:bg-gray-700"
-        }`}
-      >
+      <div className={`flex flex-col p-2 rounded ${isJoined ? "bg-emerald-900/50" : "hover:bg-gray-700"}`}>
+        {/* Kanal Başlığı ve Kontroller */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center space-x-2">
             {isJoined ? (
@@ -108,9 +103,9 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
           </div>
         </div>
 
-        {/* Volume Control - Only visible when joined */}
+        {/* Ses Kontrolü - Sadece katılındığında ve susturulmadığında görünür */}
         {isJoined && !isMuted && (
-          <div className="flex items-center space-x-2 px-2">
+          <div className="flex items-center space-x-2 px-2 mb-2">
             <Volume2 className="h-3 w-3 text-gray-400" />
             <Slider
               value={volume}
@@ -123,16 +118,16 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
           </div>
         )}
 
-        {/* Media Controls - Only visible when joined */}
+        {/* Medya Kontrolleri - Sadece katılındığında görünür */}
         {isJoined && (
-          <div className="mt-2">
+          <div className="mt-4 mb-2">
             <MediaControls channelId={channel.id} isVoiceChannel={true} />
           </div>
         )}
 
-        {/* Channel Members - Only visible when joined */}
+        {/* Kanal Üyeleri - Sadece katılındığında görünür */}
         {isJoined && channelMembers.length > 0 && (
-          <div className="mt-2 space-y-2">
+          <div className="mt-2">
             <div className="h-[1px] bg-gray-700 my-2" />
             <div className="flex flex-wrap gap-2">
               {channelMembers.map((member: any) => (

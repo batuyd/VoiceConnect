@@ -29,7 +29,6 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   const [isSearching, setIsSearching] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
 
-  // WebSocket connection
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -64,7 +63,6 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
     queryKey: ['/api/channels', channelId],
   });
 
-  // YouTube arama fonksiyonu
   const searchYouTube = async (query: string) => {
     setIsSearching(true);
     try {
@@ -132,11 +130,14 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   if (!channel) return null;
 
   return (
-    <div className="space-y-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border rounded-lg p-4 shadow-sm">
+    <div className="space-y-4 bg-gray-800/90 backdrop-blur rounded-lg p-4 shadow-lg z-50">
       <div className="grid grid-cols-1 gap-2">
         <Dialog>
           <DialogTrigger asChild>
-            <Button variant="outline" className="w-full flex items-center justify-center">
+            <Button 
+              variant="outline" 
+              className="w-full flex items-center justify-center hover:bg-gray-700"
+            >
               {isVoiceChannel ? (
                 <>
                   <Music className="w-4 h-4 mr-2" />
@@ -174,7 +175,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
 
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
                 {searchResults.map((result) => (
-                  <div key={result.id} className="flex items-center gap-2 p-2 hover:bg-secondary rounded-lg">
+                  <div key={result.id} className="flex items-center gap-2 p-2 hover:bg-gray-700/50 rounded-lg">
                     <img
                       src={result.thumbnail}
                       alt={result.title}
@@ -201,7 +202,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
       </div>
 
       {channel.currentMedia && (
-        <div className="bg-secondary p-4 rounded-lg">
+        <div className="bg-gray-700/50 p-4 rounded-lg">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold">{t('media.nowPlaying')}</h3>
@@ -234,7 +235,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
           </div>
           <div className="space-y-2">
             {channel.mediaQueue.map((media, index) => (
-              <div key={index} className="bg-secondary/50 p-2 rounded">
+              <div key={index} className="bg-gray-700/50 p-2 rounded">
                 <p className="text-sm">{media.title}</p>
               </div>
             ))}
