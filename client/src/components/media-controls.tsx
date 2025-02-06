@@ -130,13 +130,14 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   if (!channel) return null;
 
   return (
-    <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-lg">
-      <div className="p-3">
+    <div className="bg-gray-700/50 rounded-lg">
+      {/* Media Control Button */}
+      <div className="p-2">
         <Dialog>
           <DialogTrigger asChild>
             <Button 
-              variant="outline" 
-              className="w-full flex items-center justify-center hover:bg-gray-700"
+              variant="secondary"
+              className="w-full flex items-center justify-center"
             >
               {isVoiceChannel ? (
                 <>
@@ -151,7 +152,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
               )}
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent>
             <DialogHeader>
               <DialogTitle>
                 {isVoiceChannel ? t('media.searchMusic') : t('media.searchVideo')}
@@ -175,7 +176,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
 
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
                 {searchResults.map((result) => (
-                  <div key={result.id} className="flex items-center gap-2 p-2 hover:bg-gray-700/50 rounded-lg">
+                  <div key={result.id} className="flex items-center gap-2 p-2 hover:bg-gray-600/50 rounded-lg">
                     <img
                       src={result.thumbnail}
                       alt={result.title}
@@ -201,11 +202,12 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
         </Dialog>
       </div>
 
+      {/* Current Media */}
       {channel.currentMedia && (
-        <div className="border-t border-gray-700 p-3">
+        <div className="border-t border-gray-600 p-2">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-medium">{t('media.nowPlaying')}</h3>
+              <h3 className="text-sm font-medium text-gray-200">{t('media.nowPlaying')}</h3>
               <p className="text-sm text-gray-400">{channel.currentMedia.title}</p>
             </div>
             <Button
@@ -220,10 +222,11 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
         </div>
       )}
 
+      {/* Media Queue */}
       {channel.mediaQueue && channel.mediaQueue.length > 0 && (
-        <div className="border-t border-gray-700 p-3">
+        <div className="border-t border-gray-600 p-2">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium">{t('media.queue')}</h3>
+            <h3 className="text-sm font-medium text-gray-200">{t('media.queue')}</h3>
             <Button
               variant="ghost"
               size="icon"
@@ -235,7 +238,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
           </div>
           <div className="space-y-2">
             {channel.mediaQueue.map((media, index) => (
-              <div key={index} className="p-2 bg-gray-700/50 rounded">
+              <div key={index} className="p-2 bg-gray-600/50 rounded">
                 <p className="text-sm text-gray-300">{media.title}</p>
               </div>
             ))}

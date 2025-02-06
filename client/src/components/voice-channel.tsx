@@ -49,98 +49,94 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
   };
 
   return (
-    <div className="space-y-2">
-      <div className={`p-2 rounded ${isJoined ? "bg-emerald-900/50" : "hover:bg-gray-700"}`}>
-        {/* Ana Kontrol Alanı */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            {isJoined ? (
-              isMuted ? (
-                <VolumeX className="h-4 w-4 text-gray-400" />
-              ) : (
-                <Volume2 className="h-4 w-4 text-green-400" />
-              )
+    <div className={`rounded-lg bg-gray-800 overflow-hidden ${isJoined ? "bg-emerald-900/50" : "hover:bg-gray-700"}`}>
+      {/* Header - Always visible */}
+      <div className="p-3 flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          {isJoined ? (
+            isMuted ? (
+              <VolumeX className="h-4 w-4 text-gray-400" />
             ) : (
-              <Volume2 className="h-4 w-4 text-gray-400" />
-            )}
-            <span>{channel.name}</span>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            {isJoined && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsMuted(!isMuted)}
-                className={isMuted ? "text-red-400" : "text-green-400"}
-              >
-                {isMuted ? t('server.unmute') : t('server.mute')}
-              </Button>
-            )}
-            {isOwner && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => deleteChannelMutation.mutate()}
-                disabled={deleteChannelMutation.isPending}
-              >
-                <Trash2 className="h-4 w-4 text-red-400" />
-              </Button>
-            )}
-            <Button
-              variant={isJoined ? "destructive" : "default"}
-              size="sm"
-              onClick={() => setIsJoined(!isJoined)}
-            >
-              {isJoined ? t('server.leave') : t('server.join')}
-            </Button>
-          </div>
+              <Volume2 className="h-4 w-4 text-green-400" />
+            )
+          ) : (
+            <Volume2 className="h-4 w-4 text-gray-400" />
+          )}
+          <span>{channel.name}</span>
         </div>
 
-        {/* Katılım Sonrası İçerik */}
-        {isJoined && (
-          <div className="mt-4 space-y-4">
-            {/* Ses Kontrolü */}
-            {!isMuted && (
-              <div className="flex items-center space-x-2">
-                <Volume2 className="h-3 w-3 text-gray-400" />
-                <Slider
-                  value={volume}
-                  onValueChange={handleVolumeChange}
-                  max={100}
-                  step={1}
-                  className="w-24"
-                />
-                <span className="text-xs text-gray-400">{volume}%</span>
-              </div>
-            )}
-
-            {/* Medya Kontrolleri */}
-            <div className="relative">
-              <MediaControls channelId={channel.id} isVoiceChannel={true} />
-            </div>
-
-            {/* Kanal Üyeleri */}
-            {channelMembers.length > 0 && (
-              <div className="space-y-2">
-                <div className="h-[1px] bg-gray-700" />
-                <div className="flex flex-wrap gap-2">
-                  {channelMembers.map((member: any) => (
-                    <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-800/50">
-                      <Avatar className="h-6 w-6">
-                        <AvatarImage src={member.avatar} />
-                        <AvatarFallback>{member.username[0]}</AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm">{member.username}</span>
-                      {member.isMuted && <VolumeX className="h-3 w-3 text-gray-400" />}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <div className="flex items-center space-x-2">
+          {isJoined && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsMuted(!isMuted)}
+              className={isMuted ? "text-red-400" : "text-green-400"}
+            >
+              {isMuted ? t('server.unmute') : t('server.mute')}
+            </Button>
+          )}
+          {isOwner && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => deleteChannelMutation.mutate()}
+              disabled={deleteChannelMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 text-red-400" />
+            </Button>
+          )}
+          <Button
+            variant={isJoined ? "destructive" : "default"}
+            size="sm"
+            onClick={() => setIsJoined(!isJoined)}
+          >
+            {isJoined ? t('server.leave') : t('server.join')}
+          </Button>
+        </div>
       </div>
+
+      {/* Content - Only visible when joined */}
+      {isJoined && (
+        <div className="px-3 pb-3 space-y-4">
+          {/* Volume Control */}
+          {!isMuted && (
+            <div className="flex items-center space-x-2">
+              <Volume2 className="h-3 w-3 text-gray-400" />
+              <Slider
+                value={volume}
+                onValueChange={handleVolumeChange}
+                max={100}
+                step={1}
+                className="w-24"
+              />
+              <span className="text-xs text-gray-400">{volume}%</span>
+            </div>
+          )}
+
+          {/* Media Controls */}
+          <MediaControls channelId={channel.id} isVoiceChannel={true} />
+
+          {/* Members List */}
+          {channelMembers.length > 0 && (
+            <div>
+              <div className="h-[1px] bg-gray-700 my-3" />
+              <div className="flex flex-wrap gap-2">
+                {channelMembers.map((member: any) => (
+                  <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-800/50">
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={member.avatar} />
+                      <AvatarFallback>{member.username[0]}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm">{member.username}</span>
+                    {member.isMuted && <VolumeX className="h-3 w-3 text-gray-400" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
