@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { useState } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { VoiceChannel } from "./voice-channel";
+import { TextChannel } from "./text-channel";
 
 export function ChannelList({ 
   serverId,
@@ -110,18 +111,17 @@ export function ChannelList({
         {textChannels.length > 0 && (
           <div>
             <h3 className="text-xs text-gray-400 mb-2">{t('server.textChannels')}</h3>
-            {textChannels.map((channel) => (
-              <button
-                key={channel.id}
-                onClick={() => onChannelSelect(channel)}
-                className={`flex items-center space-x-2 w-full p-2 rounded hover:bg-gray-700 ${
-                  selectedChannel?.id === channel.id ? "bg-gray-700" : ""
-                }`}
-              >
-                <Hash className="h-4 w-4 text-gray-400" />
-                <span>{channel.name}</span>
-              </button>
-            ))}
+            <div className="space-y-1">
+              {textChannels.map((channel) => (
+                <TextChannel
+                  key={channel.id}
+                  channel={channel}
+                  isOwner={isOwner}
+                  onSelect={() => onChannelSelect(channel)}
+                  isSelected={selectedChannel?.id === channel.id}
+                />
+              ))}
+            </div>
           </div>
         )}
 

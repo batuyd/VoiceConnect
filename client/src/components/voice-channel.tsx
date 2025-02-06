@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery } from "@tanstack/react-query";
+import { MediaControls } from "./media-controls";
 
 export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: boolean }) {
   const { t } = useLanguage();
@@ -102,12 +103,17 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
         </div>
       )}
 
+      {/* Media Controls - Only visible when joined */}
+      {isJoined && (
+        <MediaControls channelId={channel.id} isVoiceChannel={true} />
+      )}
+
       {/* Channel Members - Only visible when joined */}
       {isJoined && channelMembers.length > 0 && (
         <div className="mt-2 space-y-2">
           <div className="h-[1px] bg-gray-700 my-2" />
           <div className="flex flex-wrap gap-2">
-            {channelMembers.map((member) => (
+            {channelMembers.map((member: any) => (
               <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-800/50">
                 <Avatar className="h-6 w-6">
                   <AvatarImage src={member.avatar} />
