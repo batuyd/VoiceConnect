@@ -35,6 +35,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const gainNode = useRef<GainNode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const maxRetries = 5;
+  const [retryCount, setRetryCount] = useState(0);
+  const retryTimeoutRef = useRef<NodeJS.Timeout>();
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
@@ -43,10 +46,17 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   useEffect(() => {
     let mounted = true;
-    let reconnectTimeout: NodeJS.Timeout;
 
     const connectWebSocket = () => {
-      if (!isJoined || wsRef.current?.readyState === WebSocket.OPEN) return;
+      if (!isJoined || wsRef.current?.readyState === WebSocket.OPEN || retryCount >= maxRetries) {
+        return;
+      }
+
+      // Önceki bağlantıyı temizle
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -56,9 +66,11 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         console.log('WebSocket connected');
         if (mounted) {
           setWsConnected(true);
+          setRetryCount(0);
           ws.send(JSON.stringify({
             type: 'join_channel',
-            channelId: channel.id
+            channelId: channel.id,
+            userId: user?.id
           }));
         }
       };
@@ -67,14 +79,37 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         console.log('WebSocket disconnected');
         if (mounted) {
           setWsConnected(false);
-          // Try to reconnect after 2 seconds
-          reconnectTimeout = setTimeout(connectWebSocket, 2000);
+          if (retryCount < maxRetries && isJoined) {
+            const timeout = Math.min(1000 * Math.pow(2, retryCount), 10000);
+            retryTimeoutRef.current = setTimeout(() => {
+              if (mounted) {
+                setRetryCount(prev => prev + 1);
+                connectWebSocket();
+              }
+            }, timeout);
+          }
         }
       };
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        ws.close();
+        if (mounted) {
+          toast({
+            description: t('voice.connectionError'),
+            variant: "destructive",
+          });
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'member_update') {
+            refetchMembers();
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
       };
 
       wsRef.current = ws;
@@ -86,15 +121,15 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
     return () => {
       mounted = false;
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
       }
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
     };
-  }, [isJoined, channel.id]);
+  }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers]);
 
   useEffect(() => {
     let mounted = true;
@@ -198,6 +233,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       }
       setIsJoined(false);
       setWsConnected(false);
+      setRetryCount(0);
     } else {
       setIsJoined(true);
     }
@@ -218,6 +254,12 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           )}
           <span>{channel.name}</span>
           {wsConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
+          {!wsConnected && isJoined && retryCount < maxRetries && (
+            <span className="text-xs text-yellow-400">{t('voice.reconnecting')}</span>
+          )}
+          {!wsConnected && isJoined && retryCount >= maxRetries && (
+            <span className="text-xs text-red-400">{t('voice.connectionFailed')}</span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

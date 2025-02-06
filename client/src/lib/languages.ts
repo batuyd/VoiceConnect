@@ -175,6 +175,8 @@ export const translations = {
       connected: 'Connected',
       disconnected: 'Disconnected',
       reconnecting: 'Reconnecting...',
+      connectionError: 'Connection error occurred',
+      connectionFailed: 'Connection failed',
     },
     audio: {
       deviceAccessError: 'Could not access audio devices. Please check your permissions.',
@@ -363,6 +365,8 @@ export const translations = {
       connected: 'Bağlandı',
       disconnected: 'Bağlantı kesildi',
       reconnecting: 'Yeniden bağlanıyor...',
+      connectionError: 'Bağlantı hatası oluştu',
+      connectionFailed: 'Bağlantı başarısız',
     },
     audio: {
       deviceAccessError: 'Ses cihazlarına erişilemedi. Lütfen izinleri kontrol edin.',

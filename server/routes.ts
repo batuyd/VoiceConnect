@@ -388,11 +388,35 @@ export function registerRoutes(app: Express): Server {
 
   const httpServer = createServer(app);
 
-  // WebSocket server yapılandırması
+  // Media streaming server yapılandırması
+  const nms = new NodeMediaServer({
+    rtmp: {
+      port: 1935,
+      chunk_size: 60000,
+      gop_cache: true,
+      ping: 30,
+      ping_timeout: 60,
+      host: '0.0.0.0'
+    },
+    http: {
+      port: 8000,
+      host: '0.0.0.0',
+      mediaroot: './media',
+      allow_origin: '*',
+      cors: {
+        origin: '*',
+        methods: 'GET,POST,OPTIONS',
+        allowedHeaders: 'Content-Type'
+      }
+    }
+  });
+
+  // WebSocket sunucusu yapılandırması
   const wss = new WebSocketServer({ 
     server: httpServer, 
     path: '/ws',
-    clientTracking: true 
+    clientTracking: true,
+    perMessageDeflate: false
   });
 
   wss.on('connection', (ws) => {
@@ -408,7 +432,7 @@ export function registerRoutes(app: Express): Server {
         console.log('Received message:', data);
 
         if (data.type === 'join_channel') {
-          // Send current media state to new user
+          // Yeni kullanıcı için mevcut medya durumunu gönder
           const channel = await storage.getChannel(data.channelId);
           if (channel?.currentMedia) {
             ws.send(JSON.stringify({
@@ -419,13 +443,13 @@ export function registerRoutes(app: Express): Server {
             }));
           }
 
-          // Bot için otomatik katılım mantığı
+          // Test bot için otomatik katılım mantığı
           const botUser = await storage.getUserByUsername("TestBot");
           if (botUser) {
             try {
               await storage.addUserToPrivateChannel(data.channelId, botUser.id);
 
-              // Broadcast bot join event to all connected clients
+              // Bağlı olan tüm istemcilere bot katılım olayını yayınla
               wss.clients.forEach((client) => {
                 if (client.readyState === WebSocket.OPEN) {
                   client.send(JSON.stringify({
@@ -445,25 +469,17 @@ export function registerRoutes(app: Express): Server {
       }
     });
 
+    // Ping-pong mekanizması ekle
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 30000);
+
     ws.on('close', () => {
       console.log('WebSocket connection closed');
+      clearInterval(pingInterval);
     });
-  });
-
-  // Media streaming server yapılandırması
-  const nms = new NodeMediaServer({
-    rtmp: {
-      port: 1935,
-      chunk_size: 60000,
-      gop_cache: true,
-      ping: 30,
-      ping_timeout: 60
-    },
-    http: {
-      port: 8000,
-      mediaroot: './media',
-      allow_origin: '*'
-    }
   });
 
   nms.run();
