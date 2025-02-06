@@ -1,14 +1,16 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Settings, Globe } from "lucide-react";
+import { Settings, Globe, Moon, Sun, Monitor } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
+import { useTheme } from "@/hooks/use-theme";
 
 export function SettingsDialog() {
   const { language, setLanguage } = useLanguage();
+  const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
 
   return (
@@ -52,7 +54,33 @@ export function SettingsDialog() {
 
           <div>
             <h4 className="font-medium mb-4">Tema Ayarları</h4>
-            {/* Tema ayarları buraya eklenecek */}
+            <RadioGroup
+              value={theme}
+              onValueChange={(value) => setTheme(value as "light" | "dark" | "system")}
+              className="grid gap-4"
+            >
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="light" id="light" />
+                <Label htmlFor="light" className="flex items-center gap-2">
+                  <Sun className="h-4 w-4" />
+                  Açık Tema
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="dark" id="dark" />
+                <Label htmlFor="dark" className="flex items-center gap-2">
+                  <Moon className="h-4 w-4" />
+                  Koyu Tema
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="system" id="system" />
+                <Label htmlFor="system" className="flex items-center gap-2">
+                  <Monitor className="h-4 w-4" />
+                  Sistem Teması
+                </Label>
+              </div>
+            </RadioGroup>
           </div>
         </div>
       </DialogContent>
