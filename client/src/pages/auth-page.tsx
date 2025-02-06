@@ -26,7 +26,13 @@ export default function AuthPage() {
   });
 
   const registerForm = useForm({
-    resolver: zodResolver(insertUserSchema.pick({ username: true, password: true })),
+    resolver: zodResolver(insertUserSchema),
+    defaultValues: {
+      email: "",
+      phone: "",
+      username: "",
+      password: "",
+    },
   });
 
   if (user) {
@@ -56,15 +62,32 @@ export default function AuthPage() {
 
             <TabsContent value="login">
               <CardContent className="pt-6">
-                <form onSubmit={loginForm.handleSubmit((data) => loginMutation.mutate(data))}>
+                <form 
+                  onSubmit={loginForm.handleSubmit((data) => {
+                    loginMutation.mutate({
+                      username: data.username,
+                      password: data.password,
+                    });
+                  })}
+                >
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="username">{t('auth.username')}</Label>
                       <Input id="username" {...loginForm.register("username")} />
+                      {loginForm.formState.errors.username && (
+                        <p className="text-sm text-destructive mt-1">
+                          {loginForm.formState.errors.username.message}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <Label htmlFor="password">{t('auth.password')}</Label>
                       <Input id="password" type="password" {...loginForm.register("password")} />
+                      {loginForm.formState.errors.password && (
+                        <p className="text-sm text-destructive mt-1">
+                          {loginForm.formState.errors.password.message}
+                        </p>
+                      )}
                     </div>
                     <Button 
                       type="submit" 
@@ -85,10 +108,38 @@ export default function AuthPage() {
                     <div>
                       <Label htmlFor="reg-username">{t('auth.username')}</Label>
                       <Input id="reg-username" {...registerForm.register("username")} />
+                      {registerForm.formState.errors.username && (
+                        <p className="text-sm text-destructive mt-1">
+                          {registerForm.formState.errors.username.message}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <Label htmlFor="reg-email">Email</Label>
+                      <Input id="reg-email" type="email" {...registerForm.register("email")} />
+                      {registerForm.formState.errors.email && (
+                        <p className="text-sm text-destructive mt-1">
+                          {registerForm.formState.errors.email.message}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <Label htmlFor="reg-phone">{t('auth.phone')}</Label>
+                      <Input id="reg-phone" {...registerForm.register("phone")} />
+                      {registerForm.formState.errors.phone && (
+                        <p className="text-sm text-destructive mt-1">
+                          {registerForm.formState.errors.phone.message}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <Label htmlFor="reg-password">{t('auth.password')}</Label>
                       <Input id="reg-password" type="password" {...registerForm.register("password")} />
+                      {registerForm.formState.errors.password && (
+                        <p className="text-sm text-destructive mt-1">
+                          {registerForm.formState.errors.password.message}
+                        </p>
+                      )}
                     </div>
                     <Button 
                       type="submit" 
