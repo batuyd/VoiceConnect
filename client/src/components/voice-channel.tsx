@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, MoreVertical, Trash2 } from "lucide-react";
+import { Volume2, VolumeX, Trash2 } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -8,12 +8,6 @@ import { Slider } from "@/components/ui/slider";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery } from "@tanstack/react-query";
 import { MediaControls } from "./media-controls";
@@ -56,9 +50,9 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
 
   return (
     <div className="space-y-2">
-      <div className={`flex flex-col p-2 rounded ${isJoined ? "bg-emerald-900/50" : "hover:bg-gray-700"}`}>
-        {/* Kanal Başlığı ve Kontroller */}
-        <div className="flex items-center justify-between mb-2">
+      <div className={`p-2 rounded ${isJoined ? "bg-emerald-900/50" : "hover:bg-gray-700"}`}>
+        {/* Ana Kontrol Alanı */}
+        <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             {isJoined ? (
               isMuted ? (
@@ -71,6 +65,7 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
             )}
             <span>{channel.name}</span>
           </div>
+
           <div className="flex items-center space-x-2">
             {isJoined && (
               <Button
@@ -88,9 +83,8 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
                 size="icon"
                 onClick={() => deleteChannelMutation.mutate()}
                 disabled={deleteChannelMutation.isPending}
-                className="text-red-400"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-4 w-4 text-red-400" />
               </Button>
             )}
             <Button
@@ -103,44 +97,47 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
           </div>
         </div>
 
-        {/* Ses Kontrolü - Sadece katılındığında ve susturulmadığında görünür */}
-        {isJoined && !isMuted && (
-          <div className="flex items-center space-x-2 px-2 mb-2">
-            <Volume2 className="h-3 w-3 text-gray-400" />
-            <Slider
-              value={volume}
-              onValueChange={handleVolumeChange}
-              max={100}
-              step={1}
-              className="w-24"
-            />
-            <span className="text-xs text-gray-400">{volume}%</span>
-          </div>
-        )}
-
-        {/* Medya Kontrolleri - Sadece katılındığında görünür */}
+        {/* Katılım Sonrası İçerik */}
         {isJoined && (
-          <div className="mt-4 mb-2">
-            <MediaControls channelId={channel.id} isVoiceChannel={true} />
-          </div>
-        )}
+          <div className="mt-4 space-y-4">
+            {/* Ses Kontrolü */}
+            {!isMuted && (
+              <div className="flex items-center space-x-2">
+                <Volume2 className="h-3 w-3 text-gray-400" />
+                <Slider
+                  value={volume}
+                  onValueChange={handleVolumeChange}
+                  max={100}
+                  step={1}
+                  className="w-24"
+                />
+                <span className="text-xs text-gray-400">{volume}%</span>
+              </div>
+            )}
 
-        {/* Kanal Üyeleri - Sadece katılındığında görünür */}
-        {isJoined && channelMembers.length > 0 && (
-          <div className="mt-2">
-            <div className="h-[1px] bg-gray-700 my-2" />
-            <div className="flex flex-wrap gap-2">
-              {channelMembers.map((member: any) => (
-                <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-800/50">
-                  <Avatar className="h-6 w-6">
-                    <AvatarImage src={member.avatar} />
-                    <AvatarFallback>{member.username[0]}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm">{member.username}</span>
-                  {member.isMuted && <VolumeX className="h-3 w-3 text-gray-400" />}
-                </div>
-              ))}
+            {/* Medya Kontrolleri */}
+            <div className="relative">
+              <MediaControls channelId={channel.id} isVoiceChannel={true} />
             </div>
+
+            {/* Kanal Üyeleri */}
+            {channelMembers.length > 0 && (
+              <div className="space-y-2">
+                <div className="h-[1px] bg-gray-700" />
+                <div className="flex flex-wrap gap-2">
+                  {channelMembers.map((member: any) => (
+                    <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-800/50">
+                      <Avatar className="h-6 w-6">
+                        <AvatarImage src={member.avatar} />
+                        <AvatarFallback>{member.username[0]}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm">{member.username}</span>
+                      {member.isMuted && <VolumeX className="h-3 w-3 text-gray-400" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

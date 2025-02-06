@@ -130,8 +130,8 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   if (!channel) return null;
 
   return (
-    <div className="space-y-4 bg-gray-800/90 backdrop-blur rounded-lg p-4 shadow-lg z-50">
-      <div className="grid grid-cols-1 gap-2">
+    <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-lg">
+      <div className="p-3">
         <Dialog>
           <DialogTrigger asChild>
             <Button 
@@ -202,11 +202,11 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
       </div>
 
       {channel.currentMedia && (
-        <div className="bg-gray-700/50 p-4 rounded-lg">
+        <div className="border-t border-gray-700 p-3">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold">{t('media.nowPlaying')}</h3>
-              <p className="text-sm">{channel.currentMedia.title}</p>
+              <h3 className="text-sm font-medium">{t('media.nowPlaying')}</h3>
+              <p className="text-sm text-gray-400">{channel.currentMedia.title}</p>
             </div>
             <Button
               variant="ghost"
@@ -221,9 +221,9 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
       )}
 
       {channel.mediaQueue && channel.mediaQueue.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">{t('media.queue')}</h3>
+        <div className="border-t border-gray-700 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium">{t('media.queue')}</h3>
             <Button
               variant="ghost"
               size="icon"
@@ -235,8 +235,8 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
           </div>
           <div className="space-y-2">
             {channel.mediaQueue.map((media, index) => (
-              <div key={index} className="bg-gray-700/50 p-2 rounded">
-                <p className="text-sm">{media.title}</p>
+              <div key={index} className="p-2 bg-gray-700/50 rounded">
+                <p className="text-sm text-gray-300">{media.title}</p>
               </div>
             ))}
           </div>
