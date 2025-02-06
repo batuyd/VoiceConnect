@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, Trash2, Ban, UserMinus, MoreVertical, Plus } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Ban, UserMinus, MoreVertical, Plus, MicOff } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -16,6 +16,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
 interface VoiceChannelProps {
@@ -58,6 +59,18 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     },
   });
 
+  const muteUserMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      await apiRequest("POST", `/api/channels/${channel.id}/members/${userId}/mute`);
+    },
+    onSuccess: () => {
+      refetchMembers();
+      toast({
+        description: "Kullanıcı susturuldu",
+      });
+    },
+  });
+
   const deleteChannelMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("DELETE", `/api/channels/${channel.id}`);
@@ -83,7 +96,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/channels/${channel.id}/members`] });
       toast({
-        description: t('server.userKicked'),
+        description: "Kullanıcı kanaldan atıldı",
       });
     },
   });
@@ -95,7 +108,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/channels/${channel.id}/members`] });
       toast({
-        description: t('server.userBanned'),
+        description: "Kullanıcı kanaldan yasaklandı",
       });
     },
   });
@@ -165,7 +178,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               onClick={() => setIsMuted(!isMuted)}
               className={isMuted ? "text-red-400" : "text-green-400"}
             >
-              {isMuted ? t('server.unmute') : t('server.mute')}
+              {isMuted ? "Sesi Aç" : "Sesi Kapat"}
             </Button>
 
             {!isMuted && (
@@ -203,18 +216,26 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                     {isOwner && member.id !== user?.id && (
                       <DropdownMenuContent>
                         <DropdownMenuItem
+                          onClick={() => muteUserMutation.mutate(member.id)}
+                          className="cursor-pointer"
+                        >
+                          <MicOff className="h-4 w-4 mr-2" />
+                          {member.isMuted ? "Susturmayı Kaldır" : "Sustur"}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
                           onClick={() => kickUserMutation.mutate(member.id)}
                           className="text-red-400 cursor-pointer"
                         >
                           <UserMinus className="h-4 w-4 mr-2" />
-                          {t('server.kickUser')}
+                          Kullanıcıyı At
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => banUserMutation.mutate(member.id)}
                           className="text-red-400 cursor-pointer"
                         >
                           <Ban className="h-4 w-4 mr-2" />
-                          {t('server.banUser')}
+                          Kullanıcıyı Yasakla
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     )}
