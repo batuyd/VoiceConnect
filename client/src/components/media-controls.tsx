@@ -3,7 +3,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Channel } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PlayCircle, SkipForward, Trash2, Search, Music, Video } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
@@ -28,36 +28,83 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 3;
 
-  useEffect(() => {
+  const connectWebSocket = useCallback(() => {
+    if (isConnecting || retryCount >= maxRetries) return;
+
+    setIsConnecting(true);
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws`;
-    const socket = new WebSocket(wsUrl);
 
-    socket.onopen = () => {
-      socket.send(JSON.stringify({
-        type: 'join_channel',
-        channelId
-      }));
-    };
+    try {
+      const socket = new WebSocket(wsUrl);
 
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'media_state' && data.channelId === channelId) {
-        queryClient.setQueryData(['/api/channels', channelId], (oldData: any) => ({
-          ...oldData,
-          currentMedia: data.media,
-          mediaQueue: data.queue
+      socket.onopen = () => {
+        setIsConnecting(false);
+        setRetryCount(0);
+        socket.send(JSON.stringify({
+          type: 'join_channel',
+          channelId
         }));
-      }
-    };
+      };
 
-    setWs(socket);
+      socket.onclose = () => {
+        setIsConnecting(false);
+        setWs(null);
+        if (retryCount < maxRetries) {
+          setRetryCount(prev => prev + 1);
+          setTimeout(connectWebSocket, 1000 * Math.pow(2, retryCount));
+        } else {
+          toast({
+            description: t('media.connectionError'),
+            variant: "destructive",
+          });
+        }
+      };
+
+      socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        socket.close();
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'media_state' && data.channelId === channelId) {
+            queryClient.setQueryData(['/api/channels', channelId], (oldData: any) => ({
+              ...oldData,
+              currentMedia: data.media,
+              mediaQueue: data.queue
+            }));
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
+
+      setWs(socket);
+    } catch (error) {
+      console.error('Failed to create WebSocket connection:', error);
+      setIsConnecting(false);
+      if (retryCount < maxRetries) {
+        setRetryCount(prev => prev + 1);
+        setTimeout(connectWebSocket, 1000 * Math.pow(2, retryCount));
+      }
+    }
+  }, [channelId, isConnecting, retryCount, t]);
+
+  useEffect(() => {
+    connectWebSocket();
 
     return () => {
-      socket.close();
+      if (ws) {
+        ws.close();
+      }
     };
-  }, [channelId]);
+  }, [connectWebSocket]);
 
   const { data: channel } = useQuery<Channel>({
     queryKey: ['/api/channels', channelId],
@@ -136,7 +183,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
         <div className="p-2">
           <Dialog>
             <DialogTrigger asChild>
-              <Button 
+              <Button
                 variant="secondary"
                 className="w-full flex items-center justify-center hover:bg-gray-600/50"
                 size="sm"

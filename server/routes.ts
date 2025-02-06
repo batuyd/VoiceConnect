@@ -177,7 +177,6 @@ export function registerRoutes(app: Express): Server {
     res.sendStatus(200);
   });
 
-
   // Coin related routes
   app.get("/api/coins", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
@@ -393,9 +392,16 @@ export function registerRoutes(app: Express): Server {
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
   wss.on('connection', (ws) => {
+    console.log('New WebSocket connection established');
+
+    ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+
     ws.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
+        console.log('Received message:', data);
 
         if (data.type === 'join_channel') {
           // Send current media state to new user
@@ -405,31 +411,39 @@ export function registerRoutes(app: Express): Server {
               type: 'media_state',
               channelId: data.channelId,
               media: channel.currentMedia,
-              queue: channel.mediaQueue
+              queue: channel.mediaQueue || []
             }));
           }
 
           // Bot için otomatik katılım mantığı
           const botUser = await storage.getUserByUsername("TestBot");
           if (botUser) {
-            // Bot'u kanala ekle
-            await storage.addUserToPrivateChannel(data.channelId, botUser.id);
+            try {
+              // Bot'u kanala ekle
+              await storage.addUserToPrivateChannel(data.channelId, botUser.id);
 
-            // Tüm bağlantılara bot katılımını bildir
-            wss.clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({
-                  type: 'bot_joined',
-                  channelId: data.channelId,
-                  botUser
-                }));
-              }
-            });
+              // Tüm bağlantılara bot katılımını bildir
+              wss.clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify({
+                    type: 'bot_joined',
+                    channelId: data.channelId,
+                    botUser
+                  }));
+                }
+              });
+            } catch (error) {
+              console.error('Error adding bot to channel:', error);
+            }
           }
         }
       } catch (error) {
-        console.error('WebSocket error:', error);
+        console.error('Error processing WebSocket message:', error);
       }
+    });
+
+    ws.on('close', () => {
+      console.log('WebSocket connection closed');
     });
   });
 
@@ -444,6 +458,7 @@ export function registerRoutes(app: Express): Server {
     },
     http: {
       port: 8000,
+      mediaroot: './media',
       allow_origin: '*'
     }
   });

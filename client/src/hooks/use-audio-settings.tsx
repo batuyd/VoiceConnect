@@ -22,18 +22,31 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>("");
 
   useEffect(() => {
-    async function getDevices() {
+    let mounted = true;
+
+    async function initializeAudioDevices() {
       try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Önce ses izinlerini iste
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop()); // İzin aldıktan sonra stream'i kapat
+
+        // Cihazları listele
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const audioDevices = devices.filter(device => device.kind === 'audioinput' || device.kind === 'audiooutput');
+        if (!mounted) return;
+
+        const audioDevices = devices.filter(device => 
+          device.kind === 'audioinput' || device.kind === 'audiooutput'
+        );
+
         setAudioDevices(audioDevices);
 
+        // Varsayılan cihazları seç
         const defaultInput = audioDevices.find(device => device.kind === 'audioinput');
         const defaultOutput = audioDevices.find(device => device.kind === 'audiooutput');
 
         if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
         if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
+
       } catch (error) {
         console.error('Ses cihazlarına erişilemedi:', error);
         toast({
@@ -43,7 +56,14 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       }
     }
 
-    getDevices();
+    // Cihaz değişikliklerini dinle
+    navigator.mediaDevices.addEventListener('devicechange', initializeAudioDevices);
+    initializeAudioDevices();
+
+    return () => {
+      mounted = false;
+      navigator.mediaDevices.removeEventListener('devicechange', initializeAudioDevices);
+    };
   }, []);
 
   const playTestSound = async () => {

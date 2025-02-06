@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, Trash2, Ban, UserMinus, Plus, MicOff } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Plus } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -11,13 +11,6 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery } from "@tanstack/react-query";
 import { MediaControls } from "./media-controls";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -190,18 +183,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               <div className="h-[1px] bg-gray-700" />
               <div className="flex flex-wrap gap-2">
                 {channelMembers.map((member: any) => (
-                  <DropdownMenu key={member.id}>
-                    <DropdownMenuTrigger asChild>
-                      <div className="flex items-center space-x-2 p-2 rounded bg-gray-700/50 cursor-pointer hover:bg-gray-600/50">
-                        <Avatar className="h-6 w-6">
-                          <AvatarImage src={member.avatar} />
-                          <AvatarFallback>{member.username[0]}</AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm">{member.username}</span>
-                        {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
-                      </div>
-                    </DropdownMenuTrigger>
-                  </DropdownMenu>
+                  <div key={member.id} className="flex items-center space-x-2 p-2 rounded bg-gray-700/50">
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={member.avatar} />
+                      <AvatarFallback>{member.username[0]}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm">{member.username}</span>
+                    {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
+                  </div>
                 ))}
               </div>
             </>
