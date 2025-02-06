@@ -12,11 +12,14 @@ import { InsertUser, insertUserSchema } from "@shared/schema";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ArrowLeft } from "lucide-react";
+import { useLocation } from "wouter";
 
 export default function ProfilePage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const profileForm = useForm({
     resolver: zodResolver(insertUserSchema.pick({ 
@@ -55,7 +58,15 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center space-x-4">
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={() => setLocation("/")}
+            className="shrink-0"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
           <CardTitle>{t('profile.title')}</CardTitle>
         </CardHeader>
         <CardContent>
