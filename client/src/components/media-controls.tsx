@@ -130,7 +130,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   if (!channel) return null;
 
   return (
-    <div className="bg-gray-700/50 rounded-lg">
+    <div className="bg-gray-700/50 rounded-lg border border-gray-600">
       {/* Media Control Button */}
       <div className="p-2">
         <Dialog>
@@ -138,6 +138,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
             <Button 
               variant="secondary"
               className="w-full flex items-center justify-center"
+              size="sm"
             >
               {isVoiceChannel ? (
                 <>

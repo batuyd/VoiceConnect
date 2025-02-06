@@ -49,9 +49,9 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
   };
 
   return (
-    <div className={`rounded-lg bg-gray-800 overflow-hidden ${isJoined ? "bg-emerald-900/50" : "hover:bg-gray-700"}`}>
-      {/* Header - Always visible */}
-      <div className="p-3 flex items-center justify-between">
+    <div className="bg-gray-800 rounded-lg overflow-hidden">
+      {/* Kanal Başlığı */}
+      <div className="p-3 flex items-center justify-between bg-gray-800">
         <div className="flex items-center space-x-2">
           {isJoined ? (
             isMuted ? (
@@ -65,17 +65,7 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
           <span>{channel.name}</span>
         </div>
 
-        <div className="flex items-center space-x-2">
-          {isJoined && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsMuted(!isMuted)}
-              className={isMuted ? "text-red-400" : "text-green-400"}
-            >
-              {isMuted ? t('server.unmute') : t('server.mute')}
-            </Button>
-          )}
+        <div className="flex items-center gap-2">
           {isOwner && (
             <Button
               variant="ghost"
@@ -90,50 +80,64 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
             variant={isJoined ? "destructive" : "default"}
             size="sm"
             onClick={() => setIsJoined(!isJoined)}
+            className="w-20"
           >
             {isJoined ? t('server.leave') : t('server.join')}
           </Button>
         </div>
       </div>
 
-      {/* Content - Only visible when joined */}
+      {/* Katılım Sonrası İçerik */}
       {isJoined && (
-        <div className="px-3 pb-3 space-y-4">
-          {/* Volume Control */}
-          {!isMuted && (
-            <div className="flex items-center space-x-2">
-              <Volume2 className="h-3 w-3 text-gray-400" />
-              <Slider
-                value={volume}
-                onValueChange={handleVolumeChange}
-                max={100}
-                step={1}
-                className="w-24"
-              />
-              <span className="text-xs text-gray-400">{volume}%</span>
-            </div>
-          )}
+        <div className="p-3 space-y-4 bg-gray-800/50">
+          {/* Ses Kontrolleri */}
+          <div className="flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsMuted(!isMuted)}
+              className={isMuted ? "text-red-400" : "text-green-400"}
+            >
+              {isMuted ? t('server.unmute') : t('server.mute')}
+            </Button>
+
+            {!isMuted && (
+              <div className="flex items-center space-x-2">
+                <Volume2 className="h-3 w-3 text-gray-400" />
+                <Slider
+                  value={volume}
+                  onValueChange={handleVolumeChange}
+                  max={100}
+                  step={1}
+                  className="w-24"
+                />
+                <span className="text-xs text-gray-400">{volume}%</span>
+              </div>
+            )}
+          </div>
 
           {/* Media Controls */}
-          <MediaControls channelId={channel.id} isVoiceChannel={true} />
+          <div className="w-full">
+            <MediaControls channelId={channel.id} isVoiceChannel={true} />
+          </div>
 
-          {/* Members List */}
+          {/* Üye Listesi */}
           {channelMembers.length > 0 && (
-            <div>
-              <div className="h-[1px] bg-gray-700 my-3" />
+            <>
+              <div className="h-[1px] bg-gray-700" />
               <div className="flex flex-wrap gap-2">
                 {channelMembers.map((member: any) => (
-                  <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-800/50">
+                  <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-700/50">
                     <Avatar className="h-6 w-6">
                       <AvatarImage src={member.avatar} />
                       <AvatarFallback>{member.username[0]}</AvatarFallback>
                     </Avatar>
                     <span className="text-sm">{member.username}</span>
-                    {member.isMuted && <VolumeX className="h-3 w-3 text-gray-400" />}
+                    {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
                   </div>
                 ))}
               </div>
-            </div>
+            </>
           )}
         </div>
       )}
