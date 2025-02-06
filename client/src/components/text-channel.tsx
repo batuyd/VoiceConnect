@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 interface TextChannelProps {
   channel: Channel;
   isOwner: boolean;
-  onSelect: () => void;
+  onSelect: (channel: Channel | null) => void;
   isSelected: boolean;
 }
 
@@ -25,6 +25,7 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/servers/${channel.serverId}/channels`] });
+      onSelect(null); // Kanal silindiğinde seçimi kaldır
       toast({
         description: t('server.channelDeleted'),
       });
@@ -37,32 +38,32 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
     },
   });
 
-  const handleClick = () => {
-    // Eğer zaten seçiliyse, seçimi kaldır (null gönder)
-    if (isSelected) {
-      onSelect();
-    } else {
-      onSelect();
-    }
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect(isSelected ? null : channel);
   };
 
   return (
     <div className="space-y-2">
-      <div className={`flex items-center justify-between p-2 rounded hover:bg-gray-700 ${
-        isSelected ? "bg-gray-700" : ""
-      }`}>
-        <button
-          onClick={handleClick}
-          className="flex items-center space-x-2 flex-1"
-        >
+      <div 
+        className={`flex items-center justify-between p-2 rounded cursor-pointer hover:bg-gray-700 ${
+          isSelected ? "bg-gray-700" : ""
+        }`}
+        onClick={handleClick}
+      >
+        <div className="flex items-center space-x-2 flex-1">
           <Hash className="h-4 w-4 text-gray-400" />
           <span>{channel.name}</span>
-        </button>
+        </div>
         {isOwner && (
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => deleteChannelMutation.mutate()}
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteChannelMutation.mutate();
+            }}
             disabled={deleteChannelMutation.isPending}
           >
             <Trash2 className="h-4 w-4" />
