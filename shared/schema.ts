@@ -59,6 +59,20 @@ export const channels = pgTable("channels", {
   isVoice: boolean("is_voice").notNull().default(false),
   isPrivate: boolean("is_private").notNull().default(false),
   allowedUsers: integer("allowed_users").array(),
+  type: text("type").default("text"), 
+  currentMedia: jsonb("current_media").$type<{
+    type: "music" | "video";
+    url: string;
+    title: string;
+    startedAt: Date;
+    queuedBy: number;
+  }>(),
+  mediaQueue: jsonb("media_queue").$type<{
+    type: "music" | "video";
+    url: string;
+    title: string;
+    queuedBy: number;
+  }[]>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

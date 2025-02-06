@@ -148,6 +148,17 @@ export const translations = {
         referral: 'Referral Bonus',
       },
     },
+    media: {
+      urlPlaceholder: 'Enter YouTube URL or music URL',
+      play: 'Play',
+      nowPlaying: 'Now Playing',
+      queue: 'Queue',
+      addedToQueue: 'Added to queue',
+      skip: 'Skip',
+      clearQueue: 'Clear Queue',
+      errorPlayback: 'Error playing media',
+      joinChannel: 'Join channel to listen',
+    },
   },
   tr: {
     auth: {
@@ -295,6 +306,17 @@ export const translations = {
         voice_activity: 'Sesli Aktivite',
         referral: 'Davet Bonusu',
       },
+    },
+    media: {
+      urlPlaceholder: 'YouTube URL veya müzik URL\'si girin',
+      play: 'Oynat',
+      nowPlaying: 'Şimdi Çalıyor',
+      queue: 'Sıradakiler',
+      addedToQueue: 'Sıraya eklendi',
+      skip: 'Geç',
+      clearQueue: 'Sırayı Temizle',
+      errorPlayback: 'Medya oynatma hatası',
+      joinChannel: 'Dinlemek için kanala katılın',
     },
   }
 };

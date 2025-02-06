@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
+import ytdl from 'ytdl-core';
+import { WebSocketServer } from 'ws';
+import NodeMediaServer from 'node-media-server';
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
@@ -255,6 +258,116 @@ export function registerRoutes(app: Express): Server {
     res.json(channel);
   });
 
+  // Media related routes
+  app.post("/api/channels/:channelId/media", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const { url, type } = req.body;
+      const videoInfo = await ytdl.getInfo(url);
+
+      const media = {
+        type,
+        url,
+        title: videoInfo.videoDetails.title,
+        queuedBy: req.user.id
+      };
+
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel?.currentMedia) {
+        const updatedChannel = await storage.setChannelMedia(parseInt(req.params.channelId), media);
+        res.json(updatedChannel);
+      } else {
+        const updatedChannel = await storage.addToMediaQueue(parseInt(req.params.channelId), media);
+        res.json(updatedChannel);
+      }
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/channels/:channelId/media/skip", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      const updatedChannel = await storage.skipCurrentMedia(parseInt(req.params.channelId));
+      res.json(updatedChannel);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/channels/:channelId/media/queue", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.clearMediaQueue(parseInt(req.params.channelId));
+      res.sendStatus(200);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
+
+  // WebSocket server for real-time media sync
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+
+  wss.on('connection', (ws) => {
+    ws.on('message', async (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+
+        if (data.type === 'join_channel') {
+          // Send current media state to new user
+          const channel = await storage.getChannel(data.channelId);
+          if (channel?.currentMedia) {
+            ws.send(JSON.stringify({
+              type: 'media_state',
+              channelId: data.channelId,
+              media: channel.currentMedia,
+              queue: channel.mediaQueue
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('WebSocket error:', error);
+      }
+    });
+  });
+
+  // Media streaming server
+  const nms = new NodeMediaServer({
+    rtmp: {
+      port: 1935,
+      chunk_size: 60000,
+      gop_cache: true,
+      ping: 30,
+      ping_timeout: 60
+    },
+    http: {
+      port: 8000,
+      allow_origin: '*'
+    }
+  });
+
+  nms.run();
+
   return httpServer;
 }

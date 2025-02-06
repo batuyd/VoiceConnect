@@ -137,6 +137,24 @@ export interface IStorage {
   addUserToPrivateChannel(channelId: number, userId: number): Promise<void>;
   removeUserFromPrivateChannel(channelId: number, userId: number): Promise<void>;
   canAccessChannel(channelId: number, userId: number): Promise<boolean>;
+
+  // Media related methods
+  setChannelMedia(channelId: number, media: {
+    type: "music" | "video";
+    url: string;
+    title: string;
+    queuedBy: number;
+  }): Promise<Channel>;
+
+  addToMediaQueue(channelId: number, media: {
+    type: "music" | "video";
+    url: string;
+    title: string;
+    queuedBy: number;
+  }): Promise<Channel>;
+
+  skipCurrentMedia(channelId: number): Promise<Channel>;
+  clearMediaQueue(channelId: number): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -432,6 +450,8 @@ export class MemStorage implements IStorage {
       isPrivate,
       allowedUsers: [],
       createdAt: new Date(),
+      currentMedia: null,
+      mediaQueue: []
     };
     this.channels.set(id, channel);
     return channel;
@@ -888,6 +908,65 @@ export class MemStorage implements IStorage {
     if (server?.ownerId === userId) return true;
 
     return channel.allowedUsers?.includes(userId) || false;
+  }
+
+  async setChannelMedia(channelId: number, media: {
+    type: "music" | "video";
+    url: string;
+    title: string;
+    queuedBy: number;
+  }): Promise<Channel> {
+    const channel = await this.getChannel(channelId);
+    if (!channel) throw new Error("Channel not found");
+
+    channel.currentMedia = {
+      ...media,
+      startedAt: new Date()
+    };
+
+    this.channels.set(channelId, channel);
+    return channel;
+  }
+
+  async addToMediaQueue(channelId: number, media: {
+    type: "music" | "video";
+    url: string;
+    title: string;
+    queuedBy: number;
+  }): Promise<Channel> {
+    const channel =await this.getChannel(channelId);
+    if (!channel) throw new Error("Channel not found");
+
+    channel.mediaQueue = [...(channel.mediaQueue || []), media];
+    this.channels.set(channelId, channel);
+    return channel;
+  }
+
+  async skipCurrentMedia(channelId: number): Promise<Channel> {
+    const channel = await this.getChannel(channelId);
+    if (!channel) throw new Error("Channel not found");
+
+    if (channel.mediaQueue && channel.mediaQueue.length > 0) {
+      const [nextMedia, ...remainingQueue] = channel.mediaQueue;
+      channel.currentMedia = {
+        ...nextMedia,
+        startedAt: new Date()
+      };
+      channel.mediaQueue = remainingQueue;
+    } else {
+      channel.currentMedia = null;
+    }
+
+    this.channels.set(channelId, channel);
+    return channel;
+  }
+
+  async clearMediaQueue(channelId: number): Promise<void> {
+    const channel = await this.getChannel(channelId);
+    if (!channel) throw new Error("Channel not found");
+
+    channel.mediaQueue = [];
+    this.channels.set(channelId, channel);
   }
 }
 
