@@ -32,9 +32,13 @@ async function comparePasswords(supplied: string, stored: string) {
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.REPL_ID!,
-    resave: false,
-    saveUninitialized: false,
+    resave: true, // Changed to true to ensure session is saved
+    saveUninitialized: true, // Changed to true to create session for all users
     store: storage.sessionStore,
+    cookie: {
+      secure: app.get("env") === "production",
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
   };
 
   if (app.get("env") === "production") {
@@ -47,45 +51,72 @@ export function setupAuth(app: Express) {
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
-      const user = await storage.getUserByUsername(username);
-      if (!user || !(await comparePasswords(password, user.password))) {
-        return done(null, false);
-      }
+      try {
+        const user = await storage.getUserByUsername(username);
+        if (!user || !(await comparePasswords(password, user.password))) {
+          return done(null, false, { message: "Invalid username or password" });
+        }
 
-      if (user.twoFactorEnabled) {
-        return done(null, false, { message: "2FA_REQUIRED", userId: user.id });
-      }
+        if (user.twoFactorEnabled) {
+          return done(null, false, { message: "2FA_REQUIRED", userId: user.id });
+        }
 
-      return done(null, user);
+        return done(null, user);
+      } catch (error) {
+        return done(error);
+      }
     }),
   );
 
-  passport.serializeUser((user, done) => done(null, user.id));
+  passport.serializeUser((user, done) => {
+    done(null, user.id);
+  });
+
   passport.deserializeUser(async (id: number, done) => {
-    const user = await storage.getUser(id);
-    done(null, user);
-  });
-
-  app.post("/api/register", async (req, res, next) => {
-    const existingUsername = await storage.getUserByUsername(req.body.username);
-    if (existingUsername) {
-      return res.status(400).send("Bu kullanıcı adı zaten kullanımda");
+    try {
+      const user = await storage.getUser(id);
+      if (!user) {
+        return done(null, false);
+      }
+      done(null, user);
+    } catch (error) {
+      done(error);
     }
-
-    // Create user without verification
-    const user = await storage.createUser({
-      ...req.body,
-      password: await hashPassword(req.body.password),
-    });
-
-    req.login(user, (err) => {
-      if (err) return next(err);
-      res.status(201).json(user);
-    });
   });
 
-  app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    res.status(200).json(req.user);
+  // Auth routes
+  app.post("/api/register", async (req, res, next) => {
+    try {
+      const existingUser = await storage.getUserByUsername(req.body.username);
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+
+      const user = await storage.createUser({
+        ...req.body,
+        password: await hashPassword(req.body.password),
+      });
+
+      req.login(user, (err) => {
+        if (err) return next(err);
+        res.status(201).json(user);
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/login", (req, res, next) => {
+    passport.authenticate("local", (err, user, info) => {
+      if (err) return next(err);
+      if (!user) {
+        return res.status(401).json({ message: info?.message || "Authentication failed" });
+      }
+      req.login(user, (err) => {
+        if (err) return next(err);
+        res.json(user);
+      });
+    })(req, res, next);
   });
 
   app.post("/api/verify-2fa", async (req, res) => {
@@ -93,7 +124,7 @@ export function setupAuth(app: Express) {
     const user = await storage.getUser(userId);
 
     if (!user?.twoFactorSecret) {
-      return res.status(400).send("2FA not set up");
+      return res.status(400).json({ message: "2FA not set up" });
     }
 
     const isValid = authenticator.verify({
@@ -102,49 +133,27 @@ export function setupAuth(app: Express) {
     });
 
     if (!isValid) {
-      return res.status(400).send("Invalid 2FA token");
+      return res.status(401).json({ message: "Invalid 2FA token" });
     }
 
     req.login(user, (err) => {
-      if (err) return res.status(500).send(err.message);
-      res.status(200).json(user);
+      if (err) return res.status(500).json({ message: err.message });
+      res.json(user);
     });
   });
 
-  app.post("/api/setup-2fa", async (req, res) => {
+  app.get("/api/user", (req, res) => {
     if (!req.user) return res.sendStatus(401);
-
-    const secret = authenticator.generateSecret();
-    await storage.updateUserTwoFactor(req.user.id, true, secret);
-
-    const otpauth = authenticator.keyuri(
-      req.user.username,
-      "OZBA",
-      secret
-    );
-
-    res.json({ 
-      secret,
-      otpauth,
-    });
-  });
-
-  app.post("/api/disable-2fa", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    await storage.updateUserTwoFactor(req.user.id, false);
-    res.sendStatus(200);
+    res.json(req.user);
   });
 
   app.post("/api/logout", (req, res, next) => {
     req.logout((err) => {
       if (err) return next(err);
-      res.sendStatus(200);
+      req.session.destroy((err) => {
+        if (err) return next(err);
+        res.sendStatus(200);
+      });
     });
-  });
-
-  app.get("/api/user", (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
   });
 }

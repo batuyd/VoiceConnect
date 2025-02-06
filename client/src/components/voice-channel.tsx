@@ -33,6 +33,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const gainNode = useRef<GainNode | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
@@ -41,17 +43,72 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   useEffect(() => {
     let mounted = true;
+    let reconnectTimeout: NodeJS.Timeout;
+
+    const connectWebSocket = () => {
+      if (!isJoined || wsRef.current?.readyState === WebSocket.OPEN) return;
+
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        if (mounted) {
+          setWsConnected(true);
+          ws.send(JSON.stringify({
+            type: 'join_channel',
+            channelId: channel.id
+          }));
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        if (mounted) {
+          setWsConnected(false);
+          // Try to reconnect after 2 seconds
+          reconnectTimeout = setTimeout(connectWebSocket, 2000);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        ws.close();
+      };
+
+      wsRef.current = ws;
+    };
+
+    if (isJoined) {
+      connectWebSocket();
+    }
+
+    return () => {
+      mounted = false;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [isJoined, channel.id]);
+
+  useEffect(() => {
+    let mounted = true;
 
     async function setupAudioStream() {
       if (!selectedInputDevice || !isJoined) return;
 
       try {
-        // Temizle mevcut stream'i
+        // Clean up existing stream
         if (stream.current) {
           stream.current.getTracks().forEach(track => track.stop());
         }
 
-        // Yeni audio context ve stream oluştur
+        // Create new audio context and stream
         if (!audioContext.current) {
           audioContext.current = new AudioContext();
         }
@@ -75,7 +132,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         }
 
       } catch (error) {
-        console.error('Ses akışı başlatılamadı:', error);
+        console.error('Audio stream error:', error);
         if (mounted) {
           toast({
             description: t('voice.streamError'),
@@ -101,7 +158,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, [selectedInputDevice, isJoined, isMuted, toast, t]);
 
-  // Ses durumunu değiştir
   useEffect(() => {
     if (!gainNode.current || !audioContext.current) return;
 
@@ -133,6 +189,20 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     },
   });
 
+  const handleJoinLeave = () => {
+    if (isJoined) {
+      // Leave channel logic
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      setIsJoined(false);
+      setWsConnected(false);
+    } else {
+      setIsJoined(true);
+    }
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg overflow-hidden">
       <div className="p-3 flex items-center justify-between bg-gray-800">
@@ -147,6 +217,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             <Volume2 className="h-4 w-4 text-gray-400" />
           )}
           <span>{channel.name}</span>
+          {wsConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
         </div>
 
         <div className="flex items-center gap-2">
@@ -164,7 +235,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           <Button
             variant={isJoined ? "destructive" : "default"}
             size="sm"
-            onClick={() => setIsJoined(!isJoined)}
+            onClick={handleJoinLeave}
             className="w-20"
           >
             {isJoined ? t('server.leave') : t('server.join')}
