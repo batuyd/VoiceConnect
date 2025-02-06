@@ -33,6 +33,7 @@ export interface IStorage {
 
   getServerMembers(serverId: number): Promise<User[]>;
   addServerMember(serverId: number, userId: number): Promise<void>;
+  getChannel(channelId: number): Promise<Channel | undefined>; //Added getChannel method
 
   sessionStore: session.Store;
 }
@@ -252,6 +253,9 @@ export class MemStorage implements IStorage {
 
   async getServer(serverId: number): Promise<Server | undefined> {
     return this.servers.get(serverId);
+  }
+  async getChannel(channelId: number): Promise<Channel | undefined> {
+    return this.channels.get(channelId);
   }
 }
 

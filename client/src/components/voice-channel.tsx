@@ -11,6 +11,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { useQuery } from "@tanstack/react-query";
 
 export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: boolean }) {
   const { t } = useLanguage();
@@ -18,6 +20,12 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState([50]);
+
+  // In a real implementation, this would be fetched from the server
+  const { data: channelMembers = [] } = useQuery({
+    queryKey: [`/api/channels/${channel.id}/members`],
+    enabled: isJoined // Only fetch when user joins the channel
+  });
 
   const handleVolumeChange = (newVolume: number[]) => {
     setVolume(newVolume);
@@ -91,6 +99,25 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
             className="w-24"
           />
           <span className="text-xs text-gray-400">{volume}%</span>
+        </div>
+      )}
+
+      {/* Channel Members - Only visible when joined */}
+      {isJoined && channelMembers.length > 0 && (
+        <div className="mt-2 space-y-2">
+          <div className="h-[1px] bg-gray-700 my-2" />
+          <div className="flex flex-wrap gap-2">
+            {channelMembers.map((member) => (
+              <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-800/50">
+                <Avatar className="h-6 w-6">
+                  <AvatarImage src={member.avatar} />
+                  <AvatarFallback>{member.username[0]}</AvatarFallback>
+                </Avatar>
+                <span className="text-sm">{member.username}</span>
+                {member.isMuted && <VolumeX className="h-3 w-3 text-gray-400" />}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
