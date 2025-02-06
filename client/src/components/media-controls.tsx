@@ -132,11 +132,11 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   if (!channel) return null;
 
   return (
-    <div className="space-y-4 p-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border rounded-lg shadow-sm">
-      <div className="flex items-center gap-2">
+    <div className="space-y-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border rounded-lg p-4 shadow-sm">
+      <div className="grid grid-cols-1 gap-2">
         <Dialog>
           <DialogTrigger asChild>
-            <Button variant="outline" className="w-full">
+            <Button variant="outline" className="w-full flex items-center justify-center">
               {isVoiceChannel ? (
                 <>
                   <Music className="w-4 h-4 mr-2" />
