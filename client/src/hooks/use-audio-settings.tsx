@@ -18,10 +18,29 @@ const AudioSettingsContext = createContext<AudioSettingsContextType | null>(null
 export function AudioSettingsProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const { t } = useLanguage();
-  const [volume, setVolume] = useState<number[]>([50]);
+  const [volume, setVolume] = useState<number[]>(() => {
+    try {
+      const savedVolume = localStorage.getItem('volume');
+      return savedVolume ? JSON.parse(savedVolume) : [50];
+    } catch {
+      return [50];
+    }
+  });
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
-  const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>("");
+  const [selectedInputDevice, setSelectedInputDevice] = useState<string>(() => {
+    try {
+      return localStorage.getItem('inputDevice') || "";
+    } catch {
+      return "";
+    }
+  });
+  const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>(() => {
+    try {
+      return localStorage.getItem('outputDevice') || "";
+    } catch {
+      return "";
+    }
+  });
   const [permissionRequested, setPermissionRequested] = useState(false);
 
   useEffect(() => {
@@ -76,6 +95,11 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           );
           if (defaultInput) {
             setSelectedInputDevice(defaultInput.deviceId);
+            try {
+              localStorage.setItem('inputDevice', defaultInput.deviceId);
+            } catch (error) {
+              console.error('Failed to save input device preference:', error);
+            }
           }
         }
 
@@ -85,11 +109,13 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           );
           if (defaultOutput) {
             setSelectedOutputDevice(defaultOutput.deviceId);
+            try {
+              localStorage.setItem('outputDevice', defaultOutput.deviceId);
+            } catch (error) {
+              console.error('Failed to save output device preference:', error);
+            }
           }
         }
-
-        // Cihaz değişikliklerini dinle
-        navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
 
       } catch (error) {
         console.error('Failed to initialize audio devices:', error);
@@ -111,6 +137,8 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     };
 
     initializeAudioDevices();
+
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
     document.addEventListener('visibilitychange', handleDeviceChange);
 
     return () => {
@@ -121,7 +149,16 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
       document.removeEventListener('visibilitychange', handleDeviceChange);
     };
-  }, [toast, t, permissionRequested]);
+  }, [toast, t, permissionRequested, selectedInputDevice, selectedOutputDevice]);
+
+  // Ses seviyesi değişikliğini localStorage'a kaydet
+  useEffect(() => {
+    try {
+      localStorage.setItem('volume', JSON.stringify(volume));
+    } catch (error) {
+      console.error('Failed to save volume preference:', error);
+    }
+  }, [volume]);
 
   const playTestSound = async () => {
     try {
@@ -175,9 +212,23 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         setVolume,
         audioDevices,
         selectedInputDevice,
-        setSelectedInputDevice,
+        setSelectedInputDevice: (deviceId: string) => {
+          setSelectedInputDevice(deviceId);
+          try {
+            localStorage.setItem('inputDevice', deviceId);
+          } catch (error) {
+            console.error('Failed to save input device preference:', error);
+          }
+        },
         selectedOutputDevice,
-        setSelectedOutputDevice,
+        setSelectedOutputDevice: (deviceId: string) => {
+          setSelectedOutputDevice(deviceId);
+          try {
+            localStorage.setItem('outputDevice', deviceId);
+          } catch (error) {
+            console.error('Failed to save output device preference:', error);
+          }
+        },
         playTestSound,
       }}
     >

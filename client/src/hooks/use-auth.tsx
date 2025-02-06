@@ -39,14 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Oturum durumu değişikliklerinde temizleme işlemleri
   useEffect(() => {
-    // WebSocket ve medya bağlantılarını temizle
-    const cleanup = () => {
-      // Mevcut WebSocket bağlantılarını kapat
-      const ws = new WebSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`);
-      if (ws) {
-        ws.close();
-      }
-
+    let cleanup = () => {
       // Medya akışlarını temizle
       Array.from(document.querySelectorAll('audio, video'))
         .map(media => (media as HTMLMediaElement).srcObject)
@@ -130,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!res.ok) {
           throw new Error(t('auth.errors.logoutFailed'));
         }
-        // WebSocket ve medya bağlantılarını temizle
+        // Medya akışlarını temizle
         Array.from(document.querySelectorAll('audio, video'))
           .map(media => (media as HTMLMediaElement).srcObject)
           .filter(stream => stream instanceof MediaStream)
