@@ -33,9 +33,13 @@ export interface IStorage {
 
   getServerMembers(serverId: number): Promise<User[]>;
   addServerMember(serverId: number, userId: number): Promise<void>;
-  getChannel(channelId: number): Promise<Channel | undefined>; //Added getChannel method
+  getChannel(channelId: number): Promise<Channel | undefined>;
 
   sessionStore: session.Store;
+  updateUserProfile(
+    userId: number, 
+    data: { bio?: string; age?: number; avatar?: string }
+  ): Promise<User>;
 }
 
 export class MemStorage implements IStorage {
@@ -256,6 +260,25 @@ export class MemStorage implements IStorage {
   }
   async getChannel(channelId: number): Promise<Channel | undefined> {
     return this.channels.get(channelId);
+  }
+  async updateUserProfile(
+    userId: number, 
+    data: { bio?: string; age?: number; avatar?: string }
+  ): Promise<User> {
+    const user = await this.getUser(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const updatedUser = {
+      ...user,
+      bio: data.bio ?? user.bio,
+      age: data.age ?? user.age,
+      avatar: data.avatar ?? user.avatar,
+    };
+
+    this.users.set(userId, updatedUser);
+    return updatedUser;
   }
 }
 

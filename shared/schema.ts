@@ -9,6 +9,8 @@ export const users = pgTable("users", {
   avatar: text("avatar").notNull(),
   email: text("email").notNull().unique(),
   phone: text("phone").notNull().unique(),
+  bio: text("bio"),
+  age: integer("age"),
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   twoFactorSecret: text("two_factor_secret"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -64,6 +66,8 @@ export const insertUserSchema = baseUserSchema.extend({
   email: z.string().email("Geçersiz email adresi").optional(),
   phone: z.string().optional(),
   avatar: z.string().optional(),
+  bio: z.string().optional(),
+  age: z.number().optional(),
 });
 
 export const insertServerSchema = createInsertSchema(servers);

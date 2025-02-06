@@ -48,6 +48,17 @@ export const translations = {
       security: 'Security',
       profile: 'Profile',
     },
+    profile: {
+      title: 'Profile Settings',
+      avatarUrl: 'Avatar URL',
+      bio: 'About Me',
+      age: 'Age',
+      saveChanges: 'Save Changes',
+      updateSuccess: 'Success',
+      profileUpdated: 'Your profile has been updated',
+      updateError: 'Update Failed',
+      viewProfile: 'View Profile'
+    }
   },
   tr: {
     auth: {
@@ -96,5 +107,16 @@ export const translations = {
       security: 'Güvenlik',
       profile: 'Profil',
     },
-  },
+    profile: {
+      title: 'Profil Ayarları',
+      avatarUrl: 'Profil Fotoğrafı URL',
+      bio: 'Hakkımda',
+      age: 'Yaş',
+      saveChanges: 'Değişiklikleri Kaydet',
+      updateSuccess: 'Başarılı',
+      profileUpdated: 'Profiliniz güncellendi',
+      updateError: 'Güncelleme Başarısız',
+      viewProfile: 'Profili Görüntüle'
+    }
+  }
 };

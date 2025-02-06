@@ -22,6 +22,7 @@ import { useState } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { useLocation } from "wouter";
 
 export function ServerList({ 
   onServerSelect, 
@@ -32,6 +33,7 @@ export function ServerList({
 }) {
   const { t } = useLanguage();
   const { user, logoutMutation } = useAuth();
+  const [, setLocation] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [newServerName, setNewServerName] = useState("");
 
@@ -65,9 +67,9 @@ export function ServerList({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="center" className="w-48">
-            <DropdownMenuItem className="flex items-center gap-2">
+            <DropdownMenuItem className="flex items-center gap-2" onClick={() => setLocation("/profile")}>
               <User className="w-4 h-4" />
-              <span>{user?.username}</span>
+              <span>{t('profile.viewProfile')}</span>
             </DropdownMenuItem>
             <DropdownMenuItem 
               className="flex items-center gap-2 text-destructive"

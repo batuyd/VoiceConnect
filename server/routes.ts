@@ -57,20 +57,28 @@ export function registerRoutes(app: Express): Server {
     res.sendStatus(201);
   });
 
-  // New route for getting channel members
   app.get("/api/channels/:channelId/members", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    // For now, return the same server members as connected users
-    // In a real implementation, this would track actual connected users
     const channel = await storage.getChannel(parseInt(req.params.channelId));
     if (!channel) return res.sendStatus(404);
     const members = await storage.getServerMembers(channel.serverId);
-    // Simulate some users being muted
     const connectedMembers = members.map(member => ({
       ...member,
       isMuted: Math.random() > 0.5
     }));
     res.json(connectedMembers);
+  });
+
+  app.patch("/api/user/profile", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    const updatedUser = await storage.updateUserProfile(req.user.id, {
+      bio: req.body.bio,
+      age: req.body.age,
+      avatar: req.body.avatar,
+    });
+
+    res.json(updatedUser);
   });
 
   const httpServer = createServer(app);
