@@ -5,6 +5,8 @@ import { storage } from "./storage";
 import ytdl from 'ytdl-core';
 import { WebSocketServer } from 'ws';
 import NodeMediaServer from 'node-media-server';
+import fetch from 'node-fetch';
+
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
@@ -319,6 +321,30 @@ export function registerRoutes(app: Express): Server {
 
       await storage.clearMediaQueue(parseInt(req.params.channelId));
       res.sendStatus(200);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // YouTube arama API'si
+  app.get("/api/youtube/search", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const query = req.query.q as string;
+      const response = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(
+          query
+        )}&type=video&key=${process.env.YOUTUBE_API_KEY}`
+      );
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error.message);
+      }
+
+      res.json(data);
     } catch (error) {
       res.status(400).json({ error: error.message });
     }

@@ -158,6 +158,12 @@ export const translations = {
       clearQueue: 'Clear Queue',
       errorPlayback: 'Error playing media',
       joinChannel: 'Join channel to listen',
+      addMusic: 'Add Music',
+      addVideo: 'Add Video',
+      searchMusic: 'Search Music',
+      searchVideo: 'Search Video',
+      searchPlaceholder: 'Search for songs or videos...',
+      searchError: 'Error searching YouTube',
     },
   },
   tr: {
@@ -317,6 +323,12 @@ export const translations = {
       clearQueue: 'Sırayı Temizle',
       errorPlayback: 'Medya oynatma hatası',
       joinChannel: 'Dinlemek için kanala katılın',
+      addMusic: 'Müzik Ekle',
+      addVideo: 'Video Ekle',
+      searchMusic: 'Müzik Ara',
+      searchVideo: 'Video Ara',
+      searchPlaceholder: 'Şarkı veya video ara...',
+      searchError: 'YouTube araması sırasında hata oluştu',
     },
   }
 };

@@ -5,17 +5,28 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState, useEffect } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { PlayCircle, SkipForward, Trash2 } from "lucide-react";
+import { PlayCircle, SkipForward, Trash2, Search, Music, Video } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 interface MediaControlsProps {
   channelId: number;
+  isVoiceChannel?: boolean;
 }
 
-export function MediaControls({ channelId }: MediaControlsProps) {
+interface SearchResult {
+  id: string;
+  title: string;
+  thumbnail: string;
+  type: "music" | "video";
+}
+
+export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
-  const [mediaUrl, setMediaUrl] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
 
   // WebSocket connection
@@ -53,6 +64,28 @@ export function MediaControls({ channelId }: MediaControlsProps) {
     queryKey: ['/api/channels', channelId],
   });
 
+  // YouTube arama fonksiyonu
+  const searchYouTube = async (query: string) => {
+    setIsSearching(true);
+    try {
+      const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setSearchResults(data.items.map((item: any) => ({
+        id: item.id.videoId,
+        title: item.snippet.title,
+        thumbnail: item.snippet.thumbnails.default.url,
+        type: item.snippet.liveBroadcastContent === 'none' ? 'music' : 'video'
+      })));
+    } catch (error) {
+      toast({
+        description: t('media.searchError'),
+        variant: "destructive",
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   const playMediaMutation = useMutation({
     mutationFn: async ({ url, type }: { url: string, type: "music" | "video" }) => {
       const res = await apiRequest("POST", `/api/channels/${channelId}/media`, { url, type });
@@ -60,7 +93,8 @@ export function MediaControls({ channelId }: MediaControlsProps) {
     },
     onSuccess: (updatedChannel: Channel) => {
       queryClient.setQueryData(['/api/channels', channelId], updatedChannel);
-      setMediaUrl("");
+      setSearchQuery("");
+      setSearchResults([]);
       toast({
         description: t('media.addedToQueue'),
       });
@@ -100,21 +134,70 @@ export function MediaControls({ channelId }: MediaControlsProps) {
   return (
     <div className="space-y-4">
       <div className="flex gap-2">
-        <Input
-          placeholder={t('media.urlPlaceholder')}
-          value={mediaUrl}
-          onChange={(e) => setMediaUrl(e.target.value)}
-        />
-        <Button
-          onClick={() => {
-            const type = mediaUrl.includes("youtube.com") ? "video" : "music";
-            playMediaMutation.mutate({ url: mediaUrl, type });
-          }}
-          disabled={!mediaUrl || playMediaMutation.isPending}
-        >
-          <PlayCircle className="w-4 h-4 mr-2" />
-          {t('media.play')}
-        </Button>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="outline">
+              {isVoiceChannel ? (
+                <>
+                  <Music className="w-4 h-4 mr-2" />
+                  {t('media.addMusic')}
+                </>
+              ) : (
+                <>
+                  <Video className="w-4 h-4 mr-2" />
+                  {t('media.addVideo')}
+                </>
+              )}
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {isVoiceChannel ? t('media.searchMusic') : t('media.searchVideo')}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder={t('media.searchPlaceholder')}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && searchYouTube(searchQuery)}
+                />
+                <Button
+                  onClick={() => searchYouTube(searchQuery)}
+                  disabled={!searchQuery || isSearching}
+                >
+                  <Search className="w-4 h-4" />
+                </Button>
+              </div>
+
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {searchResults.map((result) => (
+                  <div key={result.id} className="flex items-center gap-2 p-2 hover:bg-secondary rounded-lg">
+                    <img
+                      src={result.thumbnail}
+                      alt={result.title}
+                      className="w-20 h-auto rounded"
+                    />
+                    <div className="flex-1">
+                      <p className="text-sm line-clamp-2">{result.title}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const url = `https://youtube.com/watch?v=${result.id}`;
+                        playMediaMutation.mutate({ url, type: result.type });
+                      }}
+                    >
+                      <PlayCircle className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {channel.currentMedia && (
