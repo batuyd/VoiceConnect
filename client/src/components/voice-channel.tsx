@@ -1,6 +1,6 @@
-import { Volume2, VolumeX, Trash2, Ban, UserMinus, MoreVertical, Plus, MicOff } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Ban, UserMinus, MoreVertical, Plus, MicOff, PlayCircle } from "lucide-react";
 import { Channel } from "@shared/schema";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,11 +31,50 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState([50]);
+  const audioContext = useRef<AudioContext | null>(null);
+  const oscillator = useRef<OscillatorNode | null>(null);
+  const gainNode = useRef<GainNode | null>(null);
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined
   });
+
+  const playTestSound = () => {
+    if (!audioContext.current) {
+      audioContext.current = new AudioContext();
+    }
+
+    // Eğer önceki ses çalıyorsa durdur
+    if (oscillator.current) {
+      oscillator.current.stop();
+      oscillator.current.disconnect();
+    }
+
+    // Yeni osilatör ve gain node oluştur
+    oscillator.current = audioContext.current.createOscillator();
+    gainNode.current = audioContext.current.createGain();
+
+    // Ses seviyesini ayarla (0-1 arası)
+    gainNode.current.gain.value = volume[0] / 100;
+
+    // Bağlantıları yap
+    oscillator.current.connect(gainNode.current);
+    gainNode.current.connect(audioContext.current.destination);
+
+    // 440 Hz'de bir sinüs dalgası (La notası)
+    oscillator.current.frequency.value = 440;
+    oscillator.current.type = 'sine';
+
+    // Sesi başlat ve 1 saniye sonra durdur
+    oscillator.current.start();
+    setTimeout(() => {
+      if (oscillator.current) {
+        oscillator.current.stop();
+        oscillator.current.disconnect();
+      }
+    }, 1000);
+  };
 
   // Bot ekleme mutation'ı
   const addBotMutation = useMutation({
@@ -115,6 +154,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const handleVolumeChange = (newVolume: number[]) => {
     setVolume(newVolume);
+    // Eğer gain node varsa ses seviyesini güncelle
+    if (gainNode.current) {
+      gainNode.current.gain.value = newVolume[0] / 100;
+    }
   };
 
   return (
@@ -192,6 +235,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                   className="w-24"
                 />
                 <span className="text-xs text-gray-400">{volume}%</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={playTestSound}
+                  className="ml-2"
+                >
+                  <PlayCircle className="h-4 w-4" />
+                </Button>
               </div>
             )}
           </div>
