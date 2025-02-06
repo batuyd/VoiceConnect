@@ -47,6 +47,14 @@ export const translations = {
       language: 'Language',
       security: 'Security',
       profile: 'Profile',
+      audio: {
+        title: 'Audio Settings',
+        inputDevice: 'Input Device',
+        outputDevice: 'Output Device',
+        inputVolume: 'Input Volume',
+        outputVolume: 'Output Volume',
+        test: 'Test Audio',
+      },
     },
     profile: {
       title: 'Profile Settings',
@@ -58,6 +66,11 @@ export const translations = {
       profileUpdated: 'Your profile has been updated',
       updateError: 'Update Failed',
       viewProfile: 'View Profile'
+    },
+    chat: {
+      welcome: 'Welcome to',
+      messagePlaceholder: 'Message',
+      send: 'Send',
     }
   },
   tr: {
@@ -106,6 +119,14 @@ export const translations = {
       language: 'Dil',
       security: 'Güvenlik',
       profile: 'Profil',
+      audio: {
+        title: 'Ses Ayarları',
+        inputDevice: 'Giriş Cihazı',
+        outputDevice: 'Çıkış Cihazı',
+        inputVolume: 'Giriş Ses Seviyesi',
+        outputVolume: 'Çıkış Ses Seviyesi',
+        test: 'Ses Testi',
+      },
     },
     profile: {
       title: 'Profil Ayarları',
@@ -117,6 +138,11 @@ export const translations = {
       profileUpdated: 'Profiliniz güncellendi',
       updateError: 'Güncelleme Başarısız',
       viewProfile: 'Profili Görüntüle'
+    },
+    chat: {
+      welcome: 'Hoş geldiniz',
+      messagePlaceholder: 'Mesaj',
+      send: 'Gönder',
     }
   }
 };

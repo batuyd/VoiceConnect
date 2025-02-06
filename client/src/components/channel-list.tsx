@@ -18,7 +18,15 @@ import { useState } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { VoiceChannel } from "./voice-channel";
 
-export function ChannelList({ serverId }: { serverId: number }) {
+export function ChannelList({ 
+  serverId,
+  onChannelSelect,
+  selectedChannel
+}: { 
+  serverId: number;
+  onChannelSelect: (channel: Channel | null) => void;
+  selectedChannel: Channel | null;
+}) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -103,13 +111,16 @@ export function ChannelList({ serverId }: { serverId: number }) {
           <div>
             <h3 className="text-xs text-gray-400 mb-2">{t('server.textChannels')}</h3>
             {textChannels.map((channel) => (
-              <div
+              <button
                 key={channel.id}
-                className="flex items-center space-x-2 p-2 rounded hover:bg-gray-700"
+                onClick={() => onChannelSelect(channel)}
+                className={`flex items-center space-x-2 w-full p-2 rounded hover:bg-gray-700 ${
+                  selectedChannel?.id === channel.id ? "bg-gray-700" : ""
+                }`}
               >
                 <Hash className="h-4 w-4 text-gray-400" />
                 <span>{channel.name}</span>
-              </div>
+              </button>
             ))}
           </div>
         )}
