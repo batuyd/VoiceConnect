@@ -28,69 +28,78 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const maxRetries = 3;
 
   const connectWebSocket = useCallback(() => {
-    if (isConnecting || retryCount >= maxRetries) return;
+    if (ws?.readyState === WebSocket.OPEN || retryCount >= maxRetries) return;
 
-    setIsConnecting(true);
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws`;
 
-    const socket = new WebSocket(wsUrl);
+    try {
+      const socket = new WebSocket(wsUrl);
 
-    socket.onopen = () => {
-      console.log('WebSocket connected');
-      setIsConnecting(false);
-      setRetryCount(0);
-      socket.send(JSON.stringify({
-        type: 'join_channel',
-        channelId
-      }));
-    };
+      socket.onopen = () => {
+        console.log('MediaControls WebSocket connected');
+        setRetryCount(0);
+        socket.send(JSON.stringify({
+          type: 'join_channel',
+          channelId
+        }));
+      };
 
-    socket.onclose = () => {
-      console.log('WebSocket disconnected');
-      setIsConnecting(false);
-      setWs(null);
-      if (retryCount < maxRetries) {
-        setRetryCount(prev => prev + 1);
-        setTimeout(connectWebSocket, 1000 * Math.pow(2, retryCount));
-      }
-    };
-
-    socket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'media_state' && data.channelId === channelId) {
-          queryClient.setQueryData(['/api/channels', channelId], (oldData: any) => ({
-            ...oldData,
-            currentMedia: data.media,
-            mediaQueue: data.queue || []
-          }));
+      socket.onclose = () => {
+        console.log('MediaControls WebSocket disconnected');
+        setWs(null);
+        if (retryCount < maxRetries) {
+          const timeout = Math.min(1000 * Math.pow(2, retryCount), 5000);
+          setTimeout(() => {
+            setRetryCount(prev => prev + 1);
+          }, timeout);
         }
-      } catch (error) {
-        console.error('Failed to parse WebSocket message:', error);
-      }
-    };
+      };
 
-    setWs(socket);
-  }, [channelId, isConnecting, retryCount]);
+      socket.onerror = (error) => {
+        console.error('MediaControls WebSocket error:', error);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'media_state' && data.channelId === channelId) {
+            queryClient.setQueryData(['/api/channels', channelId], (oldData: any) => ({
+              ...oldData,
+              currentMedia: data.media,
+              mediaQueue: data.queue || []
+            }));
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
+
+      setWs(socket);
+    } catch (error) {
+      console.error('Failed to create WebSocket connection:', error);
+      if (retryCount < maxRetries) {
+        const timeout = Math.min(1000 * Math.pow(2, retryCount), 5000);
+        setTimeout(() => {
+          setRetryCount(prev => prev + 1);
+        }, timeout);
+      }
+    }
+  }, [channelId, retryCount, ws]);
 
   useEffect(() => {
     connectWebSocket();
+
     return () => {
       if (ws) {
         ws.close();
       }
     };
-  }, [connectWebSocket]);
+  }, [connectWebSocket, retryCount]);
 
   const { data: channel } = useQuery<Channel>({
     queryKey: ['/api/channels', channelId],
@@ -100,6 +109,9 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
     setIsSearching(true);
     try {
       const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`);
+      if (!res.ok) {
+        throw new Error(t('media.searchError'));
+      }
       const data = await res.json();
       setSearchResults(data.items.map((item: any) => ({
         id: item.id.videoId,

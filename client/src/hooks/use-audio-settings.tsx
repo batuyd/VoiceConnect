@@ -26,6 +26,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       return [50];
     }
   });
+
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedInputDevice, setSelectedInputDevice] = useState<string>(() => {
     try {
@@ -34,6 +35,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       return "";
     }
   });
+
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>(() => {
     try {
       return localStorage.getItem('outputDevice') || "";
@@ -41,37 +43,23 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       return "";
     }
   });
-  const [permissionRequested, setPermissionRequested] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    let retryTimeout: NodeJS.Timeout;
 
     const initializeAudioDevices = async () => {
       try {
-        // İzin kontrolü ve isteme
-        if (!permissionRequested) {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-              }
-            });
-            stream.getTracks().forEach(track => track.stop());
-            setPermissionRequested(true);
-          } catch (error) {
-            console.error('Failed to get audio permissions:', error);
-            if (mounted) {
-              toast({
-                description: t('audio.deviceAccessError'),
-                variant: "destructive",
-              });
-            }
-            return;
+        // İlk olarak izinleri kontrol et
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
           }
-        }
+        });
+
+        // İzin alındıktan sonra stream'i kapat
+        stream.getTracks().forEach(track => track.stop());
 
         // Cihaz listesini al
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -88,48 +76,42 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
         setAudioDevices(audioDevices);
 
-        // Varsayılan cihazları ayarla
+        // Varsayılan giriş cihazını ayarla
         if (!selectedInputDevice) {
           const defaultInput = audioDevices.find(device => 
             device.kind === 'audioinput' && device.deviceId !== 'default'
           );
           if (defaultInput) {
             setSelectedInputDevice(defaultInput.deviceId);
-            try {
-              localStorage.setItem('inputDevice', defaultInput.deviceId);
-            } catch (error) {
-              console.error('Failed to save input device preference:', error);
-            }
+            localStorage.setItem('inputDevice', defaultInput.deviceId);
           }
         }
 
+        // Varsayılan çıkış cihazını ayarla
         if (!selectedOutputDevice) {
           const defaultOutput = audioDevices.find(device => 
             device.kind === 'audiooutput' && device.deviceId !== 'default'
           );
           if (defaultOutput) {
             setSelectedOutputDevice(defaultOutput.deviceId);
-            try {
-              localStorage.setItem('outputDevice', defaultOutput.deviceId);
-            } catch (error) {
-              console.error('Failed to save output device preference:', error);
-            }
+            localStorage.setItem('outputDevice', defaultOutput.deviceId);
           }
         }
 
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to initialize audio devices:', error);
         if (mounted) {
           toast({
-            description: t('audio.deviceAccessError'),
+            description: error.name === 'NotAllowedError' 
+              ? t('audio.permissionDenied')
+              : t('audio.deviceAccessError'),
             variant: "destructive",
           });
-          // 5 saniye sonra tekrar dene
-          retryTimeout = setTimeout(initializeAudioDevices, 5000);
         }
       }
     };
 
+    // Cihaz değişikliklerini dinle
     const handleDeviceChange = async () => {
       if (document.visibilityState === 'visible') {
         await initializeAudioDevices();
@@ -143,21 +125,14 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     return () => {
       mounted = false;
-      if (retryTimeout) {
-        clearTimeout(retryTimeout);
-      }
       navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
       document.removeEventListener('visibilitychange', handleDeviceChange);
     };
-  }, [toast, t, permissionRequested, selectedInputDevice, selectedOutputDevice]);
+  }, [toast, t]);
 
-  // Ses seviyesi değişikliğini localStorage'a kaydet
+  // Ses ayarlarını localStorage'a kaydet
   useEffect(() => {
-    try {
-      localStorage.setItem('volume', JSON.stringify(volume));
-    } catch (error) {
-      console.error('Failed to save volume preference:', error);
-    }
+    localStorage.setItem('volume', JSON.stringify(volume));
   }, [volume]);
 
   const playTestSound = async () => {
@@ -171,16 +146,11 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
       if (selectedOutputDevice && 'setSinkId' in HTMLAudioElement.prototype) {
         const audioElement = new Audio();
-        try {
-          await (audioElement as any).setSinkId(selectedOutputDevice);
-          const mediaStreamDestination = audioContext.createMediaStreamDestination();
-          gainNode.connect(mediaStreamDestination);
-          audioElement.srcObject = mediaStreamDestination.stream;
-          await audioElement.play();
-        } catch (error) {
-          console.error('Failed to set audio output device:', error);
-          gainNode.connect(audioContext.destination);
-        }
+        await (audioElement as any).setSinkId(selectedOutputDevice);
+        const mediaStreamDestination = audioContext.createMediaStreamDestination();
+        gainNode.connect(mediaStreamDestination);
+        audioElement.srcObject = mediaStreamDestination.stream;
+        await audioElement.play();
       } else {
         gainNode.connect(audioContext.destination);
       }
@@ -191,8 +161,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
       setTimeout(() => {
         oscillator.stop();
-        oscillator.disconnect();
-        gainNode.disconnect();
         audioContext.close();
       }, 1000);
 
@@ -214,20 +182,12 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         selectedInputDevice,
         setSelectedInputDevice: (deviceId: string) => {
           setSelectedInputDevice(deviceId);
-          try {
-            localStorage.setItem('inputDevice', deviceId);
-          } catch (error) {
-            console.error('Failed to save input device preference:', error);
-          }
+          localStorage.setItem('inputDevice', deviceId);
         },
         selectedOutputDevice,
         setSelectedOutputDevice: (deviceId: string) => {
           setSelectedOutputDevice(deviceId);
-          try {
-            localStorage.setItem('outputDevice', deviceId);
-          } catch (error) {
-            console.error('Failed to save output device preference:', error);
-          }
+          localStorage.setItem('outputDevice', deviceId);
         },
         playTestSound,
       }}

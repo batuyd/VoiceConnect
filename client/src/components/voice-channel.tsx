@@ -38,15 +38,13 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const gainNode = useRef<GainNode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout>();
-  const maxRetries = 5;
+  const maxRetries = 3;
 
-  // Kanal üyelerini getir
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined
   });
 
-  // WebSocket bağlantı yönetimi
   useEffect(() => {
     let mounted = true;
 
@@ -55,15 +53,15 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         return;
       }
 
-      // Varolan bağlantıyı kapat
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
 
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+
       try {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
@@ -82,13 +80,13 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           if (!mounted) return;
           console.log('WebSocket disconnected');
           setWsConnected(false);
+          wsRef.current = null;
 
-          if (retryCount < maxRetries && isJoined) {
-            const timeout = Math.min(1000 * Math.pow(2, retryCount), 10000);
+          if (isJoined && retryCount < maxRetries) {
+            const timeout = Math.min(1000 * Math.pow(2, retryCount), 5000);
             retryTimeoutRef.current = setTimeout(() => {
               if (mounted) {
                 setRetryCount(prev => prev + 1);
-                connectWebSocket();
               }
             }, timeout);
           }
@@ -116,9 +114,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               });
             } else if (data.type === 'member_update') {
               refetchMembers();
-            } else if (data.type === 'media_state') {
-              // MediaControls bileşeni bu durumu yönetecek
-              console.log('Media state update:', data);
             }
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
@@ -137,7 +132,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       }
     };
 
-    connectWebSocket();
+    // Only try to connect if we're joined and have a user
+    if (isJoined && user?.id) {
+      connectWebSocket();
+    }
 
     return () => {
       mounted = false;
@@ -151,20 +149,17 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers]);
 
-  // Ses akışı yönetimi
   useEffect(() => {
     let mounted = true;
 
-    async function setupAudioStream() {
+    const setupAudioStream = async () => {
       if (!selectedInputDevice || !isJoined) return;
 
-      // Mevcut akışı temizle
       if (stream.current) {
         stream.current.getTracks().forEach(track => track.stop());
       }
 
       try {
-        // Ses izinlerini iste
         const mediaStream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
             deviceId: { exact: selectedInputDevice },
@@ -179,7 +174,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           return;
         }
 
-        // Yeni ses bağlamı ve akışı oluştur
         if (!audioContext.current) {
           audioContext.current = new AudioContext();
         }
@@ -192,7 +186,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         if (!isMuted) {
           gainNode.current.connect(audioContext.current.destination);
         }
-
       } catch (error) {
         console.error('Audio setup error:', error);
         if (mounted) {
@@ -202,9 +195,11 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           });
         }
       }
-    }
+    };
 
-    setupAudioStream();
+    if (isJoined) {
+      setupAudioStream();
+    }
 
     return () => {
       mounted = false;
@@ -220,7 +215,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, [selectedInputDevice, isJoined, isMuted, toast, t]);
 
-  // Sessize alma/açma işlemi
   useEffect(() => {
     if (!gainNode.current || !audioContext.current) return;
 
@@ -246,8 +240,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg overflow-hidden">
-      <div className="p-3 flex items-center justify-between bg-gray-800">
+    <div className="space-y-2">
+      <div className="flex items-center justify-between p-2 rounded hover:bg-gray-700">
         <div className="flex items-center space-x-2">
           {isJoined ? (
             isMuted ? (
@@ -260,12 +254,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           )}
           <span>{channel.name}</span>
           {wsConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
-          {!wsConnected && isJoined && retryCount < maxRetries && (
-            <span className="text-xs text-yellow-400">{t('voice.reconnecting')}</span>
-          )}
-          {!wsConnected && isJoined && retryCount >= maxRetries && (
-            <span className="text-xs text-red-400">{t('voice.connectionFailed')}</span>
-          )}
         </div>
 
         <Button
@@ -279,7 +267,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       </div>
 
       {isJoined && (
-        <div className="p-3 space-y-4 bg-gray-800/50">
+        <div className="p-2 space-y-4">
           <div className="flex items-center justify-between">
             <Button
               variant="ghost"
@@ -292,25 +280,19 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           </div>
 
           {channelMembers.length > 0 && (
-            <>
-              <div className="h-[1px] bg-gray-700" />
-              <div className="flex flex-wrap gap-2">
-                {channelMembers.map((member) => (
-                  <div key={member.id} className="flex items-center space-x-2 p-2 rounded bg-gray-700/50">
-                    <Avatar className="h-6 w-6">
-                      <AvatarImage src={member.avatar} />
-                      <AvatarFallback>{member.username[0]}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm">{member.username}</span>
-                    {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
-                  </div>
-                ))}
-              </div>
-            </>
+            <div className="space-y-2">
+              {channelMembers.map((member) => (
+                <div key={member.id} className="flex items-center space-x-2 p-2 rounded bg-gray-700/50">
+                  <Avatar className="h-6 w-6">
+                    <AvatarImage src={member.avatar} />
+                    <AvatarFallback>{member.username[0]}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm">{member.username}</span>
+                  {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
+                </div>
+              ))}
+            </div>
           )}
-          <div className="w-full relative z-10">
-            <MediaControls channelId={channel.id} isVoiceChannel={true} />
-          </div>
         </div>
       )}
     </div>
