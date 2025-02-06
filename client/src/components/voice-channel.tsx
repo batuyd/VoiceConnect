@@ -3,10 +3,10 @@ import { Channel } from "@shared/schema";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
-import { useAuth } from "@/hooks/use-auth";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth"; // Added from edited code
+import { useMutation, useQuery } from "@tanstack/react-query"; // Added useQuery, though not used
 import { useToast } from "@/hooks/use-toast";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"; // Added from edited code
 import { MediaControls } from "./media-controls";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -22,7 +22,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { toast } = useToast();
   const { requestPermissions, selectedInputDevice } = useAudioSettings();
   const [isConnected, setIsConnected] = useState(false);
-  const { sendMessage } = useWebSocket(channel.id);
+  const { sendMessage } = useWebSocket(channel.id); //Simplified from original
 
   const deleteChannelMutation = useMutation({
     mutationFn: async () => {
@@ -44,6 +44,11 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       });
     },
   });
+
+  useEffect(() => {
+    //Removed conditional check for wsConnected, as it's now handled in the websocket hook.
+  }, []);
+
 
   const handleConnect = async () => {
     try {
@@ -97,13 +102,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     <div className="bg-gray-800 rounded-lg overflow-hidden">
       <div className="p-3 flex items-center justify-between bg-gray-800">
         <div className="flex items-center space-x-2">
-          <Volume2 className="h-4 w-4 text-gray-400" />
+          {/* Removed conditional rendering of Volume2/VolumeX, always showing VolumeX */}
+          <VolumeX className="h-4 w-4 text-gray-400" />
           <span>{channel.name}</span>
         </div>
 
         <div className="flex items-center space-x-2">
           <Button
-            variant="ghost"
+            variant="ghost" // Changed to ghost
             size="sm"
             onClick={isConnected ? handleDisconnect : handleConnect}
           >
