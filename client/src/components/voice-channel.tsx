@@ -1,4 +1,4 @@
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX, Trash2 } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { MediaControls } from "./media-controls";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -165,7 +166,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
       try {
         // Ses izinlerini iste
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        const mediaStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             deviceId: { exact: selectedInputDevice },
             echoCancellation: true,
@@ -245,6 +246,24 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     }
   };
 
+  const deleteChannelMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/channels/${channel.id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/servers/${channel.serverId}/channels`] });
+      toast({
+        description: t('server.channelDeleted'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return (
     <div className="bg-gray-800 rounded-lg overflow-hidden">
       <div className="p-3 flex items-center justify-between bg-gray-800">
@@ -268,14 +287,27 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           )}
         </div>
 
-        <Button
-          variant={isJoined ? "destructive" : "default"}
-          size="sm"
-          onClick={handleJoinLeave}
-          className="w-20"
-        >
-          {isJoined ? t('server.leave') : t('server.join')}
-        </Button>
+        <div className="flex items-center space-x-2">
+          <Button
+            variant={isJoined ? "destructive" : "default"}
+            size="sm"
+            onClick={handleJoinLeave}
+            className="w-20"
+          >
+            {isJoined ? t('server.leave') : t('server.join')}
+          </Button>
+
+          {isOwner && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => deleteChannelMutation.mutate()}
+              disabled={deleteChannelMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {isJoined && (

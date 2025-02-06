@@ -37,13 +37,22 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
     },
   });
 
+  const handleClick = () => {
+    // Eğer zaten seçiliyse, seçimi kaldır (null gönder)
+    if (isSelected) {
+      onSelect();
+    } else {
+      onSelect();
+    }
+  };
+
   return (
     <div className="space-y-2">
       <div className={`flex items-center justify-between p-2 rounded hover:bg-gray-700 ${
         isSelected ? "bg-gray-700" : ""
       }`}>
         <button
-          onClick={onSelect}
+          onClick={handleClick}
           className="flex items-center space-x-2 flex-1"
         >
           <Hash className="h-4 w-4 text-gray-400" />

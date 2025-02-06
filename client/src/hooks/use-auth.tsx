@@ -34,27 +34,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: ["/api/user"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
-    staleTime: 30000, // Cache valid for 30 seconds
+    staleTime: 30000,
   });
 
-  // Oturum durumu değişikliklerinde temizleme işlemleri
   useEffect(() => {
-    let cleanup = () => {
+    const cleanup = () => {
       // Medya akışlarını temizle
       Array.from(document.querySelectorAll('audio, video'))
-        .map(media => (media as HTMLMediaElement).srcObject)
-        .filter(stream => stream instanceof MediaStream)
-        .forEach(stream => {
-          stream?.getTracks().forEach(track => track.stop());
+        .forEach(media => {
+          const mediaEl = media as HTMLMediaElement;
+          if (mediaEl.srcObject instanceof MediaStream) {
+            mediaEl.srcObject.getTracks().forEach(track => track.stop());
+            mediaEl.srcObject = null;
+          }
         });
     };
 
-    // Oturum durumu değiştiğinde temizlik yap
     if (!user) {
       cleanup();
     }
 
-    // Component unmount olduğunda temizlik yap
     return cleanup;
   }, [user?.id]);
 
@@ -72,7 +71,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (user: SelectUser) => {
       queryClient.setQueryData(["/api/user"], user);
-      // Bağımlı sorguları geçersiz kıl
       queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
       toast({
         description: t('auth.loginSuccess'),
@@ -123,20 +121,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!res.ok) {
           throw new Error(t('auth.errors.logoutFailed'));
         }
-        // Medya akışlarını temizle
-        Array.from(document.querySelectorAll('audio, video'))
-          .map(media => (media as HTMLMediaElement).srcObject)
-          .filter(stream => stream instanceof MediaStream)
-          .forEach(stream => {
-            stream?.getTracks().forEach(track => track.stop());
-          });
       } catch (error: any) {
         throw new Error(error.message || t('auth.errors.logoutFailed'));
       }
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);
-      queryClient.clear(); // Tüm önbelleği temizle
+      queryClient.clear();
       toast({
         description: t('auth.logoutSuccess'),
       });
