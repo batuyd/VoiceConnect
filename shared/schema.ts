@@ -1,16 +1,28 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
+  nickname: text("nickname"),
   password: text("password").notNull(),
   avatar: text("avatar").notNull(),
   email: text("email").notNull().unique(),
   phone: text("phone").notNull().unique(),
   bio: text("bio"),
+  status: text("status"),
   age: integer("age"),
+  lastActive: timestamp("last_active"),
+  socialLinks: jsonb("social_links").$type<{
+    discord?: string;
+    twitter?: string;
+    instagram?: string;
+    website?: string;
+  }>(),
+  theme: text("theme").default("system"),
+  isPrivateProfile: boolean("is_private_profile").default(false),
+  showLastSeen: boolean("show_last_seen").default(true),
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   twoFactorSecret: text("two_factor_secret"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -78,12 +90,23 @@ export const insertUserSchema = baseUserSchema.extend({
     .min(3, "Kullanıcı adı en az 3 karakter olmalıdır")
     .max(20, "Kullanıcı adı en fazla 20 karakter olabilir")
     .regex(/^[a-zA-Z0-9_]+$/, "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir"),
+  nickname: z.string().max(30, "Takma ad en fazla 30 karakter olabilir").optional(),
   password: z.string().min(8, "Şifre en az 8 karakter olmalıdır"),
   email: z.string().email("Geçersiz email adresi").optional(),
   phone: z.string().optional(),
   avatar: z.string().optional(),
-  bio: z.string().optional(),
+  bio: z.string().max(500, "Biyografi en fazla 500 karakter olabilir").optional(),
+  status: z.string().max(100, "Durum mesajı en fazla 100 karakter olabilir").optional(),
   age: z.number().optional(),
+  socialLinks: z.object({
+    discord: z.string().optional(),
+    twitter: z.string().optional(),
+    instagram: z.string().optional(),
+    website: z.string().optional(),
+  }).optional(),
+  theme: z.enum(["light", "dark", "system"]).optional(),
+  isPrivateProfile: z.boolean().optional(),
+  showLastSeen: z.boolean().optional(),
 });
 
 export const insertServerSchema = createInsertSchema(servers);

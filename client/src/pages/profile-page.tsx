@@ -14,6 +14,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
+import { Switch } from "@/components/ui/switch";
 
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -25,12 +26,24 @@ export default function ProfilePage() {
     resolver: zodResolver(insertUserSchema.pick({ 
       bio: true, 
       age: true,
-      avatar: true 
+      avatar: true,
+      nickname: true,
+      status: true,
+      socialLinks: true,
+      theme: true,
+      isPrivateProfile: true,
+      showLastSeen: true,
     })),
     defaultValues: {
       bio: user?.bio || "",
       age: user?.age || undefined,
-      avatar: user?.avatar || ""
+      avatar: user?.avatar || "",
+      nickname: user?.nickname || "",
+      status: user?.status || "",
+      socialLinks: user?.socialLinks || {},
+      theme: user?.theme || "system",
+      isPrivateProfile: user?.isPrivateProfile || false,
+      showLastSeen: user?.showLastSeen || true,
     }
   });
 
@@ -89,6 +102,23 @@ export default function ProfilePage() {
             </div>
 
             <div>
+              <Label htmlFor="nickname">{t('profile.nickname')}</Label>
+              <Input
+                id="nickname"
+                {...profileForm.register("nickname")}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="status">{t('profile.status')}</Label>
+              <Input
+                id="status"
+                {...profileForm.register("status")}
+                placeholder={t('profile.statusPlaceholder')}
+              />
+            </div>
+
+            <div>
               <Label htmlFor="bio">{t('profile.bio')}</Label>
               <Textarea
                 id="bio"
@@ -104,6 +134,72 @@ export default function ProfilePage() {
                 type="number"
                 {...profileForm.register("age", { valueAsNumber: true })}
               />
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">{t('profile.socialLinks')}</h3>
+
+              <div>
+                <Label htmlFor="discord">{t('profile.discord')}</Label>
+                <Input
+                  id="discord"
+                  {...profileForm.register("socialLinks.discord")}
+                  placeholder="username#0000"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="twitter">{t('profile.twitter')}</Label>
+                <Input
+                  id="twitter"
+                  {...profileForm.register("socialLinks.twitter")}
+                  placeholder="@username"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="instagram">{t('profile.instagram')}</Label>
+                <Input
+                  id="instagram"
+                  {...profileForm.register("socialLinks.instagram")}
+                  placeholder="@username"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="website">{t('profile.website')}</Label>
+                <Input
+                  id="website"
+                  {...profileForm.register("socialLinks.website")}
+                  placeholder="https://your-website.com"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">{t('profile.privacy')}</h3>
+
+              <div className="flex items-center justify-between">
+                <Label htmlFor="isPrivateProfile">{t('profile.privateProfile')}</Label>
+                <Switch
+                  id="isPrivateProfile"
+                  checked={profileForm.watch("isPrivateProfile")}
+                  onCheckedChange={(checked) => 
+                    profileForm.setValue("isPrivateProfile", checked)
+                  }
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label htmlFor="showLastSeen">{t('profile.showLastSeen')}</Label>
+                <Switch
+                  id="showLastSeen"
+                  checked={profileForm.watch("showLastSeen")}
+                  onCheckedChange={(checked) => 
+                    profileForm.setValue("showLastSeen", checked)
+                  }
+                />
+              </div>
             </div>
 
             <Button 

@@ -38,16 +38,24 @@ export interface IStorage {
   sessionStore: session.Store;
   updateUserProfile(
     userId: number, 
-    data: { bio?: string; age?: number; avatar?: string }
+    data: {
+      bio?: string;
+      age?: number;
+      avatar?: string;
+      nickname?: string;
+      status?: string;
+      socialLinks?: {
+        discord?: string;
+        twitter?: string;
+        instagram?: string;
+        website?: string;
+      };
+      theme?: string;
+      isPrivateProfile?: boolean;
+      showLastSeen?: boolean;
+    }
   ): Promise<User>;
-
-  // Message methods
-  createMessage(channelId: number, userId: number, content: string): Promise<Message>;
-  getMessages(channelId: number): Promise<MessageWithReactions[]>;
-
-  // Reaction methods
-  addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction>;
-  removeReaction(messageId: number, userId: number, emoji: string): Promise<void>;
+  updateLastActive(userId: number): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -275,7 +283,22 @@ export class MemStorage implements IStorage {
   }
   async updateUserProfile(
     userId: number, 
-    data: { bio?: string; age?: number; avatar?: string }
+    data: {
+      bio?: string;
+      age?: number;
+      avatar?: string;
+      nickname?: string;
+      status?: string;
+      socialLinks?: {
+        discord?: string;
+        twitter?: string;
+        instagram?: string;
+        website?: string;
+      };
+      theme?: string;
+      isPrivateProfile?: boolean;
+      showLastSeen?: boolean;
+    }
   ): Promise<User> {
     const user = await this.getUser(userId);
     if (!user) {
@@ -287,12 +310,26 @@ export class MemStorage implements IStorage {
       bio: data.bio ?? user.bio,
       age: data.age ?? user.age,
       avatar: data.avatar ?? user.avatar,
+      nickname: data.nickname ?? user.nickname,
+      status: data.status ?? user.status,
+      socialLinks: data.socialLinks ?? user.socialLinks,
+      theme: data.theme ?? user.theme,
+      isPrivateProfile: data.isPrivateProfile ?? user.isPrivateProfile,
+      showLastSeen: data.showLastSeen ?? user.showLastSeen,
+      lastActive: new Date(),
     };
 
     this.users.set(userId, updatedUser);
     return updatedUser;
   }
 
+  async updateLastActive(userId: number): Promise<void> {
+    const user = await this.getUser(userId);
+    if (user) {
+      user.lastActive = new Date();
+      this.users.set(userId, user);
+    }
+  }
   async createMessage(channelId: number, userId: number, content: string): Promise<Message> {
     const id = this.currentId++;
     const message: Message = {
