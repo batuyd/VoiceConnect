@@ -11,6 +11,7 @@ type AudioSettingsContextType = {
   selectedOutputDevice: string;
   setSelectedOutputDevice: (deviceId: string) => void;
   playTestSound: () => Promise<void>;
+  requestPermissions: () => Promise<boolean>;
 };
 
 const AudioSettingsContext = createContext<AudioSettingsContextType | null>(null);
@@ -31,117 +32,92 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>("");
-  const [permissionRequested, setPermissionRequested] = useState(false);
+
+  const requestPermissions = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    } catch (error) {
+      console.error('Failed to get audio permissions:', error);
+      toast({
+        description: t('audio.deviceAccessError'),
+        variant: "destructive",
+      });
+      return false;
+    }
+  };
+
+  const updateDeviceList = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioDevices = devices.filter(device => 
+        (device.kind === 'audioinput' || device.kind === 'audiooutput') && 
+        device.deviceId !== ''
+      );
+
+      setAudioDevices(audioDevices);
+
+      if (!selectedInputDevice) {
+        const defaultInput = audioDevices.find(device => 
+          device.kind === 'audioinput'
+        );
+        if (defaultInput) {
+          setSelectedInputDevice(defaultInput.deviceId);
+          try {
+            localStorage.setItem('inputDevice', defaultInput.deviceId);
+          } catch (error) {
+            console.error('Failed to save input device preference:', error);
+          }
+        }
+      }
+
+      if (!selectedOutputDevice) {
+        const defaultOutput = audioDevices.find(device => 
+          device.kind === 'audiooutput'
+        );
+        if (defaultOutput) {
+          setSelectedOutputDevice(defaultOutput.deviceId);
+          try {
+            localStorage.setItem('outputDevice', defaultOutput.deviceId);
+          } catch (error) {
+            console.error('Failed to save output device preference:', error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to enumerate devices:', error);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true;
-    let retryTimeout: NodeJS.Timeout;
-
-    const initializeAudioDevices = async () => {
-      try {
-        // İlk kez izin isteme
-        if (!permissionRequested) {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-              }
-            });
-            stream.getTracks().forEach(track => track.stop());
-            setPermissionRequested(true);
-          } catch (error) {
-            console.error('Failed to get audio permissions:', error);
-            if (mounted) {
-              toast({
-                description: t('audio.deviceAccessError'),
-                variant: "destructive",
-              });
-            }
-            return;
-          }
-        }
-
-        // Cihazları listele
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        if (!mounted) return;
-
-        const audioDevices = devices.filter(device => 
-          (device.kind === 'audioinput' || device.kind === 'audiooutput') && 
-          device.deviceId !== ''
-        );
-
-        if (audioDevices.length === 0) {
-          throw new Error(t('audio.noDevices'));
-        }
-
-        setAudioDevices(audioDevices);
-
-        // Giriş cihazını ayarla
-        if (!selectedInputDevice) {
-          const defaultInput = audioDevices.find(device => 
-            device.kind === 'audioinput' && device.deviceId !== 'default'
-          );
-          if (defaultInput) {
-            setSelectedInputDevice(defaultInput.deviceId);
-            try {
-              localStorage.setItem('inputDevice', defaultInput.deviceId);
-            } catch (error) {
-              console.error('Failed to save input device preference:', error);
-            }
-          }
-        }
-
-        // Çıkış cihazını ayarla
-        if (!selectedOutputDevice) {
-          const defaultOutput = audioDevices.find(device => 
-            device.kind === 'audiooutput' && device.deviceId !== 'default'
-          );
-          if (defaultOutput) {
-            setSelectedOutputDevice(defaultOutput.deviceId);
-            try {
-              localStorage.setItem('outputDevice', defaultOutput.deviceId);
-            } catch (error) {
-              console.error('Failed to save output device preference:', error);
-            }
-          }
-        }
-
-      } catch (error) {
-        console.error('Failed to initialize audio devices:', error);
-        if (mounted) {
-          toast({
-            description: t('audio.deviceAccessError'),
-            variant: "destructive",
-          });
-          retryTimeout = setTimeout(initializeAudioDevices, 5000);
-        }
-      }
-    };
-
     const handleDeviceChange = async () => {
       if (document.visibilityState === 'visible') {
-        await initializeAudioDevices();
+        await updateDeviceList();
       }
     };
 
-    initializeAudioDevices();
+    requestPermissions().then(granted => {
+      if (granted) {
+        updateDeviceList();
+      }
+    });
 
     navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
     document.addEventListener('visibilitychange', handleDeviceChange);
 
     return () => {
-      mounted = false;
-      if (retryTimeout) {
-        clearTimeout(retryTimeout);
-      }
       navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
       document.removeEventListener('visibilitychange', handleDeviceChange);
     };
-  }, [toast, t, permissionRequested]);
+  }, []);
 
-  // Ses seviyesi ayarlarını kaydet
   useEffect(() => {
     try {
       localStorage.setItem('volume', JSON.stringify(volume));
@@ -156,7 +132,10 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
 
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
       gainNode.gain.value = volume[0] / 100;
+
       oscillator.connect(gainNode);
 
       if (selectedOutputDevice && 'setSinkId' in HTMLAudioElement.prototype) {
@@ -175,17 +154,11 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         gainNode.connect(audioContext.destination);
       }
 
-      oscillator.frequency.value = 440;
-      oscillator.type = 'sine';
       oscillator.start();
-
       setTimeout(() => {
         oscillator.stop();
-        oscillator.disconnect();
-        gainNode.disconnect();
         audioContext.close();
-      }, 1000);
-
+      }, 500);
     } catch (error) {
       console.error('Failed to play test sound:', error);
       toast({
@@ -206,6 +179,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         selectedOutputDevice,
         setSelectedOutputDevice,
         playTestSound,
+        requestPermissions,
       }}
     >
       {children}
