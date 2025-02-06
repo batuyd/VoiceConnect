@@ -40,6 +40,7 @@ export const translations = {
       ban: 'Ban User',
       makeAdmin: 'Make Admin',
       removeAdmin: 'Remove Admin',
+      volume: 'Volume',
     },
     settings: {
       title: 'Settings',
@@ -87,6 +88,7 @@ export const translations = {
       ban: 'Kullanıcıyı Yasakla',
       makeAdmin: 'Admin Yap',
       removeAdmin: 'Admin Yetkisini Kaldır',
+      volume: 'Ses Seviyesi',
     },
     settings: {
       title: 'Ayarlar',
