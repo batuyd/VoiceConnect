@@ -12,7 +12,6 @@ import AuthPage from "@/pages/auth-page";
 import HomePage from "@/pages/home-page";
 import ProfilePage from "@/pages/profile-page";
 import SettingsPage from "@/pages/settings-page";
-import { CoinDisplay } from "@/components/coin-display";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import React from "react";
@@ -22,11 +21,6 @@ function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-gray-900">
-      {user && (
-        <div className="fixed top-4 right-4 z-50">
-          <CoinDisplay />
-        </div>
-      )}
       {children}
       {user && <SettingsDialog />}
     </div>

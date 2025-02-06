@@ -26,27 +26,41 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     async function initializeAudioDevices() {
       try {
-        // Önce ses izinlerini iste
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => track.stop()); // İzin aldıktan sonra stream'i kapat
-
-        // Cihazları listele
+        // İlk olarak ses cihazlarını listele
         const devices = await navigator.mediaDevices.enumerateDevices();
-        if (!mounted) return;
 
-        const audioDevices = devices.filter(device => 
-          device.kind === 'audioinput' || device.kind === 'audiooutput'
-        );
+        // Eğer izinler yoksa, kullanıcıdan izin iste
+        if (!devices.some(device => device.label)) {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(track => track.stop());
+          // İzin aldıktan sonra cihazları tekrar listele
+          const devicesWithLabels = await navigator.mediaDevices.enumerateDevices();
+          if (!mounted) return;
+          const audioDevices = devicesWithLabels.filter(device => 
+            device.kind === 'audioinput' || device.kind === 'audiooutput'
+          );
+          setAudioDevices(audioDevices);
 
-        setAudioDevices(audioDevices);
+          // Varsayılan cihazları seç
+          const defaultInput = audioDevices.find(device => device.kind === 'audioinput');
+          const defaultOutput = audioDevices.find(device => device.kind === 'audiooutput');
 
-        // Varsayılan cihazları seç
-        const defaultInput = audioDevices.find(device => device.kind === 'audioinput');
-        const defaultOutput = audioDevices.find(device => device.kind === 'audiooutput');
+          if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
+          if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
+        } else {
+          if (!mounted) return;
+          const audioDevices = devices.filter(device => 
+            device.kind === 'audioinput' || device.kind === 'audiooutput'
+          );
+          setAudioDevices(audioDevices);
 
-        if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
-        if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
+          // Varsayılan cihazları seç
+          const defaultInput = audioDevices.find(device => device.kind === 'audioinput');
+          const defaultOutput = audioDevices.find(device => device.kind === 'audiooutput');
 
+          if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
+          if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
+        }
       } catch (error) {
         console.error('Ses cihazlarına erişilemedi:', error);
         toast({
@@ -56,7 +70,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       }
     }
 
-    // Cihaz değişikliklerini dinle
     navigator.mediaDevices.addEventListener('devicechange', initializeAudioDevices);
     initializeAudioDevices();
 
@@ -64,7 +77,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       mounted = false;
       navigator.mediaDevices.removeEventListener('devicechange', initializeAudioDevices);
     };
-  }, []);
+  }, [toast]);
 
   const playTestSound = async () => {
     const audioContext = new AudioContext();

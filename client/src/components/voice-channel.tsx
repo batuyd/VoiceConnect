@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, Trash2, Plus } from "lucide-react";
+import { Volume2, VolumeX, Plus } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -144,14 +144,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               >
                 <Plus className="h-4 w-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => deleteChannelMutation.mutate()}
-                disabled={deleteChannelMutation.isPending}
-              >
-                <Trash2 className="h-4 w-4 text-red-400" />
-              </Button>
             </>
           )}
           <Button
@@ -182,7 +174,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             <>
               <div className="h-[1px] bg-gray-700" />
               <div className="flex flex-wrap gap-2">
-                {channelMembers.map((member: any) => (
+                {channelMembers.map((member) => (
                   <div key={member.id} className="flex items-center space-x-2 p-2 rounded bg-gray-700/50">
                     <Avatar className="h-6 w-6">
                       <AvatarImage src={member.avatar} />

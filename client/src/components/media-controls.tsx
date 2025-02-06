@@ -39,66 +39,52 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws`;
 
-    try {
-      const socket = new WebSocket(wsUrl);
+    const socket = new WebSocket(wsUrl);
 
-      socket.onopen = () => {
-        setIsConnecting(false);
-        setRetryCount(0);
-        socket.send(JSON.stringify({
-          type: 'join_channel',
-          channelId
-        }));
-      };
-
-      socket.onclose = () => {
-        setIsConnecting(false);
-        setWs(null);
-        if (retryCount < maxRetries) {
-          setRetryCount(prev => prev + 1);
-          setTimeout(connectWebSocket, 1000 * Math.pow(2, retryCount));
-        } else {
-          toast({
-            description: t('media.connectionError'),
-            variant: "destructive",
-          });
-        }
-      };
-
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        socket.close();
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'media_state' && data.channelId === channelId) {
-            queryClient.setQueryData(['/api/channels', channelId], (oldData: any) => ({
-              ...oldData,
-              currentMedia: data.media,
-              mediaQueue: data.queue
-            }));
-          }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
-        }
-      };
-
-      setWs(socket);
-    } catch (error) {
-      console.error('Failed to create WebSocket connection:', error);
+    socket.onopen = () => {
+      console.log('WebSocket connected');
       setIsConnecting(false);
+      setRetryCount(0);
+      socket.send(JSON.stringify({
+        type: 'join_channel',
+        channelId
+      }));
+    };
+
+    socket.onclose = () => {
+      console.log('WebSocket disconnected');
+      setIsConnecting(false);
+      setWs(null);
       if (retryCount < maxRetries) {
         setRetryCount(prev => prev + 1);
         setTimeout(connectWebSocket, 1000 * Math.pow(2, retryCount));
       }
-    }
-  }, [channelId, isConnecting, retryCount, t]);
+    };
+
+    socket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'media_state' && data.channelId === channelId) {
+          queryClient.setQueryData(['/api/channels', channelId], (oldData: any) => ({
+            ...oldData,
+            currentMedia: data.media,
+            mediaQueue: data.queue || []
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to parse WebSocket message:', error);
+      }
+    };
+
+    setWs(socket);
+  }, [channelId, isConnecting, retryCount]);
 
   useEffect(() => {
     connectWebSocket();
-
     return () => {
       if (ws) {
         ws.close();
