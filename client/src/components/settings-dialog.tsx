@@ -15,14 +15,14 @@ export function SettingsDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
-          variant="ghost"
+          variant="secondary"
           size="icon"
-          className="fixed bottom-4 right-4 rounded-full"
+          className="fixed bottom-4 right-4 rounded-full shadow-lg bg-gray-800 hover:bg-gray-700 z-50"
         >
           <Settings className="h-5 w-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Ayarlar</DialogTitle>
         </DialogHeader>
