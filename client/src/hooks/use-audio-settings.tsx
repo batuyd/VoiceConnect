@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/hooks/use-language";
 
 type AudioSettingsContextType = {
   volume: number[];
@@ -16,6 +17,7 @@ const AudioSettingsContext = createContext<AudioSettingsContextType | null>(null
 
 export function AudioSettingsProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
+  const { t } = useLanguage();
   const [volume, setVolume] = useState<number[]>([50]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
@@ -26,47 +28,35 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     async function initializeAudioDevices() {
       try {
-        // İlk olarak ses cihazlarını listele
+        // Cihazlara erişim izni iste
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+
+        // Cihazları listele
         const devices = await navigator.mediaDevices.enumerateDevices();
+        if (!mounted) return;
 
-        // Eğer izinler yoksa, kullanıcıdan izin iste
-        if (!devices.some(device => device.label)) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach(track => track.stop());
-          // İzin aldıktan sonra cihazları tekrar listele
-          const devicesWithLabels = await navigator.mediaDevices.enumerateDevices();
-          if (!mounted) return;
-          const audioDevices = devicesWithLabels.filter(device => 
-            device.kind === 'audioinput' || device.kind === 'audiooutput'
-          );
-          setAudioDevices(audioDevices);
+        const audioDevices = devices.filter(device => 
+          device.kind === 'audioinput' || device.kind === 'audiooutput'
+        );
 
-          // Varsayılan cihazları seç
-          const defaultInput = audioDevices.find(device => device.kind === 'audioinput');
-          const defaultOutput = audioDevices.find(device => device.kind === 'audiooutput');
+        setAudioDevices(audioDevices);
 
-          if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
-          if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
-        } else {
-          if (!mounted) return;
-          const audioDevices = devices.filter(device => 
-            device.kind === 'audioinput' || device.kind === 'audiooutput'
-          );
-          setAudioDevices(audioDevices);
+        // Varsayılan cihazları seç
+        const defaultInput = audioDevices.find(device => device.kind === 'audioinput');
+        const defaultOutput = audioDevices.find(device => device.kind === 'audiooutput');
 
-          // Varsayılan cihazları seç
-          const defaultInput = audioDevices.find(device => device.kind === 'audioinput');
-          const defaultOutput = audioDevices.find(device => device.kind === 'audiooutput');
+        if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
+        if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
 
-          if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
-          if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
-        }
       } catch (error) {
         console.error('Ses cihazlarına erişilemedi:', error);
-        toast({
-          description: "Ses cihazlarına erişilemedi. Lütfen mikrofon izinlerini kontrol edin.",
-          variant: "destructive",
-        });
+        if (mounted) {
+          toast({
+            description: t('audio.deviceAccessError'),
+            variant: "destructive",
+          });
+        }
       }
     }
 
@@ -77,7 +67,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       mounted = false;
       navigator.mediaDevices.removeEventListener('devicechange', initializeAudioDevices);
     };
-  }, [toast]);
+  }, [toast, t]);
 
   const playTestSound = async () => {
     const audioContext = new AudioContext();
@@ -107,8 +97,8 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
       oscillator.frequency.value = 440;
       oscillator.type = 'sine';
-
       oscillator.start();
+
       setTimeout(() => {
         oscillator.stop();
         oscillator.disconnect();
@@ -118,7 +108,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     } catch (error) {
       console.error('Test sesi çalınamadı:', error);
       toast({
-        description: "Test sesi çalınamadı. Lütfen ses izinlerini kontrol edin.",
+        description: t('audio.testSoundError'),
         variant: "destructive",
       });
     }

@@ -4,17 +4,23 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { useQuery } from "@tanstack/react-query";
 import { MediaControls } from "./media-controls";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
 
 interface VoiceChannelProps {
   channel: Channel;
   isOwner: boolean;
+}
+
+interface ChannelMember {
+  id: number;
+  username: string;
+  avatar?: string;
+  isMuted: boolean;
 }
 
 export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
@@ -26,56 +32,85 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { selectedInputDevice } = useAudioSettings();
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
+  const gainNode = useRef<GainNode | null>(null);
 
-  const { data: channelMembers = [], refetch: refetchMembers } = useQuery({
+  const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined
   });
 
   useEffect(() => {
+    let mounted = true;
+
     async function setupAudioStream() {
       if (!selectedInputDevice || !isJoined) return;
 
       try {
+        // Temizle mevcut stream'i
         if (stream.current) {
           stream.current.getTracks().forEach(track => track.stop());
         }
 
-        stream.current = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: { exact: selectedInputDevice }
-          }
-        });
-
+        // Yeni audio context ve stream oluştur
         if (!audioContext.current) {
           audioContext.current = new AudioContext();
         }
 
+        stream.current = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: { exact: selectedInputDevice },
+            echoCancellation: true,
+            noiseSuppression: true,
+          }
+        });
+
+        if (!mounted) return;
+
         const source = audioContext.current.createMediaStreamSource(stream.current);
+        gainNode.current = audioContext.current.createGain();
+
+        source.connect(gainNode.current);
         if (!isMuted) {
-          source.connect(audioContext.current.destination);
+          gainNode.current.connect(audioContext.current.destination);
         }
 
       } catch (error) {
         console.error('Ses akışı başlatılamadı:', error);
-        toast({
-          description: "Ses akışı başlatılamadı. Lütfen mikrofon izinlerini kontrol edin.",
-          variant: "destructive",
-        });
+        if (mounted) {
+          toast({
+            description: t('voice.streamError'),
+            variant: "destructive",
+          });
+        }
       }
     }
 
     setupAudioStream();
 
     return () => {
+      mounted = false;
       if (stream.current) {
         stream.current.getTracks().forEach(track => track.stop());
       }
-      if (audioContext.current) {
-        audioContext.current.close();
+      if (gainNode.current) {
+        gainNode.current.disconnect();
+      }
+      if (audioContext.current?.state !== 'closed') {
+        audioContext.current?.close();
       }
     };
-  }, [selectedInputDevice, isJoined, isMuted]);
+  }, [selectedInputDevice, isJoined, isMuted, toast, t]);
+
+  // Ses durumunu değiştir
+  useEffect(() => {
+    if (!gainNode.current || !audioContext.current) return;
+
+    if (isMuted) {
+      gainNode.current.disconnect();
+    } else {
+      gainNode.current.connect(audioContext.current.destination);
+    }
+  }, [isMuted]);
 
   const addBotMutation = useMutation({
     mutationFn: async () => {
@@ -87,25 +122,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     onSuccess: () => {
       refetchMembers();
       toast({
-        description: "Test botu eklendi",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const deleteChannelMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("DELETE", `/api/channels/${channel.id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/servers/${channel.serverId}/channels`] });
-      toast({
-        description: t('server.channelDeleted'),
+        description: t('server.botAdded'),
       });
     },
     onError: (error: Error) => {
@@ -134,17 +151,15 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
         <div className="flex items-center gap-2">
           {isOwner && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => addBotMutation.mutate()}
-                disabled={addBotMutation.isPending}
-                className="text-blue-400"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => addBotMutation.mutate()}
+              disabled={addBotMutation.isPending}
+              className="text-blue-400"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
           )}
           <Button
             variant={isJoined ? "destructive" : "default"}
@@ -166,7 +181,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               onClick={() => setIsMuted(!isMuted)}
               className={isMuted ? "text-red-400" : "text-green-400"}
             >
-              {isMuted ? "Sesi Aç" : "Sesi Kapat"}
+              {isMuted ? t('voice.unmute') : t('voice.mute')}
             </Button>
           </div>
 

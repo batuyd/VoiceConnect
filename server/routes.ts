@@ -388,8 +388,12 @@ export function registerRoutes(app: Express): Server {
 
   const httpServer = createServer(app);
 
-  // WebSocket server for real-time media sync
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  // WebSocket server yapılandırması
+  const wss = new WebSocketServer({ 
+    server: httpServer, 
+    path: '/ws',
+    clientTracking: true 
+  });
 
   wss.on('connection', (ws) => {
     console.log('New WebSocket connection established');
@@ -419,10 +423,9 @@ export function registerRoutes(app: Express): Server {
           const botUser = await storage.getUserByUsername("TestBot");
           if (botUser) {
             try {
-              // Bot'u kanala ekle
               await storage.addUserToPrivateChannel(data.channelId, botUser.id);
 
-              // Tüm bağlantılara bot katılımını bildir
+              // Broadcast bot join event to all connected clients
               wss.clients.forEach((client) => {
                 if (client.readyState === WebSocket.OPEN) {
                   client.send(JSON.stringify({
@@ -447,7 +450,7 @@ export function registerRoutes(app: Express): Server {
     });
   });
 
-  // Media streaming server
+  // Media streaming server yapılandırması
   const nms = new NodeMediaServer({
     rtmp: {
       port: 1935,
