@@ -57,6 +57,8 @@ export const channels = pgTable("channels", {
   name: text("name").notNull(),
   serverId: integer("server_id").notNull(),
   isVoice: boolean("is_voice").notNull().default(false),
+  isPrivate: boolean("is_private").notNull().default(false),
+  allowedUsers: integer("allowed_users").array(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -96,7 +98,7 @@ export const coinTransactions = pgTable("coin_transactions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
   amount: decimal("amount").notNull(),
-  type: text("type").notNull(), // 'daily_reward', 'purchase', 'achievement', 'voice_activity', 'referral'
+  type: text("type").notNull(),
   description: text("description").notNull(),
   metadata: jsonb("metadata").$type<{
     orderId?: string;
@@ -113,7 +115,7 @@ export const coinProducts = pgTable("coin_products", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   amount: decimal("amount").notNull(),
-  price: decimal("price").notNull(), // In USD
+  price: decimal("price").notNull(),
   bonus: decimal("bonus").default("0"),
   isPopular: boolean("is_popular").default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -122,7 +124,7 @@ export const coinProducts = pgTable("coin_products", {
 export const userAchievements = pgTable("user_achievements", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  type: text("type").notNull(), // 'voice_time', 'referrals', 'reactions', 'messages'
+  type: text("type").notNull(),
   progress: integer("progress").notNull().default(0),
   goal: integer("goal").notNull(),
   rewardAmount: decimal("reward_amount").notNull(),
@@ -157,6 +159,21 @@ export const giftHistory = pgTable("gift_history", {
   giftId: integer("gift_id").notNull(),
   coinAmount: decimal("coin_amount").notNull(),
   message: text("message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const userSubscriptions = pgTable("user_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  type: text("type").notNull(),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  features: jsonb("features").$type<{
+    privateChannels: boolean;
+    customEmojis: boolean;
+    voiceEffects: boolean;
+    extendedUpload: boolean;
+  }>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -200,6 +217,7 @@ export const insertUserAchievementSchema = createInsertSchema(userAchievements);
 export const insertGiftSchema = createInsertSchema(gifts);
 export const insertUserLevelSchema = createInsertSchema(userLevels);
 export const insertGiftHistorySchema = createInsertSchema(giftHistory);
+export const insertUserSubscriptionSchema = createInsertSchema(userSubscriptions);
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -217,6 +235,7 @@ export type UserAchievement = typeof userAchievements.$inferSelect;
 export type Gift = typeof gifts.$inferSelect;
 export type UserLevel = typeof userLevels.$inferSelect;
 export type GiftHistory = typeof giftHistory.$inferSelect;
+export type UserSubscription = typeof userSubscriptions.$inferSelect;
 
 export type MessageWithReactions = Message & {
   user: User;

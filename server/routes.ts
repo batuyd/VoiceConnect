@@ -37,10 +37,19 @@ export function registerRoutes(app: Express): Server {
     if (!server || server.ownerId !== req.user.id) {
       return res.sendStatus(403);
     }
+    // Premium kullanıcı kontrolü
+    if (req.body.isPrivate) {
+      const hasSubscription = await storage.hasActiveSubscription(req.user.id);
+      if (!hasSubscription) {
+        return res.status(403).json({ error: "Bu özellik sadece premium üyelere açıktır" });
+      }
+    }
+
     const channel = await storage.createChannel(
       req.body.name,
       parseInt(req.params.serverId),
-      req.body.isVoice
+      req.body.isVoice,
+      req.body.isPrivate
     );
     res.status(201).json(channel);
   });
@@ -194,6 +203,56 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
     const userLevel = await storage.getUserLevel(req.user.id);
     res.json(userLevel);
+  });
+
+  app.post("/api/channels/:channelId/members", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    const channel = await storage.getChannel(parseInt(req.params.channelId));
+    if (!channel) return res.sendStatus(404);
+
+    const server = await storage.getServer(channel.serverId);
+    if (!server || server.ownerId !== req.user.id) {
+      return res.sendStatus(403);
+    }
+
+    await storage.addUserToPrivateChannel(
+      parseInt(req.params.channelId),
+      req.body.userId
+    );
+    res.sendStatus(200);
+  });
+
+  app.delete("/api/channels/:channelId/members/:userId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    const channel = await storage.getChannel(parseInt(req.params.channelId));
+    if (!channel) return res.sendStatus(404);
+
+    const server = await storage.getServer(channel.serverId);
+    if (!server || server.ownerId !== req.user.id) {
+      return res.sendStatus(403);
+    }
+
+    await storage.removeUserFromPrivateChannel(
+      parseInt(req.params.channelId),
+      parseInt(req.params.userId)
+    );
+    res.sendStatus(200);
+  });
+
+  app.get("/api/channels/:channelId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    const channelId = parseInt(req.params.channelId);
+    const canAccess = await storage.canAccessChannel(channelId, req.user.id);
+
+    if (!canAccess) {
+      return res.sendStatus(403);
+    }
+
+    const channel = await storage.getChannel(channelId);
+    res.json(channel);
   });
 
   const httpServer = createServer(app);

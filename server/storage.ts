@@ -38,6 +38,22 @@ interface UserLevel {
   createdAt: Date;
 }
 
+interface UserSubscription {
+  id: number;
+  userId: number;
+  type: string;
+  startDate: Date;
+  endDate: Date | null;
+  features: {
+    privateChannels: boolean;
+    customEmojis: boolean;
+    voiceEffects: boolean;
+    extendedUpload: boolean;
+  };
+  createdAt: Date;
+}
+
+
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -61,7 +77,7 @@ export interface IStorage {
   joinServerWithInvite(code: string, userId: number): Promise<void>;
 
   getChannels(serverId: number): Promise<Channel[]>;
-  createChannel(name: string, serverId: number, isVoice: boolean): Promise<Channel>;
+  createChannel(name: string, serverId: number, isVoice: boolean, isPrivate?: boolean): Promise<Channel>;
 
   getServerMembers(serverId: number): Promise<User[]>;
   addServerMember(serverId: number, userId: number): Promise<void>;
@@ -111,6 +127,16 @@ export interface IStorage {
   getUserLevel(userId: number): Promise<UserLevel>;
   addExperience(userId: number, amount: number): Promise<UserLevel>;
   calculateTitle(level: number): string;
+
+  // Premium üyelik metodları
+  getUserSubscription(userId: number): Promise<UserSubscription | undefined>;
+  createUserSubscription(userId: number): Promise<UserSubscription>;
+  hasActiveSubscription(userId: number): Promise<boolean>;
+
+  // Gizli kanal metodları
+  addUserToPrivateChannel(channelId: number, userId: number): Promise<void>;
+  removeUserFromPrivateChannel(channelId: number, userId: number): Promise<void>;
+  canAccessChannel(channelId: number, userId: number): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -131,6 +157,7 @@ export class MemStorage implements IStorage {
   private gifts: Map<number, Gift>;
   private userLevels: Map<number, UserLevel>;
   private giftHistory: Map<number, GiftHistory>;
+  private userSubscriptions: Map<number, UserSubscription>;
 
   constructor() {
     this.users = new Map();
@@ -152,6 +179,7 @@ export class MemStorage implements IStorage {
     this.gifts = new Map();
     this.userLevels = new Map();
     this.giftHistory = new Map();
+    this.userSubscriptions = new Map();
 
     this.initializeCoinProducts();
     this.initializeGifts();
@@ -162,7 +190,7 @@ export class MemStorage implements IStorage {
       {
         id: this.currentId++,
         name: "Başlangıç Paketi",
-        description: "Yeni başlayanlar için ideal",
+        description: "Yeni başlayanlar için ideal - 100 Ozba Coin",
         amount: 100,
         price: 29.99,
         bonus: 0,
@@ -172,7 +200,7 @@ export class MemStorage implements IStorage {
       {
         id: this.currentId++,
         name: "Popüler Paket",
-        description: "En çok tercih edilen",
+        description: "En çok tercih edilen - 500 Ozba Coin + 50 Bonus Coin",
         amount: 500,
         price: 149.99,
         bonus: 50,
@@ -182,7 +210,7 @@ export class MemStorage implements IStorage {
       {
         id: this.currentId++,
         name: "Premium Paket",
-        description: "En iyi fiyat/performans",
+        description: "En iyi fiyat/performans - 1200 Ozba Coin + 200 Bonus Coin + Premium Üyelik",
         amount: 1200,
         price: 299.99,
         bonus: 200,
@@ -394,13 +422,15 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async createChannel(name: string, serverId: number, isVoice: boolean): Promise<Channel> {
+  async createChannel(name: string, serverId: number, isVoice: boolean, isPrivate: boolean = false): Promise<Channel> {
     const id = this.currentId++;
     const channel: Channel = {
       id,
       name,
       serverId,
       isVoice,
+      isPrivate,
+      allowedUsers: [],
       createdAt: new Date(),
     };
     this.channels.set(id, channel);
@@ -800,6 +830,64 @@ export class MemStorage implements IStorage {
       .sort((a, b) => parseInt(b[0]) - parseInt(a[0]));
 
     return eligibleTitles[0]?.[1] || "Yeni Üye";
+  }
+
+  async getUserSubscription(userId: number): Promise<UserSubscription | undefined> {
+    return Array.from(this.userSubscriptions.values()).find(
+      sub => sub.userId === userId && (!sub.endDate || new Date(sub.endDate) > new Date())
+    );
+  }
+
+  async createUserSubscription(userId: number): Promise<UserSubscription> {
+    const id = this.currentId++;
+    const subscription: UserSubscription = {
+      id,
+      userId,
+      type: 'premium',
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 gün
+      features: {
+        privateChannels: true,
+        customEmojis: true,
+        voiceEffects: true,
+        extendedUpload: true,
+      },
+      createdAt: new Date(),
+    };
+    this.userSubscriptions.set(id, subscription);
+    return subscription;
+  }
+
+  async hasActiveSubscription(userId: number): Promise<boolean> {
+    const subscription = await this.getUserSubscription(userId);
+    return !!subscription;
+  }
+
+  async addUserToPrivateChannel(channelId: number, userId: number): Promise<void> {
+    const channel = await this.getChannel(channelId);
+    if (channel && channel.isPrivate) {
+      channel.allowedUsers = [...(channel.allowedUsers || []), userId];
+      this.channels.set(channelId, channel);
+    }
+  }
+
+  async removeUserFromPrivateChannel(channelId: number, userId: number): Promise<void> {
+    const channel = await this.getChannel(channelId);
+    if (channel && channel.isPrivate) {
+      channel.allowedUsers = (channel.allowedUsers || []).filter(id => id !== userId);
+      this.channels.set(channelId, channel);
+    }
+  }
+
+  async canAccessChannel(channelId: number, userId: number): Promise<boolean> {
+    const channel = await this.getChannel(channelId);
+    if (!channel) return false;
+    if (!channel.isPrivate) return true;
+
+    const server = await this.getServer(channel.serverId);
+    if (server?.ownerId === userId) return true;
+
+    return channel.allowedUsers?.includes(userId) || false;
   }
 }
 
