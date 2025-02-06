@@ -16,13 +16,18 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertUserSchema } from "@shared/schema";
 import { Redirect } from "wouter";
+import { Loader2 } from "lucide-react";
 
 export default function AuthPage() {
-  const { user, loginMutation, registerMutation } = useAuth();
+  const { user, loginMutation, registerMutation, isLoading } = useAuth();
   const { t, language, setLanguage } = useLanguage();
 
   const loginForm = useForm({
     resolver: zodResolver(insertUserSchema.pick({ username: true, password: true })),
+    defaultValues: {
+      username: "",
+      password: ""
+    }
   });
 
   const registerForm = useForm({
@@ -34,6 +39,14 @@ export default function AuthPage() {
       password: "",
     },
   });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (user) {
     return <Redirect to="/" />;
@@ -94,11 +107,14 @@ export default function AuthPage() {
                       className="w-full"
                       disabled={loginMutation.isPending}
                     >
+                      {loginMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
                       {t('auth.login')}
                     </Button>
                     {loginMutation.isError && (
                       <p className="text-sm text-destructive text-center">
-                        {t('auth.errors.invalidCredentials')}
+                        {t('auth.errors.loginFailed')}
                       </p>
                     )}
                   </div>
@@ -151,6 +167,9 @@ export default function AuthPage() {
                       className="w-full"
                       disabled={registerMutation.isPending}
                     >
+                      {registerMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
                       {t('auth.register')}
                     </Button>
                     {registerMutation.isError && (

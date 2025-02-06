@@ -44,41 +44,43 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     enabled: isJoined
   });
 
+  // WebSocket connection setup
   useEffect(() => {
     let mounted = true;
 
     const connectWebSocket = () => {
-      if (!isJoined || wsRef.current?.readyState === WebSocket.OPEN || retryCount >= maxRetries) {
+      if (!isJoined || !user?.id || wsRef.current?.readyState === WebSocket.OPEN || retryCount >= maxRetries) {
         return;
       }
 
-      // Cleanup previous connection
+      // Close existing connection if any
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
 
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-      const ws = new WebSocket(wsUrl);
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        const ws = new WebSocket(wsUrl);
 
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        if (mounted) {
+        ws.onopen = () => {
+          if (!mounted) return;
+          console.log('WebSocket connected');
           setWsConnected(true);
           setRetryCount(0);
           ws.send(JSON.stringify({
             type: 'join_channel',
             channelId: channel.id,
-            userId: user?.id
+            userId: user.id
           }));
-        }
-      };
+        };
 
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        if (mounted) {
+        ws.onclose = () => {
+          if (!mounted) return;
+          console.log('WebSocket disconnected');
           setWsConnected(false);
+
           if (retryCount < maxRetries && isJoined) {
             const timeout = Math.min(1000 * Math.pow(2, retryCount), 10000);
             retryTimeoutRef.current = setTimeout(() => {
@@ -88,36 +90,48 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               }
             }, timeout);
           }
-        }
-      };
+        };
 
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          if (mounted) {
+            toast({
+              description: t('voice.connectionError'),
+              variant: "destructive",
+            });
+          }
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'error') {
+              console.error('WebSocket error:', data.message);
+              toast({
+                description: data.message,
+                variant: "destructive",
+              });
+            } else if (data.type === 'member_update') {
+              refetchMembers();
+            }
+          } catch (error) {
+            console.error('Failed to parse WebSocket message:', error);
+          }
+        };
+
+        wsRef.current = ws;
+      } catch (error) {
+        console.error('Failed to create WebSocket connection:', error);
         if (mounted) {
           toast({
-            description: t('voice.connectionError'),
+            description: t('voice.connectionFailed'),
             variant: "destructive",
           });
         }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'member_update') {
-            refetchMembers();
-          }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
-        }
-      };
-
-      wsRef.current = ws;
+      }
     };
 
-    if (isJoined) {
-      connectWebSocket();
-    }
+    connectWebSocket();
 
     return () => {
       mounted = false;
@@ -131,46 +145,60 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers]);
 
+  // Audio stream setup
   useEffect(() => {
     let mounted = true;
 
     async function setupAudioStream() {
       if (!selectedInputDevice || !isJoined) return;
 
+      // Clean up existing stream
+      if (stream.current) {
+        stream.current.getTracks().forEach(track => track.stop());
+      }
+
       try {
-        // Clean up existing stream
-        if (stream.current) {
-          stream.current.getTracks().forEach(track => track.stop());
-        }
-
-        // Create new audio context and stream
-        if (!audioContext.current) {
-          audioContext.current = new AudioContext();
-        }
-
-        stream.current = await navigator.mediaDevices.getUserMedia({
+        // Request audio permissions first
+        await navigator.mediaDevices.getUserMedia({ 
           audio: {
             deviceId: { exact: selectedInputDevice },
             echoCancellation: true,
             noiseSuppression: true,
+            autoGainControl: true
+          }
+        }).then(async (mediaStream) => {
+          if (!mounted) {
+            mediaStream.getTracks().forEach(track => track.stop());
+            return;
+          }
+
+          // Create new audio context and stream
+          if (!audioContext.current) {
+            audioContext.current = new AudioContext();
+          }
+
+          stream.current = mediaStream;
+          const source = audioContext.current.createMediaStreamSource(mediaStream);
+          gainNode.current = audioContext.current.createGain();
+
+          source.connect(gainNode.current);
+          if (!isMuted) {
+            gainNode.current.connect(audioContext.current.destination);
+          }
+        }).catch((error) => {
+          console.error('Audio stream error:', error);
+          if (mounted) {
+            toast({
+              description: t('voice.streamError'),
+              variant: "destructive",
+            });
           }
         });
-
-        if (!mounted) return;
-
-        const source = audioContext.current.createMediaStreamSource(stream.current);
-        gainNode.current = audioContext.current.createGain();
-
-        source.connect(gainNode.current);
-        if (!isMuted) {
-          gainNode.current.connect(audioContext.current.destination);
-        }
-
       } catch (error) {
-        console.error('Audio stream error:', error);
+        console.error('Audio setup error:', error);
         if (mounted) {
           toast({
-            description: t('voice.streamError'),
+            description: t('voice.deviceAccessError'),
             variant: "destructive",
           });
         }
@@ -193,6 +221,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, [selectedInputDevice, isJoined, isMuted, toast, t]);
 
+  // Handle mute/unmute
   useEffect(() => {
     if (!gainNode.current || !audioContext.current) return;
 
@@ -226,7 +255,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const handleJoinLeave = () => {
     if (isJoined) {
-      // Leave channel logic
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -262,27 +290,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {isOwner && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => addBotMutation.mutate()}
-              disabled={addBotMutation.isPending}
-              className="text-blue-400"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          )}
-          <Button
-            variant={isJoined ? "destructive" : "default"}
-            size="sm"
-            onClick={handleJoinLeave}
-            className="w-20"
-          >
-            {isJoined ? t('server.leave') : t('server.join')}
-          </Button>
-        </div>
+        <Button
+          variant={isJoined ? "destructive" : "default"}
+          size="sm"
+          onClick={handleJoinLeave}
+          className="w-20"
+        >
+          {isJoined ? t('server.leave') : t('server.join')}
+        </Button>
       </div>
 
       {isJoined && (

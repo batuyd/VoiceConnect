@@ -29,25 +29,36 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     const initializeAudioDevices = async () => {
       try {
+        // Request permission if not already requested
         if (!permissionRequested) {
-          // Request permission by attempting to get the stream
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-            }
-          });
-          // Stop all tracks after getting permission
-          stream.getTracks().forEach(track => track.stop());
-          setPermissionRequested(true);
+          try {
+            await navigator.mediaDevices.getUserMedia({ 
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              }
+            }).then(stream => {
+              stream.getTracks().forEach(track => track.stop());
+              setPermissionRequested(true);
+            });
+          } catch (error) {
+            console.error('Failed to get audio permissions:', error);
+            toast({
+              description: t('audio.deviceAccessError'),
+              variant: "destructive",
+            });
+            return;
+          }
         }
 
-        // Get the full device list
-        const updatedDevices = await navigator.mediaDevices.enumerateDevices();
+        // Get the list of available devices
+        const devices = await navigator.mediaDevices.enumerateDevices();
         if (!mounted) return;
 
-        const audioDevices = updatedDevices.filter(device => 
-          device.kind === 'audioinput' || device.kind === 'audiooutput'
+        const audioDevices = devices.filter(device => 
+          (device.kind === 'audioinput' || device.kind === 'audiooutput') && 
+          device.deviceId !== ''
         );
 
         if (audioDevices.length === 0) {
@@ -57,20 +68,26 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         setAudioDevices(audioDevices);
 
         // Set default devices if not already set
-        if (!selectedInputDevice || !selectedOutputDevice) {
+        if (!selectedInputDevice) {
           const defaultInput = audioDevices.find(device => 
             device.kind === 'audioinput' && device.deviceId !== 'default'
           );
+          if (defaultInput) {
+            setSelectedInputDevice(defaultInput.deviceId);
+          }
+        }
+
+        if (!selectedOutputDevice) {
           const defaultOutput = audioDevices.find(device => 
             device.kind === 'audiooutput' && device.deviceId !== 'default'
           );
-
-          if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
-          if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
+          if (defaultOutput) {
+            setSelectedOutputDevice(defaultOutput.deviceId);
+          }
         }
 
       } catch (error) {
-        console.error('Failed to access audio devices:', error);
+        console.error('Failed to initialize audio devices:', error);
         if (mounted) {
           toast({
             description: t('audio.deviceAccessError'),
@@ -80,7 +97,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       }
     };
 
-    // Initialize devices and set up device change listener
     initializeAudioDevices();
 
     const handleDeviceChange = async () => {
@@ -97,7 +113,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
       document.removeEventListener('visibilitychange', handleDeviceChange);
     };
-  }, [toast, t, permissionRequested, selectedInputDevice, selectedOutputDevice]);
+  }, [toast, t, permissionRequested]);
 
   const playTestSound = async () => {
     try {
@@ -110,12 +126,16 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
       if (selectedOutputDevice && 'setSinkId' in HTMLAudioElement.prototype) {
         const audioElement = new Audio();
-        await (audioElement as any).setSinkId(selectedOutputDevice);
-
-        const mediaStreamDestination = audioContext.createMediaStreamDestination();
-        gainNode.connect(mediaStreamDestination);
-        audioElement.srcObject = mediaStreamDestination.stream;
-        await audioElement.play();
+        try {
+          await (audioElement as any).setSinkId(selectedOutputDevice);
+          const mediaStreamDestination = audioContext.createMediaStreamDestination();
+          gainNode.connect(mediaStreamDestination);
+          audioElement.srcObject = mediaStreamDestination.stream;
+          await audioElement.play();
+        } catch (error) {
+          console.error('Failed to set audio output device:', error);
+          gainNode.connect(audioContext.destination);
+        }
       } else {
         gainNode.connect(audioContext.destination);
       }

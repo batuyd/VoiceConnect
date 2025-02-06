@@ -150,15 +150,6 @@ export function setupAuth(app: Express) {
     })(req, res, next);
   });
 
-  app.get("/api/user", (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ 
-        message: "Not authenticated" 
-      });
-    }
-    res.json(req.user);
-  });
-
   app.post("/api/logout", (req, res, next) => {
     req.logout((err) => {
       if (err) {
@@ -173,5 +164,14 @@ export function setupAuth(app: Express) {
         res.sendStatus(200);
       });
     });
+  });
+
+  app.get("/api/user", (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ 
+        message: "Not authenticated" 
+      });
+    }
+    res.json(req.user);
   });
 }

@@ -6,6 +6,7 @@ import ytdl from 'ytdl-core';
 import { WebSocketServer, WebSocket } from 'ws';
 import NodeMediaServer from 'node-media-server';
 import fetch from 'node-fetch';
+import session from 'express-session';
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
@@ -421,8 +422,29 @@ export function registerRoutes(app: Express): Server {
     perMessageDeflate: false
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     console.log('New WebSocket connection established');
+
+    // Add session parsing
+    const sessionParser = session({
+      secret: process.env.REPL_ID!,
+      resave: true,
+      saveUninitialized: true,
+      store: storage.sessionStore
+    });
+
+    // Parse session for WebSocket connection
+    sessionParser(req as any, {} as any, () => {
+      const session = (req as any).session;
+      if (!session?.passport?.user) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Authentication required'
+        }));
+        ws.close();
+        return;
+      }
+    });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
