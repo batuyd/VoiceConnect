@@ -87,7 +87,45 @@ export const translations = {
       reactions: 'Reactions',
       reactionAdded: 'Reaction added',
       reactionRemoved: 'Reaction removed',
-    }
+    },
+    coins: {
+      title: 'Ozba Coins',
+      balance: 'Current Balance',
+      lifetimeEarned: 'Lifetime Earned',
+      dailyReward: {
+        title: 'Daily Reward',
+        claim: 'Claim Daily Reward',
+        claimed: 'Claimed',
+        nextIn: 'Next reward in',
+        success: 'Daily reward claimed!',
+        error: 'Already claimed today',
+      },
+      store: {
+        title: 'Coin Store',
+        buyCoins: 'Buy Coins',
+        popular: 'Popular',
+        bonus: 'Bonus',
+      },
+      achievements: {
+        title: 'Achievements',
+        progress: 'Progress',
+        completed: 'Completed',
+        reward: 'Reward',
+        types: {
+          voice_time: 'Voice Chat Time',
+          referrals: 'Referrals',
+          reactions: 'Reactions',
+          messages: 'Messages Sent',
+        },
+      },
+      transaction: {
+        daily_reward: 'Daily Reward',
+        purchase: 'Purchase',
+        achievement: 'Achievement',
+        voice_activity: 'Voice Activity',
+        referral: 'Referral Bonus',
+      },
+    },
   },
   tr: {
     auth: {
@@ -175,6 +213,44 @@ export const translations = {
       reactions: 'Tepkiler',
       reactionAdded: 'Tepki eklendi',
       reactionRemoved: 'Tepki kaldırıldı',
-    }
+    },
+    coins: {
+      title: 'Ozba Coin',
+      balance: 'Mevcut Bakiye',
+      lifetimeEarned: 'Toplam Kazanılan',
+      dailyReward: {
+        title: 'Günlük Ödül',
+        claim: 'Günlük Ödülü Al',
+        claimed: 'Alındı',
+        nextIn: 'Sonraki ödül',
+        success: 'Günlük ödül alındı!',
+        error: 'Bugün zaten alındı',
+      },
+      store: {
+        title: 'Coin Mağazası',
+        buyCoins: 'Coin Satın Al',
+        popular: 'Popüler',
+        bonus: 'Bonus',
+      },
+      achievements: {
+        title: 'Başarılar',
+        progress: 'İlerleme',
+        completed: 'Tamamlandı',
+        reward: 'Ödül',
+        types: {
+          voice_time: 'Sesli Sohbet Süresi',
+          referrals: 'Davetler',
+          reactions: 'Tepkiler',
+          messages: 'Gönderilen Mesajlar',
+        },
+      },
+      transaction: {
+        daily_reward: 'Günlük Ödül',
+        purchase: 'Satın Alma',
+        achievement: 'Başarı',
+        voice_activity: 'Sesli Aktivite',
+        referral: 'Davet Bonusu',
+      },
+    },
   }
 };

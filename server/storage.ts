@@ -3,6 +3,8 @@ import type { InsertUser, User, Server, Channel, ServerMember, Friendship, Serve
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import { nanoid } from "nanoid";
+import { userCoins, coinTransactions, coinProducts, userAchievements } from "@shared/schema";
+import type { UserCoins, CoinTransaction, CoinProduct, UserAchievement } from "@shared/schema";
 
 const MemoryStore = createMemoryStore(session);
 
@@ -37,7 +39,7 @@ export interface IStorage {
 
   sessionStore: session.Store;
   updateUserProfile(
-    userId: number, 
+    userId: number,
     data: {
       bio?: string;
       age?: number;
@@ -56,6 +58,19 @@ export interface IStorage {
     }
   ): Promise<User>;
   updateLastActive(userId: number): Promise<void>;
+  createMessage(channelId: number, userId: number, content: string): Promise<Message>;
+  getMessages(channelId: number): Promise<MessageWithReactions[]>;
+  addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction>;
+  removeReaction(messageId: number, userId: number, emoji: string): Promise<void>;
+
+  // Coin related methods
+  getUserCoins(userId: number): Promise<UserCoins | undefined>;
+  createUserCoins(userId: number): Promise<UserCoins>;
+  addCoins(userId: number, amount: number, type: string, description: string, metadata?: any): Promise<CoinTransaction>;
+  getCoinProducts(): Promise<CoinProduct[]>;
+  getUserAchievements(userId: number): Promise<UserAchievement[]>;
+  updateUserAchievement(userId: number, type: string, progress: number): Promise<UserAchievement>;
+  claimDailyReward(userId: number): Promise<CoinTransaction>;
 }
 
 export class MemStorage implements IStorage {
@@ -69,6 +84,10 @@ export class MemStorage implements IStorage {
   private reactions: Map<number, Reaction>;
   sessionStore: session.Store;
   currentId: number;
+  private userCoins: Map<number, UserCoins>;
+  private coinTransactions: Map<number, CoinTransaction>;
+  private coinProducts: Map<number, CoinProduct>;
+  private userAchievements: Map<number, UserAchievement>;
 
   constructor() {
     this.users = new Map();
@@ -83,6 +102,49 @@ export class MemStorage implements IStorage {
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000,
     });
+    this.userCoins = new Map();
+    this.coinTransactions = new Map();
+    this.coinProducts = new Map();
+    this.userAchievements = new Map();
+
+    this.initializeCoinProducts();
+  }
+
+  private initializeCoinProducts() {
+    const products = [
+      {
+        id: this.currentId++,
+        name: "Starter Pack",
+        description: "Perfect for beginners",
+        amount: 100,
+        price: 0.99,
+        bonus: 0,
+        isPopular: false,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Popular Pack",
+        description: "Most popular choice",
+        amount: 500,
+        price: 4.99,
+        bonus: 50,
+        isPopular: true,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Premium Pack",
+        description: "Best value for money",
+        amount: 1200,
+        price: 9.99,
+        bonus: 200,
+        isPopular: false,
+        createdAt: new Date(),
+      },
+    ];
+
+    products.forEach(product => this.coinProducts.set(product.id, product));
   }
 
   async getUser(id: number): Promise<User | undefined> {
@@ -282,7 +344,7 @@ export class MemStorage implements IStorage {
     return this.channels.get(channelId);
   }
   async updateUserProfile(
-    userId: number, 
+    userId: number,
     data: {
       bio?: string;
       age?: number;
@@ -390,6 +452,152 @@ export class MemStorage implements IStorage {
     if (reaction) {
       this.reactions.delete(reaction.id);
     }
+  }
+
+  async getUserCoins(userId: number): Promise<UserCoins | undefined> {
+    return Array.from(this.userCoins.values()).find(uc => uc.userId === userId);
+  }
+
+  async createUserCoins(userId: number): Promise<UserCoins> {
+    const id = this.currentId++;
+    const userCoins: UserCoins = {
+      id,
+      userId,
+      balance: 0,
+      lifetimeEarned: 0,
+      lastDailyReward: null,
+      createdAt: new Date(),
+    };
+    this.userCoins.set(id, userCoins);
+    return userCoins;
+  }
+
+  async addCoins(
+    userId: number,
+    amount: number,
+    type: string,
+    description: string,
+    metadata?: any
+  ): Promise<CoinTransaction> {
+    let userCoins = await this.getUserCoins(userId);
+    if (!userCoins) {
+      userCoins = await this.createUserCoins(userId);
+    }
+
+    userCoins.balance += amount;
+    if (amount > 0) {
+      userCoins.lifetimeEarned += amount;
+    }
+    this.userCoins.set(userCoins.id, userCoins);
+
+    const transaction: CoinTransaction = {
+      id: this.currentId++,
+      userId,
+      amount,
+      type,
+      description,
+      metadata,
+      createdAt: new Date(),
+    };
+    this.coinTransactions.set(transaction.id, transaction);
+
+    return transaction;
+  }
+
+  async getCoinProducts(): Promise<CoinProduct[]> {
+    return Array.from(this.coinProducts.values());
+  }
+
+  async getUserAchievements(userId: number): Promise<UserAchievement[]> {
+    return Array.from(this.userAchievements.values())
+      .filter(ua => ua.userId === userId);
+  }
+
+  async updateUserAchievement(
+    userId: number,
+    type: string,
+    progress: number
+  ): Promise<UserAchievement> {
+    let achievement = Array.from(this.userAchievements.values())
+      .find(ua => ua.userId === userId && ua.type === type);
+
+    if (!achievement) {
+      achievement = {
+        id: this.currentId++,
+        userId,
+        type,
+        progress: 0,
+        goal: this.getAchievementGoal(type),
+        rewardAmount: this.getAchievementReward(type),
+        completedAt: null,
+        createdAt: new Date(),
+      };
+    }
+
+    achievement.progress = progress;
+    if (progress >= achievement.goal && !achievement.completedAt) {
+      achievement.completedAt = new Date();
+      await this.addCoins(
+        userId,
+        achievement.rewardAmount,
+        'achievement',
+        `Completed achievement: ${type}`,
+        { achievementId: achievement.id }
+      );
+    }
+
+    this.userAchievements.set(achievement.id, achievement);
+    return achievement;
+  }
+
+  private getAchievementGoal(type: string): number {
+    const goals: Record<string, number> = {
+      voice_time: 3600, 
+      referrals: 5,
+      reactions: 50,
+      messages: 100,
+    };
+    return goals[type] || 100;
+  }
+
+  private getAchievementReward(type: string): number {
+    const rewards: Record<string, number> = {
+      voice_time: 100,
+      referrals: 500,
+      reactions: 50,
+      messages: 100,
+    };
+    return rewards[type] || 50;
+  }
+
+  async claimDailyReward(userId: number): Promise<CoinTransaction> {
+    let userCoins = await this.getUserCoins(userId);
+    if (!userCoins) {
+      userCoins = await this.createUserCoins(userId);
+    }
+
+    const now = new Date();
+    if (userCoins.lastDailyReward) {
+      const lastReward = new Date(userCoins.lastDailyReward);
+      if (
+        lastReward.getDate() === now.getDate() &&
+        lastReward.getMonth() === now.getMonth() &&
+        lastReward.getFullYear() === now.getFullYear()
+      ) {
+        throw new Error("Daily reward already claimed today");
+      }
+    }
+
+    userCoins.lastDailyReward = now;
+    this.userCoins.set(userCoins.id, userCoins);
+
+    return this.addCoins(
+      userId,
+      50, 
+      'daily_reward',
+      'Daily login reward',
+      { claimedAt: now }
+    );
   }
 }
 

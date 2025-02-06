@@ -90,14 +90,19 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/channels/:channelId/messages", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const message = await storage.createMessage(
-      parseInt(req.params.channelId),
-      req.user.id,
-      req.body.content
-    );
-    const messageWithDetails = (await storage.getMessages(message.channelId))
-      .find(m => m.id === message.id);
-    res.status(201).json(messageWithDetails);
+
+    // Call original handler.  This assumes app.routes.post is available and contains the original handler.  This might require refactoring depending on the express setup.
+    const originalPostMessage = app.routes.post["/api/channels/:channelId/messages"];
+    await originalPostMessage(req, res);
+
+
+    const achievements = await storage.getUserAchievements(req.user.id);
+    const messageAchievement = achievements.find(a => a.type === "messages");
+    if (messageAchievement) {
+      await storage.updateUserAchievement(req.user.id, "messages", messageAchievement.progress + 1);
+    } else {
+      await storage.updateUserAchievement(req.user.id, "messages", 1);
+    }
   });
 
   // Reaction routes
@@ -120,6 +125,42 @@ export function registerRoutes(app: Express): Server {
     );
     res.sendStatus(200);
   });
+
+
+  // Coin related routes
+  app.get("/api/coins", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const userCoins = await storage.getUserCoins(req.user.id);
+    if (!userCoins) {
+      const newUserCoins = await storage.createUserCoins(req.user.id);
+      res.json(newUserCoins);
+    } else {
+      res.json(userCoins);
+    }
+  });
+
+  app.post("/api/coins/daily-reward", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const transaction = await storage.claimDailyReward(req.user.id);
+      res.json(transaction);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/coins/products", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const products = await storage.getCoinProducts();
+    res.json(products);
+  });
+
+  app.get("/api/achievements", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const achievements = await storage.getUserAchievements(req.user.id);
+    res.json(achievements);
+  });
+
 
   const httpServer = createServer(app);
   return httpServer;

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, decimal } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -83,6 +83,53 @@ export const reactions = pgTable("reactions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const userCoins = pgTable("user_coins", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  balance: decimal("balance").notNull().default("0"),
+  lifetimeEarned: decimal("lifetime_earned").notNull().default("0"),
+  lastDailyReward: timestamp("last_daily_reward"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const coinTransactions = pgTable("coin_transactions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  amount: decimal("amount").notNull(),
+  type: text("type").notNull(), // 'daily_reward', 'purchase', 'achievement', 'voice_activity', 'referral'
+  description: text("description").notNull(),
+  metadata: jsonb("metadata").$type<{
+    orderId?: string;
+    productId?: number;
+    achievementId?: number;
+    referrerId?: number;
+    voiceMinutes?: number;
+  }>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const coinProducts = pgTable("coin_products", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  amount: decimal("amount").notNull(),
+  price: decimal("price").notNull(), // In USD
+  bonus: decimal("bonus").default("0"),
+  isPopular: boolean("is_popular").default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const userAchievements = pgTable("user_achievements", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  type: text("type").notNull(), // 'voice_time', 'referrals', 'reactions', 'messages'
+  progress: integer("progress").notNull().default(0),
+  goal: integer("goal").notNull(),
+  rewardAmount: decimal("reward_amount").notNull(),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 const baseUserSchema = createInsertSchema(users);
 
 export const insertUserSchema = baseUserSchema.extend({
@@ -116,6 +163,10 @@ export const insertFriendshipSchema = createInsertSchema(friendships);
 export const insertServerInviteSchema = createInsertSchema(serverInvites);
 export const insertMessageSchema = createInsertSchema(messages);
 export const insertReactionSchema = createInsertSchema(reactions);
+export const insertUserCoinsSchema = createInsertSchema(userCoins);
+export const insertCoinTransactionSchema = createInsertSchema(coinTransactions);
+export const insertCoinProductSchema = createInsertSchema(coinProducts);
+export const insertUserAchievementSchema = createInsertSchema(userAchievements);
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -126,6 +177,10 @@ export type Friendship = typeof friendships.$inferSelect;
 export type ServerInvite = typeof serverInvites.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Reaction = typeof reactions.$inferSelect;
+export type UserCoins = typeof userCoins.$inferSelect;
+export type CoinTransaction = typeof coinTransactions.$inferSelect;
+export type CoinProduct = typeof coinProducts.$inferSelect;
+export type UserAchievement = typeof userAchievements.$inferSelect;
 
 export type MessageWithReactions = Message & {
   user: User;
