@@ -76,7 +76,7 @@ export default function AuthPage() {
                       <Input id="username" {...loginForm.register("username")} />
                       {loginForm.formState.errors.username && (
                         <p className="text-sm text-destructive mt-1">
-                          {loginForm.formState.errors.username.message}
+                          {t('auth.errors.usernameRequired')}
                         </p>
                       )}
                     </div>
@@ -85,7 +85,7 @@ export default function AuthPage() {
                       <Input id="password" type="password" {...loginForm.register("password")} />
                       {loginForm.formState.errors.password && (
                         <p className="text-sm text-destructive mt-1">
-                          {loginForm.formState.errors.password.message}
+                          {t('auth.errors.passwordRequired')}
                         </p>
                       )}
                     </div>
@@ -96,6 +96,11 @@ export default function AuthPage() {
                     >
                       {t('auth.login')}
                     </Button>
+                    {loginMutation.isError && (
+                      <p className="text-sm text-destructive text-center">
+                        {t('auth.errors.invalidCredentials')}
+                      </p>
+                    )}
                   </div>
                 </form>
               </CardContent>
@@ -110,7 +115,7 @@ export default function AuthPage() {
                       <Input id="reg-username" {...registerForm.register("username")} />
                       {registerForm.formState.errors.username && (
                         <p className="text-sm text-destructive mt-1">
-                          {registerForm.formState.errors.username.message}
+                          {t('auth.errors.usernameRequired')}
                         </p>
                       )}
                     </div>
@@ -119,7 +124,7 @@ export default function AuthPage() {
                       <Input id="reg-email" type="email" {...registerForm.register("email")} />
                       {registerForm.formState.errors.email && (
                         <p className="text-sm text-destructive mt-1">
-                          {registerForm.formState.errors.email.message}
+                          {t('auth.errors.emailRequired')}
                         </p>
                       )}
                     </div>
@@ -128,7 +133,7 @@ export default function AuthPage() {
                       <Input id="reg-phone" {...registerForm.register("phone")} />
                       {registerForm.formState.errors.phone && (
                         <p className="text-sm text-destructive mt-1">
-                          {registerForm.formState.errors.phone.message}
+                          {t('auth.errors.phoneRequired')}
                         </p>
                       )}
                     </div>
@@ -137,7 +142,7 @@ export default function AuthPage() {
                       <Input id="reg-password" type="password" {...registerForm.register("password")} />
                       {registerForm.formState.errors.password && (
                         <p className="text-sm text-destructive mt-1">
-                          {registerForm.formState.errors.password.message}
+                          {t('auth.errors.passwordRequired')}
                         </p>
                       )}
                     </div>
@@ -148,6 +153,11 @@ export default function AuthPage() {
                     >
                       {t('auth.register')}
                     </Button>
+                    {registerMutation.isError && (
+                      <p className="text-sm text-destructive text-center">
+                        {t('auth.errors.registrationFailed')}
+                      </p>
+                    )}
                   </div>
                 </form>
               </CardContent>

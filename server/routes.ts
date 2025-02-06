@@ -388,10 +388,10 @@ export function registerRoutes(app: Express): Server {
 
   const httpServer = createServer(app);
 
-  // Media streaming server yapılandırması
-  const nms = new NodeMediaServer({
+  // Media streaming server configuration
+  const mediaServerConfig = {
     rtmp: {
-      port: 1935,
+      port: parseInt(process.env.RTMP_PORT || '1935'),
       chunk_size: 60000,
       gop_cache: true,
       ping: 30,
@@ -399,7 +399,7 @@ export function registerRoutes(app: Express): Server {
       host: '0.0.0.0'
     },
     http: {
-      port: 8000,
+      port: parseInt(process.env.MEDIA_HTTP_PORT || '8000'),
       host: '0.0.0.0',
       mediaroot: './media',
       allow_origin: '*',
@@ -409,9 +409,11 @@ export function registerRoutes(app: Express): Server {
         allowedHeaders: 'Content-Type'
       }
     }
-  });
+  };
 
-  // WebSocket sunucusu yapılandırması
+  const nms = new NodeMediaServer(mediaServerConfig);
+
+  // WebSocket server configuration
   const wss = new WebSocketServer({ 
     server: httpServer, 
     path: '/ws',
@@ -432,8 +434,15 @@ export function registerRoutes(app: Express): Server {
         console.log('Received message:', data);
 
         if (data.type === 'join_channel') {
-          // Yeni kullanıcı için mevcut medya durumunu gönder
           const channel = await storage.getChannel(data.channelId);
+          if (!channel) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Channel not found'
+            }));
+            return;
+          }
+
           if (channel?.currentMedia) {
             ws.send(JSON.stringify({
               type: 'media_state',
@@ -443,13 +452,13 @@ export function registerRoutes(app: Express): Server {
             }));
           }
 
-          // Test bot için otomatik katılım mantığı
+          // Test bot auto-join logic
           const botUser = await storage.getUserByUsername("TestBot");
           if (botUser) {
             try {
               await storage.addUserToPrivateChannel(data.channelId, botUser.id);
 
-              // Bağlı olan tüm istemcilere bot katılım olayını yayınla
+              // Broadcast bot join event to all connected clients
               wss.clients.forEach((client) => {
                 if (client.readyState === WebSocket.OPEN) {
                   client.send(JSON.stringify({
@@ -466,13 +475,25 @@ export function registerRoutes(app: Express): Server {
         }
       } catch (error) {
         console.error('Error processing WebSocket message:', error);
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Invalid message format'
+        }));
       }
     });
 
-    // Ping-pong mekanizması ekle
+    // Add ping-pong mechanism with error handling
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.ping();
+        try {
+          ws.ping();
+        } catch (error) {
+          console.error('Ping error:', error);
+          clearInterval(pingInterval);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close();
+          }
+        }
       }
     }, 30000);
 
@@ -482,7 +503,13 @@ export function registerRoutes(app: Express): Server {
     });
   });
 
-  nms.run();
+  // Start media server
+  try {
+    nms.run();
+    console.log('Media server started successfully');
+  } catch (error) {
+    console.error('Failed to start media server:', error);
+  }
 
   return httpServer;
 }

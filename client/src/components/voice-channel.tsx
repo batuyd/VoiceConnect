@@ -52,7 +52,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         return;
       }
 
-      // Önceki bağlantıyı temizle
+      // Cleanup previous connection
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

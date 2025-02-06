@@ -15,6 +15,18 @@ export const translations = {
       verify2FA: 'Enter 2FA Code',
       verify2FADescription: 'Enter the 6-digit code from your authenticator app',
       logout: 'Logout',
+      errors: {
+        usernameRequired: 'Username is required',
+        passwordRequired: 'Password is required',
+        usernameExists: 'Username already exists',
+        invalidCredentials: 'Invalid username or password',
+        serverError: 'Server error occurred',
+        emailRequired: 'Email is required',
+        invalidEmail: 'Invalid email address',
+        phoneRequired: 'Phone number is required',
+        registrationFailed: 'Registration failed',
+        loginFailed: 'Login failed'
+      }
     },
     home: {
       welcome: 'Welcome',
@@ -205,6 +217,18 @@ export const translations = {
       verify2FA: '2FA Kodunu Girin',
       verify2FADescription: 'Doğrulayıcı uygulamanızdan 6 haneli kodu girin',
       logout: 'Çıkış Yap',
+      errors: {
+        usernameRequired: 'Kullanıcı adı gerekli',
+        passwordRequired: 'Şifre gerekli',
+        usernameExists: 'Bu kullanıcı adı zaten mevcut',
+        invalidCredentials: 'Geçersiz kullanıcı adı veya şifre',
+        serverError: 'Sunucu hatası oluştu',
+        emailRequired: 'E-posta adresi gerekli',
+        invalidEmail: 'Geçersiz e-posta adresi',
+        phoneRequired: 'Telefon numarası gerekli',
+        registrationFailed: 'Kayıt başarısız',
+        loginFailed: 'Giriş başarısız'
+      }
     },
     home: {
       welcome: 'Hoş Geldiniz',
