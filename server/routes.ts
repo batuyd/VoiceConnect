@@ -3,12 +3,29 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import ytdl from 'ytdl-core';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import NodeMediaServer from 'node-media-server';
 import fetch from 'node-fetch';
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
+
+  // Bot kullanıcısını oluştur
+  app.post("/api/debug/create-bot", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    const botUser = await storage.createUser({
+      username: "TestBot",
+      password: "bot123", // Bu sadece test için
+    });
+
+    // Bot'u sunucuya ekle
+    if (req.body.serverId) {
+      await storage.addServerMember(req.body.serverId, botUser.id);
+    }
+
+    res.status(201).json(botUser);
+  });
 
   app.get("/api/servers", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
@@ -390,6 +407,24 @@ export function registerRoutes(app: Express): Server {
               media: channel.currentMedia,
               queue: channel.mediaQueue
             }));
+          }
+
+          // Bot için otomatik katılım mantığı
+          const botUser = await storage.getUserByUsername("TestBot");
+          if (botUser) {
+            // Bot'u kanala ekle
+            await storage.addUserToPrivateChannel(data.channelId, botUser.id);
+
+            // Tüm bağlantılara bot katılımını bildir
+            wss.clients.forEach((client) => {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({
+                  type: 'bot_joined',
+                  channelId: data.channelId,
+                  botUser
+                }));
+              }
+            });
           }
         }
       } catch (error) {

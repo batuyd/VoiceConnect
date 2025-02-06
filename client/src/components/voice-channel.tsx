@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, Trash2, Ban, UserMinus, MoreVertical } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Ban, UserMinus, MoreVertical, Plus } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -31,9 +31,31 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState([50]);
 
-  const { data: channelMembers = [] } = useQuery({
+  const { data: channelMembers = [], refetch: refetchMembers } = useQuery({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined
+  });
+
+  // Bot ekleme mutation'ı
+  const addBotMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/debug/create-bot", {
+        serverId: channel.serverId
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchMembers();
+      toast({
+        description: "Test botu eklendi",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const deleteChannelMutation = useMutation({
@@ -101,14 +123,25 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
         <div className="flex items-center gap-2">
           {isOwner && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => deleteChannelMutation.mutate()}
-              disabled={deleteChannelMutation.isPending}
-            >
-              <Trash2 className="h-4 w-4 text-red-400" />
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => addBotMutation.mutate()}
+                disabled={addBotMutation.isPending}
+                className="text-blue-400"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => deleteChannelMutation.mutate()}
+                disabled={deleteChannelMutation.isPending}
+              >
+                <Trash2 className="h-4 w-4 text-red-400" />
+              </Button>
+            </>
           )}
           <Button
             variant={isJoined ? "destructive" : "default"}
