@@ -26,33 +26,35 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     let mounted = true;
+    let retryTimeout: NodeJS.Timeout;
 
     const initializeAudioDevices = async () => {
       try {
-        // Request permission if not already requested
+        // İzin kontrolü ve isteme
         if (!permissionRequested) {
           try {
-            await navigator.mediaDevices.getUserMedia({ 
+            const stream = await navigator.mediaDevices.getUserMedia({ 
               audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true
               }
-            }).then(stream => {
-              stream.getTracks().forEach(track => track.stop());
-              setPermissionRequested(true);
             });
+            stream.getTracks().forEach(track => track.stop());
+            setPermissionRequested(true);
           } catch (error) {
             console.error('Failed to get audio permissions:', error);
-            toast({
-              description: t('audio.deviceAccessError'),
-              variant: "destructive",
-            });
+            if (mounted) {
+              toast({
+                description: t('audio.deviceAccessError'),
+                variant: "destructive",
+              });
+            }
             return;
           }
         }
 
-        // Get the list of available devices
+        // Cihaz listesini al
         const devices = await navigator.mediaDevices.enumerateDevices();
         if (!mounted) return;
 
@@ -67,7 +69,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
         setAudioDevices(audioDevices);
 
-        // Set default devices if not already set
+        // Varsayılan cihazları ayarla
         if (!selectedInputDevice) {
           const defaultInput = audioDevices.find(device => 
             device.kind === 'audioinput' && device.deviceId !== 'default'
@@ -86,6 +88,9 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           }
         }
 
+        // Cihaz değişikliklerini dinle
+        navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+
       } catch (error) {
         console.error('Failed to initialize audio devices:', error);
         if (mounted) {
@@ -93,11 +98,11 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
             description: t('audio.deviceAccessError'),
             variant: "destructive",
           });
+          // 5 saniye sonra tekrar dene
+          retryTimeout = setTimeout(initializeAudioDevices, 5000);
         }
       }
     };
-
-    initializeAudioDevices();
 
     const handleDeviceChange = async () => {
       if (document.visibilityState === 'visible') {
@@ -105,11 +110,14 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       }
     };
 
-    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    initializeAudioDevices();
     document.addEventListener('visibilitychange', handleDeviceChange);
 
     return () => {
       mounted = false;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
       navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
       document.removeEventListener('visibilitychange', handleDeviceChange);
     };

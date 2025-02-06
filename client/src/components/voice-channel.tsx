@@ -1,11 +1,10 @@
-import { Volume2, VolumeX, Plus } from "lucide-react";
+import { Volume2, VolumeX } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { MediaControls } from "./media-controls";
@@ -27,24 +26,27 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { selectedInputDevice } = useAudioSettings();
+
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const { selectedInputDevice } = useAudioSettings();
+  const [wsConnected, setWsConnected] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const gainNode = useRef<GainNode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
-  const maxRetries = 5;
-  const [retryCount, setRetryCount] = useState(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout>();
+  const maxRetries = 5;
 
+  // Kanal üyelerini getir
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined
   });
 
-  // WebSocket connection setup
+  // WebSocket bağlantı yönetimi
   useEffect(() => {
     let mounted = true;
 
@@ -53,7 +55,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         return;
       }
 
-      // Close existing connection if any
+      // Varolan bağlantıyı kapat
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -103,6 +105,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         };
 
         ws.onmessage = (event) => {
+          if (!mounted) return;
           try {
             const data = JSON.parse(event.data);
             if (data.type === 'error') {
@@ -113,6 +116,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               });
             } else if (data.type === 'member_update') {
               refetchMembers();
+            } else if (data.type === 'media_state') {
+              // MediaControls bileşeni bu durumu yönetecek
+              console.log('Media state update:', data);
             }
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
@@ -145,55 +151,48 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers]);
 
-  // Audio stream setup
+  // Ses akışı yönetimi
   useEffect(() => {
     let mounted = true;
 
     async function setupAudioStream() {
       if (!selectedInputDevice || !isJoined) return;
 
-      // Clean up existing stream
+      // Mevcut akışı temizle
       if (stream.current) {
         stream.current.getTracks().forEach(track => track.stop());
       }
 
       try {
-        // Request audio permissions first
-        await navigator.mediaDevices.getUserMedia({ 
+        // Ses izinlerini iste
+        const mediaStream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
             deviceId: { exact: selectedInputDevice },
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true
           }
-        }).then(async (mediaStream) => {
-          if (!mounted) {
-            mediaStream.getTracks().forEach(track => track.stop());
-            return;
-          }
-
-          // Create new audio context and stream
-          if (!audioContext.current) {
-            audioContext.current = new AudioContext();
-          }
-
-          stream.current = mediaStream;
-          const source = audioContext.current.createMediaStreamSource(mediaStream);
-          gainNode.current = audioContext.current.createGain();
-
-          source.connect(gainNode.current);
-          if (!isMuted) {
-            gainNode.current.connect(audioContext.current.destination);
-          }
-        }).catch((error) => {
-          console.error('Audio stream error:', error);
-          if (mounted) {
-            toast({
-              description: t('voice.streamError'),
-              variant: "destructive",
-            });
-          }
         });
+
+        if (!mounted) {
+          mediaStream.getTracks().forEach(track => track.stop());
+          return;
+        }
+
+        // Yeni ses bağlamı ve akışı oluştur
+        if (!audioContext.current) {
+          audioContext.current = new AudioContext();
+        }
+
+        stream.current = mediaStream;
+        const source = audioContext.current.createMediaStreamSource(mediaStream);
+        gainNode.current = audioContext.current.createGain();
+
+        source.connect(gainNode.current);
+        if (!isMuted) {
+          gainNode.current.connect(audioContext.current.destination);
+        }
+
       } catch (error) {
         console.error('Audio setup error:', error);
         if (mounted) {
@@ -221,7 +220,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, [selectedInputDevice, isJoined, isMuted, toast, t]);
 
-  // Handle mute/unmute
+  // Sessize alma/açma işlemi
   useEffect(() => {
     if (!gainNode.current || !audioContext.current) return;
 
@@ -231,27 +230,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       gainNode.current.connect(audioContext.current.destination);
     }
   }, [isMuted]);
-
-  const addBotMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/debug/create-bot", {
-        serverId: channel.serverId
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      refetchMembers();
-      toast({
-        description: t('server.botAdded'),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
 
   const handleJoinLeave = () => {
     if (isJoined) {
@@ -273,7 +251,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         <div className="flex items-center space-x-2">
           {isJoined ? (
             isMuted ? (
-              <VolumeX className="h-4 w-4 text-gray-400" />
+              <VolumeX className="h-4 w-4 text-red-400" />
             ) : (
               <Volume2 className="h-4 w-4 text-green-400" />
             )

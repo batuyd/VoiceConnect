@@ -415,28 +415,33 @@ export function registerRoutes(app: Express): Server {
   const nms = new NodeMediaServer(mediaServerConfig);
 
   // WebSocket server configuration
-  const wss = new WebSocketServer({ 
-    server: httpServer, 
+  const wss = new WebSocketServer({
+    server: httpServer,
     path: '/ws',
     clientTracking: true,
     perMessageDeflate: false
   });
 
-  wss.on('connection', (ws, req) => {
+  wss.on('connection', async (ws, req) => {
     console.log('New WebSocket connection established');
 
-    // Add session parsing
-    const sessionParser = session({
-      secret: process.env.REPL_ID!,
-      resave: true,
-      saveUninitialized: true,
-      store: storage.sessionStore
-    });
+    try {
+      // Parse session
+      await new Promise((resolve, reject) => {
+        session({
+          secret: process.env.REPL_ID!,
+          resave: true,
+          saveUninitialized: true,
+          store: storage.sessionStore
+        })(req as any, {} as any, (err) => {
+          if (err) reject(err);
+          else resolve(undefined);
+        });
+      });
 
-    // Parse session for WebSocket connection
-    sessionParser(req as any, {} as any, () => {
-      const session = (req as any).session;
-      if (!session?.passport?.user) {
+      // Check authentication
+      const sessionData = (req as any).session;
+      if (!sessionData?.passport?.user) {
         ws.send(JSON.stringify({
           type: 'error',
           message: 'Authentication required'
@@ -444,85 +449,101 @@ export function registerRoutes(app: Express): Server {
         ws.close();
         return;
       }
-    });
 
-    ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
-    });
+      // Get user data
+      const userId = sessionData.passport.user;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'User not found'
+        }));
+        ws.close();
+        return;
+      }
 
-    ws.on('message', async (message) => {
-      try {
-        const data = JSON.parse(message.toString());
-        console.log('Received message:', data);
+      ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
+      });
 
-        if (data.type === 'join_channel') {
-          const channel = await storage.getChannel(data.channelId);
-          if (!channel) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              message: 'Channel not found'
-            }));
-            return;
+      ws.on('message', async (message) => {
+        try {
+          const data = JSON.parse(message.toString());
+          console.log('Received message:', data);
+
+          if (data.type === 'join_channel') {
+            const channel = await storage.getChannel(data.channelId);
+            if (!channel) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Channel not found'
+              }));
+              return;
+            }
+
+            // Check if user has access to channel
+            const canAccess = await storage.canAccessChannel(data.channelId, userId);
+            if (!canAccess) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Access denied'
+              }));
+              return;
+            }
+
+            if (channel?.currentMedia) {
+              ws.send(JSON.stringify({
+                type: 'media_state',
+                channelId: data.channelId,
+                media: channel.currentMedia,
+                queue: channel.mediaQueue || []
+              }));
+            }
+
+            // Notify other clients about member update
+            wss.clients.forEach((client) => {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({
+                  type: 'member_update',
+                  channelId: data.channelId,
+                  userId: userId
+                }));
+              }
+            });
           }
+        } catch (error) {
+          console.error('Error processing WebSocket message:', error);
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid message format'
+          }));
+        }
+      });
 
-          if (channel?.currentMedia) {
-            ws.send(JSON.stringify({
-              type: 'media_state',
-              channelId: data.channelId,
-              media: channel.currentMedia,
-              queue: channel.mediaQueue || []
-            }));
-          }
-
-          // Test bot auto-join logic
-          const botUser = await storage.getUserByUsername("TestBot");
-          if (botUser) {
-            try {
-              await storage.addUserToPrivateChannel(data.channelId, botUser.id);
-
-              // Broadcast bot join event to all connected clients
-              wss.clients.forEach((client) => {
-                if (client.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify({
-                    type: 'bot_joined',
-                    channelId: data.channelId,
-                    botUser
-                  }));
-                }
-              });
-            } catch (error) {
-              console.error('Error adding bot to channel:', error);
+      // Add ping-pong mechanism with error handling
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.ping();
+          } catch (error) {
+            console.error('Ping error:', error);
+            clearInterval(pingInterval);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.close();
             }
           }
         }
-      } catch (error) {
-        console.error('Error processing WebSocket message:', error);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Invalid message format'
-        }));
-      }
-    });
+      }, 30000);
 
-    // Add ping-pong mechanism with error handling
-    const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.ping();
-        } catch (error) {
-          console.error('Ping error:', error);
-          clearInterval(pingInterval);
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.close();
-          }
-        }
-      }
-    }, 30000);
+      ws.on('close', () => {
+        console.log('WebSocket connection closed');
+        clearInterval(pingInterval);
+      });
 
-    ws.on('close', () => {
-      console.log('WebSocket connection closed');
-      clearInterval(pingInterval);
-    });
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
+      ws.close();
+    }
   });
 
   // Start media server

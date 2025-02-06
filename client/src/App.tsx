@@ -42,18 +42,18 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
+      <ThemeProvider>
         <LanguageProvider>
-          <ThemeProvider>
+          <AuthProvider>
             <AudioSettingsProvider>
               <Layout>
                 <Router />
               </Layout>
               <Toaster />
             </AudioSettingsProvider>
-          </ThemeProvider>
+          </AuthProvider>
         </LanguageProvider>
-      </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
