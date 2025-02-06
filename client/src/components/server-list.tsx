@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLanguage } from "@/hooks/use-language";
 import { Button } from "@/components/ui/button";
 import { Server } from "@shared/schema";
 import { Plus } from "lucide-react";
@@ -21,9 +22,10 @@ export function ServerList({
   onServerSelect: (server: Server | null) => void;
   selectedServer: Server | null;
 }) {
+  const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [newServerName, setNewServerName] = useState("");
-  
+
   const { data: servers = [] } = useQuery<Server[]>({
     queryKey: ["/api/servers"],
   });
@@ -66,7 +68,7 @@ export function ServerList({
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create a new server</DialogTitle>
+            <DialogTitle>{t('server.createServer')}</DialogTitle>
           </DialogHeader>
           <form
             onSubmit={(e) => {
@@ -76,7 +78,7 @@ export function ServerList({
             className="space-y-4"
           >
             <div>
-              <Label htmlFor="name">Server Name</Label>
+              <Label htmlFor="name">{t('server.serverName')}</Label>
               <Input
                 id="name"
                 value={newServerName}
@@ -84,7 +86,7 @@ export function ServerList({
               />
             </div>
             <Button type="submit" disabled={createServerMutation.isPending}>
-              Create Server
+              {t('server.createServer')}
             </Button>
           </form>
         </DialogContent>

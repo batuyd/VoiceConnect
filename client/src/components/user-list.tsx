@@ -1,14 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
+import { useLanguage } from "@/hooks/use-language";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { User } from "@shared/schema";
 import { Volume2, VolumeX } from "lucide-react";
 
 export function UserList({ serverId }: { serverId: number }) {
+  const { t } = useLanguage();
   const { data: users = [] } = useQuery<User[]>({
     queryKey: [`/api/servers/${serverId}/members`],
   });
 
-  // Mock online status and voice status
   const mockStatus = (userId: number) => {
     return {
       online: userId % 2 === 0,
@@ -19,7 +20,7 @@ export function UserList({ serverId }: { serverId: number }) {
 
   return (
     <div className="w-64 bg-gray-800 p-4">
-      <h2 className="font-semibold mb-4">Members - {users.length}</h2>
+      <h2 className="font-semibold mb-4">{t('server.members')} - {users.length}</h2>
       <div className="space-y-2">
         {users.map((user) => {
           const status = mockStatus(user.id);

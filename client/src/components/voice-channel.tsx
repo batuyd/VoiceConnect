@@ -2,8 +2,10 @@ import { Volume2 } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState } from "react";
 import { Button } from "./ui/button";
+import { useLanguage } from "@/hooks/use-language";
 
 export function VoiceChannel({ channel }: { channel: Channel }) {
+  const { t } = useLanguage();
   const [isJoined, setIsJoined] = useState(false);
 
   return (
@@ -21,7 +23,7 @@ export function VoiceChannel({ channel }: { channel: Channel }) {
         size="sm"
         onClick={() => setIsJoined(!isJoined)}
       >
-        {isJoined ? "Leave" : "Join"}
+        {isJoined ? t('server.leave') : t('server.join')}
       </Button>
     </div>
   );
