@@ -6,7 +6,6 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
-import { authenticator } from 'otplib';
 
 declare global {
   namespace Express {
@@ -32,17 +31,20 @@ async function comparePasswords(supplied: string, stored: string) {
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.REPL_ID!,
-    resave: true, // Changed to true to ensure session is saved
-    saveUninitialized: true, // Changed to true to create session for all users
+    resave: true,
+    saveUninitialized: true,
     store: storage.sessionStore,
     cookie: {
       secure: app.get("env") === "production",
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      httpOnly: true,
+      sameSite: 'lax'
     }
   };
 
   if (app.get("env") === "production") {
     app.set("trust proxy", 1);
+    sessionSettings.cookie!.secure = true;
   }
 
   app.use(session(sessionSettings));
@@ -53,16 +55,18 @@ export function setupAuth(app: Express) {
     new LocalStrategy(async (username, password, done) => {
       try {
         const user = await storage.getUserByUsername(username);
-        if (!user || !(await comparePasswords(password, user.password))) {
+        if (!user) {
           return done(null, false, { message: "Invalid username or password" });
         }
 
-        if (user.twoFactorEnabled) {
-          return done(null, false, { message: "2FA_REQUIRED", userId: user.id });
+        const isValidPassword = await comparePasswords(password, user.password);
+        if (!isValidPassword) {
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         return done(null, user);
       } catch (error) {
+        console.error('Authentication error:', error);
         return done(error);
       }
     }),
@@ -80,78 +84,92 @@ export function setupAuth(app: Express) {
       }
       done(null, user);
     } catch (error) {
+      console.error('Session deserialization error:', error);
       done(error);
     }
   });
 
-  // Auth routes
   app.post("/api/register", async (req, res, next) => {
     try {
-      const existingUser = await storage.getUserByUsername(req.body.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
+      const { username, password, email, phone } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ 
+          message: "Username and password are required" 
+        });
       }
 
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(400).json({ 
+          message: "Username already exists" 
+        });
+      }
+
+      const hashedPassword = await hashPassword(password);
       const user = await storage.createUser({
-        ...req.body,
-        password: await hashPassword(req.body.password),
+        username,
+        password: hashedPassword,
+        email,
+        phone
       });
 
       req.login(user, (err) => {
-        if (err) return next(err);
+        if (err) {
+          console.error('Login error after registration:', err);
+          return next(err);
+        }
         res.status(201).json(user);
       });
     } catch (error) {
+      console.error('Registration error:', error);
       next(error);
     }
   });
 
   app.post("/api/login", (req, res, next) => {
     passport.authenticate("local", (err, user, info) => {
-      if (err) return next(err);
-      if (!user) {
-        return res.status(401).json({ message: info?.message || "Authentication failed" });
+      if (err) {
+        console.error('Login error:', err);
+        return next(err);
       }
+
+      if (!user) {
+        return res.status(401).json({ 
+          message: info?.message || "Authentication failed" 
+        });
+      }
+
       req.login(user, (err) => {
-        if (err) return next(err);
+        if (err) {
+          console.error('Session creation error:', err);
+          return next(err);
+        }
         res.json(user);
       });
     })(req, res, next);
   });
 
-  app.post("/api/verify-2fa", async (req, res) => {
-    const { userId, token } = req.body;
-    const user = await storage.getUser(userId);
-
-    if (!user?.twoFactorSecret) {
-      return res.status(400).json({ message: "2FA not set up" });
-    }
-
-    const isValid = authenticator.verify({
-      token,
-      secret: user.twoFactorSecret,
-    });
-
-    if (!isValid) {
-      return res.status(401).json({ message: "Invalid 2FA token" });
-    }
-
-    req.login(user, (err) => {
-      if (err) return res.status(500).json({ message: err.message });
-      res.json(user);
-    });
-  });
-
   app.get("/api/user", (req, res) => {
-    if (!req.user) return res.sendStatus(401);
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ 
+        message: "Not authenticated" 
+      });
+    }
     res.json(req.user);
   });
 
   app.post("/api/logout", (req, res, next) => {
     req.logout((err) => {
-      if (err) return next(err);
+      if (err) {
+        console.error('Logout error:', err);
+        return next(err);
+      }
       req.session.destroy((err) => {
-        if (err) return next(err);
+        if (err) {
+          console.error('Session destruction error:', err);
+          return next(err);
+        }
         res.sendStatus(200);
       });
     });

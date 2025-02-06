@@ -26,31 +26,47 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     let mounted = true;
 
-    async function initializeAudioDevices() {
+    const initializeAudioDevices = async () => {
       try {
-        // Cihazlara erişim izni iste
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => track.stop());
-
-        // Cihazları listele
+        // First, check if we already have permission
         const devices = await navigator.mediaDevices.enumerateDevices();
+        const hasPermission = devices.some(device => device.label !== "");
+
+        if (!hasPermission) {
+          // Request permission by attempting to get the stream
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+            }
+          });
+          // Immediately stop the stream as we just needed it for permissions
+          stream.getTracks().forEach(track => track.stop());
+        }
+
+        // Now that we have permission, get the full device list
+        const updatedDevices = await navigator.mediaDevices.enumerateDevices();
         if (!mounted) return;
 
-        const audioDevices = devices.filter(device => 
+        const audioDevices = updatedDevices.filter(device => 
           device.kind === 'audioinput' || device.kind === 'audiooutput'
         );
 
         setAudioDevices(audioDevices);
 
-        // Varsayılan cihazları seç
-        const defaultInput = audioDevices.find(device => device.kind === 'audioinput');
-        const defaultOutput = audioDevices.find(device => device.kind === 'audiooutput');
+        // Set default devices
+        const defaultInput = audioDevices.find(device => 
+          device.kind === 'audioinput' && device.deviceId !== 'default'
+        );
+        const defaultOutput = audioDevices.find(device => 
+          device.kind === 'audiooutput' && device.deviceId !== 'default'
+        );
 
         if (defaultInput) setSelectedInputDevice(defaultInput.deviceId);
         if (defaultOutput) setSelectedOutputDevice(defaultOutput.deviceId);
 
       } catch (error) {
-        console.error('Ses cihazlarına erişilemedi:', error);
+        console.error('Failed to access audio devices:', error);
         if (mounted) {
           toast({
             description: t('audio.deviceAccessError'),
@@ -58,55 +74,66 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           });
         }
       }
-    }
+    };
 
-    navigator.mediaDevices.addEventListener('devicechange', initializeAudioDevices);
+    // Listen for device changes
+    const handleDeviceChange = () => {
+      if (document.visibilityState === 'visible') {
+        initializeAudioDevices();
+      }
+    };
+
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    document.addEventListener('visibilitychange', handleDeviceChange);
+
+    // Initial setup
     initializeAudioDevices();
 
     return () => {
       mounted = false;
-      navigator.mediaDevices.removeEventListener('devicechange', initializeAudioDevices);
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      document.removeEventListener('visibilitychange', handleDeviceChange);
     };
   }, [toast, t]);
 
   const playTestSound = async () => {
-    const audioContext = new AudioContext();
     try {
+      const audioContext = new AudioContext();
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
 
+      // Set volume
       gainNode.gain.value = volume[0] / 100;
       oscillator.connect(gainNode);
 
-      if (selectedOutputDevice) {
+      // Handle output device selection
+      if (selectedOutputDevice && 'setSinkId' in HTMLAudioElement.prototype) {
         const audioElement = new Audio();
-        // @ts-ignore - setSinkId TypeScript'te henüz tanımlı değil
-        if (audioElement.setSinkId) {
-          await audioElement.setSinkId(selectedOutputDevice);
-          const mediaStreamDestination = audioContext.createMediaStreamDestination();
-          gainNode.connect(mediaStreamDestination);
-          const audioStream = mediaStreamDestination.stream;
-          audioElement.srcObject = audioStream;
-          await audioElement.play();
-        } else {
-          gainNode.connect(audioContext.destination);
-        }
+        await (audioElement as any).setSinkId(selectedOutputDevice);
+
+        const mediaStreamDestination = audioContext.createMediaStreamDestination();
+        gainNode.connect(mediaStreamDestination);
+        audioElement.srcObject = mediaStreamDestination.stream;
+        await audioElement.play();
       } else {
         gainNode.connect(audioContext.destination);
       }
 
-      oscillator.frequency.value = 440;
+      // Play a simple tone
+      oscillator.frequency.value = 440; // A4 note
       oscillator.type = 'sine';
       oscillator.start();
 
+      // Stop after 1 second
       setTimeout(() => {
         oscillator.stop();
         oscillator.disconnect();
         gainNode.disconnect();
         audioContext.close();
       }, 1000);
+
     } catch (error) {
-      console.error('Test sesi çalınamadı:', error);
+      console.error('Failed to play test sound:', error);
       toast({
         description: t('audio.testSoundError'),
         variant: "destructive",
