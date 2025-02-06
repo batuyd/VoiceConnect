@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, Trash2, Ban, UserMinus } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Ban, UserMinus, MoreVertical } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -17,7 +17,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreVertical } from "lucide-react";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -81,7 +80,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const handleVolumeChange = (newVolume: number[]) => {
     setVolume(newVolume);
-    console.log('Volume changed to:', newVolume[0]);
   };
 
   return (
@@ -152,11 +150,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             )}
           </div>
 
-          {/* Media Controls */}
-          <div className="w-full relative z-10">
-            <MediaControls channelId={channel.id} isVoiceChannel={true} />
-          </div>
-
           {/* Üye Listesi */}
           {channelMembers.length > 0 && (
             <>
@@ -174,7 +167,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                     {isOwner && member.id !== user?.id && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-6 w-6">
+                          <Button variant="ghost" size="icon" className="h-6 w-6 ml-1">
                             <MoreVertical className="h-3 w-3" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -201,6 +194,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               </div>
             </>
           )}
+          {/* Media Controls */}
+          <div className="w-full relative z-10">
+            <MediaControls channelId={channel.id} isVoiceChannel={true} />
+          </div>
         </div>
       )}
     </div>
