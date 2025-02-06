@@ -30,16 +30,17 @@ async function comparePasswords(supplied: string, stored: string) {
 
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.REPL_ID!,
-    resave: true,
-    saveUninitialized: true,
+    secret: process.env.SESSION_SECRET || process.env.REPL_ID!,
+    resave: false,
+    saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
       secure: app.get("env") === "production",
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       httpOnly: true,
       sameSite: 'lax'
-    }
+    },
+    name: 'ozba.session'
   };
 
   if (app.get("env") === "production") {
@@ -47,7 +48,12 @@ export function setupAuth(app: Express) {
     sessionSettings.cookie!.secure = true;
   }
 
-  app.use(session(sessionSettings));
+  const sessionMiddleware = session(sessionSettings);
+  app.use(sessionMiddleware);
+
+  // Export session middleware for WebSocket
+  (app as any).sessionMiddleware = sessionMiddleware;
+
   app.use(passport.initialize());
   app.use(passport.session());
 
@@ -86,6 +92,16 @@ export function setupAuth(app: Express) {
     } catch (error) {
       console.error('Session deserialization error:', error);
       done(error);
+    }
+  });
+
+  // Add error handling middleware
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('Auth error:', err);
+    if (err.name === 'UnauthorizedError') {
+      res.status(401).json({ message: 'Invalid token' });
+    } else {
+      next(err);
     }
   });
 
@@ -151,6 +167,10 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/logout", (req, res, next) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
     req.logout((err) => {
       if (err) {
         console.error('Logout error:', err);

@@ -11,6 +11,9 @@ type AudioSettingsContextType = {
   selectedOutputDevice: string;
   setSelectedOutputDevice: (deviceId: string) => void;
   playTestSound: () => Promise<void>;
+  getAudioStream: () => Promise<MediaStream | null>;
+  stopAudioStream: () => void;
+  currentStream: MediaStream | null;
 };
 
 const AudioSettingsContext = createContext<AudioSettingsContextType | null>(null);
@@ -44,6 +47,8 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     }
   });
 
+  const [currentStream, setCurrentStream] = useState<MediaStream | null>(null);
+
   useEffect(() => {
     let mounted = true;
 
@@ -54,7 +59,8 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true
+            autoGainControl: true,
+            deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined
           }
         });
 
@@ -127,6 +133,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       mounted = false;
       navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
       document.removeEventListener('visibilitychange', handleDeviceChange);
+      stopAudioStream();
     };
   }, [toast, t]);
 
@@ -173,6 +180,40 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     }
   };
 
+  const getAudioStream = async (): Promise<MediaStream | null> => {
+    try {
+      if (currentStream) {
+        return currentStream;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined
+        }
+      });
+
+      setCurrentStream(stream);
+      return stream;
+    } catch (error) {
+      console.error('Failed to get audio stream:', error);
+      toast({
+        description: t('audio.streamError'),
+        variant: "destructive",
+      });
+      return null;
+    }
+  };
+
+  const stopAudioStream = () => {
+    if (currentStream) {
+      currentStream.getTracks().forEach(track => track.stop());
+      setCurrentStream(null);
+    }
+  };
+
   return (
     <AudioSettingsContext.Provider
       value={{
@@ -183,6 +224,8 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         setSelectedInputDevice: (deviceId: string) => {
           setSelectedInputDevice(deviceId);
           localStorage.setItem('inputDevice', deviceId);
+          // Yeni cihaz seçildiğinde mevcut stream'i durdur
+          stopAudioStream();
         },
         selectedOutputDevice,
         setSelectedOutputDevice: (deviceId: string) => {
@@ -190,6 +233,9 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           localStorage.setItem('outputDevice', deviceId);
         },
         playTestSound,
+        getAudioStream,
+        stopAudioStream,
+        currentStream
       }}
     >
       {children}

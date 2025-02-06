@@ -6,7 +6,6 @@ import ytdl from 'ytdl-core';
 import { WebSocketServer, WebSocket } from 'ws';
 import NodeMediaServer from 'node-media-server';
 import fetch from 'node-fetch';
-import session from 'express-session';
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
@@ -414,32 +413,27 @@ export function registerRoutes(app: Express): Server {
 
   const nms = new NodeMediaServer(mediaServerConfig);
 
-  // WebSocket server configuration
+  // WebSocket sunucusu yapılandırması
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
     clientTracking: true,
-    perMessageDeflate: false
   });
 
+  // WebSocket bağlantı yönetimi
   wss.on('connection', async (ws, req) => {
     console.log('New WebSocket connection established');
 
     try {
-      // Parse session
+      // Session middleware'i uygula
       await new Promise((resolve, reject) => {
-        session({
-          secret: process.env.REPL_ID!,
-          resave: true,
-          saveUninitialized: true,
-          store: storage.sessionStore
-        })(req as any, {} as any, (err) => {
+        (app as any).sessionMiddleware(req as any, {} as any, (err: any) => {
           if (err) reject(err);
           else resolve(undefined);
         });
       });
 
-      // Check authentication
+      // Kullanıcı kimlik doğrulaması kontrol et
       const sessionData = (req as any).session;
       if (!sessionData?.passport?.user) {
         ws.send(JSON.stringify({
@@ -450,7 +444,6 @@ export function registerRoutes(app: Express): Server {
         return;
       }
 
-      // Get user data
       const userId = sessionData.passport.user;
       const user = await storage.getUser(userId);
       if (!user) {
@@ -462,54 +455,79 @@ export function registerRoutes(app: Express): Server {
         return;
       }
 
+      // Hata yönetimi
       ws.on('error', (error) => {
         console.error('WebSocket error:', error);
       });
 
+      // Mesaj işleme
       ws.on('message', async (message) => {
         try {
           const data = JSON.parse(message.toString());
           console.log('Received message:', data);
 
-          if (data.type === 'join_channel') {
-            const channel = await storage.getChannel(data.channelId);
-            if (!channel) {
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Channel not found'
-              }));
-              return;
-            }
-
-            // Check if user has access to channel
-            const canAccess = await storage.canAccessChannel(data.channelId, userId);
-            if (!canAccess) {
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Access denied'
-              }));
-              return;
-            }
-
-            if (channel?.currentMedia) {
-              ws.send(JSON.stringify({
-                type: 'media_state',
-                channelId: data.channelId,
-                media: channel.currentMedia,
-                queue: channel.mediaQueue || []
-              }));
-            }
-
-            // Notify other clients about member update
-            wss.clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({
-                  type: 'member_update',
-                  channelId: data.channelId,
-                  userId: userId
+          switch (data.type) {
+            case 'join_channel':
+              const channel = await storage.getChannel(data.channelId);
+              if (!channel) {
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Channel not found'
                 }));
+                return;
               }
-            });
+
+              // Kanala erişim kontrolü
+              const canAccess = await storage.canAccessChannel(data.channelId, userId);
+              if (!canAccess) {
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Access denied'
+                }));
+                return;
+              }
+
+              // Diğer kullanıcılara bildirim gönder
+              wss.clients.forEach((client) => {
+                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify({
+                    type: 'user_joined',
+                    channelId: data.channelId,
+                    userId: userId,
+                    username: user.username
+                  }));
+                }
+              });
+              break;
+
+            case 'leave_channel':
+              // Diğer kullanıcılara ayrılma bildirimi gönder
+              wss.clients.forEach((client) => {
+                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify({
+                    type: 'user_left',
+                    channelId: data.channelId,
+                    userId: userId,
+                    username: user.username
+                  }));
+                }
+              });
+              break;
+
+            case 'voice_state':
+              // Ses durumu güncellemelerini diğer kullanıcılara ilet
+              wss.clients.forEach((client) => {
+                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify({
+                    type: 'voice_state_update',
+                    channelId: data.channelId,
+                    userId: userId,
+                    isSpeaking: data.isSpeaking,
+                    isMuted: data.isMuted
+                  }));
+                }
+              });
+              break;
           }
         } catch (error) {
           console.error('Error processing WebSocket message:', error);
@@ -520,24 +538,20 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      // Add ping-pong mechanism with error handling
-      const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          try {
-            ws.ping();
-          } catch (error) {
-            console.error('Ping error:', error);
-            clearInterval(pingInterval);
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
-          }
-        }
-      }, 30000);
-
+      // Bağlantı kapatma
       ws.on('close', () => {
         console.log('WebSocket connection closed');
-        clearInterval(pingInterval);
+
+        // Diğer kullanıcılara bildir
+        wss.clients.forEach((client) => {
+          if (client !== ws && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'user_disconnected',
+              userId: userId,
+              username: user.username
+            }));
+          }
+        });
       });
 
     } catch (error) {
