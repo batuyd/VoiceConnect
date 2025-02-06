@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, Trash2 } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Ban, UserMinus } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -11,8 +11,20 @@ import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery } from "@tanstack/react-query";
 import { MediaControls } from "./media-controls";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MoreVertical } from "lucide-react";
 
-export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: boolean }) {
+interface VoiceChannelProps {
+  channel: Channel;
+  isOwner: boolean;
+}
+
+export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -39,6 +51,30 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
       toast({
         description: error.message,
         variant: "destructive",
+      });
+    },
+  });
+
+  const kickUserMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      await apiRequest("DELETE", `/api/channels/${channel.id}/members/${userId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/channels/${channel.id}/members`] });
+      toast({
+        description: t('server.userKicked'),
+      });
+    },
+  });
+
+  const banUserMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      await apiRequest("POST", `/api/channels/${channel.id}/bans`, { userId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/channels/${channel.id}/members`] });
+      toast({
+        description: t('server.userBanned'),
       });
     },
   });
@@ -117,7 +153,7 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
           </div>
 
           {/* Media Controls */}
-          <div className="w-full">
+          <div className="w-full relative z-10">
             <MediaControls channelId={channel.id} isVoiceChannel={true} />
           </div>
 
@@ -127,13 +163,39 @@ export function VoiceChannel({ channel, isOwner }: { channel: Channel; isOwner: 
               <div className="h-[1px] bg-gray-700" />
               <div className="flex flex-wrap gap-2">
                 {channelMembers.map((member: any) => (
-                  <div key={member.id} className="flex items-center space-x-2 p-1 rounded bg-gray-700/50">
+                  <div key={member.id} className="flex items-center space-x-2 p-2 rounded bg-gray-700/50">
                     <Avatar className="h-6 w-6">
                       <AvatarImage src={member.avatar} />
                       <AvatarFallback>{member.username[0]}</AvatarFallback>
                     </Avatar>
                     <span className="text-sm">{member.username}</span>
                     {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
+
+                    {isOwner && member.id !== user?.id && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6">
+                            <MoreVertical className="h-3 w-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem
+                            onClick={() => kickUserMutation.mutate(member.id)}
+                            className="text-red-400"
+                          >
+                            <UserMinus className="h-4 w-4 mr-2" />
+                            {t('server.kickUser')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => banUserMutation.mutate(member.id)}
+                            className="text-red-400"
+                          >
+                            <Ban className="h-4 w-4 mr-2" />
+                            {t('server.banUser')}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                 ))}
               </div>
