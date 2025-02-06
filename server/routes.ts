@@ -2,13 +2,12 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
-import ytdl from 'ytdl-core';
 import { WebSocketServer, WebSocket } from 'ws';
 import NodeMediaServer from 'node-media-server';
 import fetch from 'node-fetch';
 
 export function registerRoutes(app: Express): Server {
-  setupAuth(app);
+  const sessionMiddleware = setupAuth(app);
 
   // Bot kullanıcısını oluştur
   app.post("/api/debug/create-bot", async (req, res) => {
@@ -19,7 +18,6 @@ export function registerRoutes(app: Express): Server {
       password: "bot123", // Bu sadece test için
     });
 
-    // Bot'u sunucuya ekle
     if (req.body.serverId) {
       await storage.addServerMember(req.body.serverId, botUser.id);
     }
@@ -389,53 +387,47 @@ export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
 
   // Media streaming server configuration
-  const mediaServerConfig = {
+  const nms = new NodeMediaServer({
     rtmp: {
-      port: parseInt(process.env.RTMP_PORT || '1935'),
+      port: 1935,
       chunk_size: 60000,
       gop_cache: true,
       ping: 30,
-      ping_timeout: 60,
-      host: '0.0.0.0'
+      ping_timeout: 60
     },
     http: {
-      port: parseInt(process.env.MEDIA_HTTP_PORT || '8000'),
-      host: '0.0.0.0',
+      port: 8000,
       mediaroot: './media',
-      allow_origin: '*',
-      cors: {
-        origin: '*',
-        methods: 'GET,POST,OPTIONS',
-        allowedHeaders: 'Content-Type'
-      }
+      allow_origin: '*'
     }
-  };
-
-  const nms = new NodeMediaServer(mediaServerConfig);
+  });
 
   // WebSocket sunucusu yapılandırması
   const wss = new WebSocketServer({
     server: httpServer,
-    path: '/ws',
-    clientTracking: true,
+    path: '/ws'
   });
 
   // WebSocket bağlantı yönetimi
   wss.on('connection', async (ws, req) => {
-    console.log('New WebSocket connection established');
+    console.log('New WebSocket connection attempt');
 
     try {
       // Session middleware'i uygula
       await new Promise((resolve, reject) => {
-        (app as any).sessionMiddleware(req as any, {} as any, (err: any) => {
-          if (err) reject(err);
-          else resolve(undefined);
+        sessionMiddleware(req as any, {} as any, (err: any) => {
+          if (err) {
+            console.error('Session middleware error:', err);
+            reject(err);
+          } else {
+            resolve(undefined);
+          }
         });
       });
 
-      // Kullanıcı kimlik doğrulaması kontrol et
-      const sessionData = (req as any).session;
-      if (!sessionData?.passport?.user) {
+      const session = (req as any).session;
+      if (!session?.passport?.user) {
+        console.error('No session or user found');
         ws.send(JSON.stringify({
           type: 'error',
           message: 'Authentication required'
@@ -444,9 +436,10 @@ export function registerRoutes(app: Express): Server {
         return;
       }
 
-      const userId = sessionData.passport.user;
+      const userId = session.passport.user;
       const user = await storage.getUser(userId);
       if (!user) {
+        console.error('User not found:', userId);
         ws.send(JSON.stringify({
           type: 'error',
           message: 'User not found'
@@ -454,6 +447,8 @@ export function registerRoutes(app: Express): Server {
         ws.close();
         return;
       }
+
+      console.log('WebSocket connection authenticated for user:', user.username);
 
       // Hata yönetimi
       ws.on('error', (error) => {
@@ -467,32 +462,12 @@ export function registerRoutes(app: Express): Server {
           console.log('Received message:', data);
 
           switch (data.type) {
-            case 'join_channel':
-              const channel = await storage.getChannel(data.channelId);
-              if (!channel) {
-                ws.send(JSON.stringify({
-                  type: 'error',
-                  message: 'Channel not found'
-                }));
-                return;
-              }
-
-              // Kanala erişim kontrolü
-              const canAccess = await storage.canAccessChannel(data.channelId, userId);
-              if (!canAccess) {
-                ws.send(JSON.stringify({
-                  type: 'error',
-                  message: 'Access denied'
-                }));
-                return;
-              }
-
-              // Diğer kullanıcılara bildirim gönder
+            case 'join_room':
+              console.log('User joining room:', data.channelId);
               wss.clients.forEach((client) => {
                 if (client !== ws && client.readyState === WebSocket.OPEN) {
                   client.send(JSON.stringify({
                     type: 'user_joined',
-                    channelId: data.channelId,
                     userId: userId,
                     username: user.username
                   }));
@@ -500,30 +475,40 @@ export function registerRoutes(app: Express): Server {
               });
               break;
 
-            case 'leave_channel':
-              // Diğer kullanıcılara ayrılma bildirimi gönder
+            case 'offer':
+              console.log('Forwarding offer from:', userId);
               wss.clients.forEach((client) => {
                 if (client !== ws && client.readyState === WebSocket.OPEN) {
                   client.send(JSON.stringify({
-                    type: 'user_left',
-                    channelId: data.channelId,
-                    userId: userId,
-                    username: user.username
+                    type: 'offer',
+                    from: userId,
+                    offer: data.offer
                   }));
                 }
               });
               break;
 
-            case 'voice_state':
-              // Ses durumu güncellemelerini diğer kullanıcılara ilet
+            case 'answer':
+              console.log('Forwarding answer from:', userId);
               wss.clients.forEach((client) => {
                 if (client !== ws && client.readyState === WebSocket.OPEN) {
                   client.send(JSON.stringify({
-                    type: 'voice_state_update',
-                    channelId: data.channelId,
-                    userId: userId,
-                    isSpeaking: data.isSpeaking,
-                    isMuted: data.isMuted
+                    type: 'answer',
+                    from: userId,
+                    answer: data.answer
+                  }));
+                }
+              });
+              break;
+
+            case 'ice-candidate':
+              console.log('Forwarding ICE candidate from:', userId);
+              wss.clients.forEach((client) => {
+                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify({
+                    type: 'ice-candidate',
+                    from: userId,
+                    candidate: data.candidate
                   }));
                 }
               });
@@ -540,9 +525,7 @@ export function registerRoutes(app: Express): Server {
 
       // Bağlantı kapatma
       ws.on('close', () => {
-        console.log('WebSocket connection closed');
-
-        // Diğer kullanıcılara bildir
+        console.log('WebSocket connection closed for user:', user.username);
         wss.clients.forEach((client) => {
           if (client !== ws && client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
@@ -561,12 +544,8 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Start media server
-  try {
-    nms.run();
-    console.log('Media server started successfully');
-  } catch (error) {
-    console.error('Failed to start media server:', error);
-  }
+  nms.run();
+  console.log('Media server started with RTMP port:', 1935, 'and HTTP port:', 8000);
 
   return httpServer;
 }
