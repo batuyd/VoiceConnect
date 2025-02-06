@@ -120,7 +120,7 @@ export function CoinDisplay() {
                     )}
                   </div>
                   <Button>
-                    ${product.price}
+                    ₺{product.price}
                   </Button>
                 </div>
                 {product.isPopular && (
