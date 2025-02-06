@@ -81,6 +81,46 @@ export function registerRoutes(app: Express): Server {
     res.json(updatedUser);
   });
 
+  // Message routes
+  app.get("/api/channels/:channelId/messages", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const messages = await storage.getMessages(parseInt(req.params.channelId));
+    res.json(messages);
+  });
+
+  app.post("/api/channels/:channelId/messages", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const message = await storage.createMessage(
+      parseInt(req.params.channelId),
+      req.user.id,
+      req.body.content
+    );
+    const messageWithDetails = (await storage.getMessages(message.channelId))
+      .find(m => m.id === message.id);
+    res.status(201).json(messageWithDetails);
+  });
+
+  // Reaction routes
+  app.post("/api/messages/:messageId/reactions", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const reaction = await storage.addReaction(
+      parseInt(req.params.messageId),
+      req.user.id,
+      req.body.emoji
+    );
+    res.status(201).json(reaction);
+  });
+
+  app.delete("/api/messages/:messageId/reactions/:emoji", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    await storage.removeReaction(
+      parseInt(req.params.messageId),
+      req.user.id,
+      req.params.emoji
+    );
+    res.sendStatus(200);
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

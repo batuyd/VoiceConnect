@@ -20,7 +20,7 @@ export const friendships = pgTable("friendships", {
   id: serial("id").primaryKey(),
   senderId: integer("sender_id").notNull(),
   receiverId: integer("receiver_id").notNull(),
-  status: text("status").notNull(), 
+  status: text("status").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -55,6 +55,22 @@ export const serverMembers = pgTable("server_members", {
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
 });
 
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  content: text("content").notNull(),
+  channelId: integer("channel_id").notNull(),
+  userId: integer("user_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const reactions = pgTable("reactions", {
+  id: serial("id").primaryKey(),
+  emoji: text("emoji").notNull(),
+  messageId: integer("message_id").notNull(),
+  userId: integer("user_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 const baseUserSchema = createInsertSchema(users);
 
 export const insertUserSchema = baseUserSchema.extend({
@@ -75,6 +91,8 @@ export const insertChannelSchema = createInsertSchema(channels);
 export const insertServerMemberSchema = createInsertSchema(serverMembers);
 export const insertFriendshipSchema = createInsertSchema(friendships);
 export const insertServerInviteSchema = createInsertSchema(serverInvites);
+export const insertMessageSchema = createInsertSchema(messages);
+export const insertReactionSchema = createInsertSchema(reactions);
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -83,3 +101,10 @@ export type Channel = typeof channels.$inferSelect;
 export type ServerMember = typeof serverMembers.$inferSelect;
 export type Friendship = typeof friendships.$inferSelect;
 export type ServerInvite = typeof serverInvites.$inferSelect;
+export type Message = typeof messages.$inferSelect;
+export type Reaction = typeof reactions.$inferSelect;
+
+export type MessageWithReactions = Message & {
+  user: User;
+  reactions: (Reaction & { user: User })[];
+};

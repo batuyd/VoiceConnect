@@ -71,6 +71,11 @@ export const translations = {
       welcome: 'Welcome to',
       messagePlaceholder: 'Message',
       send: 'Send',
+      addReaction: 'Add Reaction',
+      removeReaction: 'Remove Reaction',
+      reactions: 'Reactions',
+      reactionAdded: 'Reaction added',
+      reactionRemoved: 'Reaction removed',
     }
   },
   tr: {
@@ -143,6 +148,11 @@ export const translations = {
       welcome: 'Hoş geldiniz',
       messagePlaceholder: 'Mesaj',
       send: 'Gönder',
+      addReaction: 'Tepki Ekle',
+      removeReaction: 'Tepkiyi Kaldır',
+      reactions: 'Tepkiler',
+      reactionAdded: 'Tepki eklendi',
+      reactionRemoved: 'Tepki kaldırıldı',
     }
   }
 };

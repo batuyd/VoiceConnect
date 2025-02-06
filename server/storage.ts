@@ -1,5 +1,5 @@
 import { users, servers, channels, serverMembers, friendships, serverInvites } from "@shared/schema";
-import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite } from "@shared/schema";
+import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite, Message, Reaction, MessageWithReactions } from "@shared/schema";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import { nanoid } from "nanoid";
@@ -40,6 +40,14 @@ export interface IStorage {
     userId: number, 
     data: { bio?: string; age?: number; avatar?: string }
   ): Promise<User>;
+
+  // Message methods
+  createMessage(channelId: number, userId: number, content: string): Promise<Message>;
+  getMessages(channelId: number): Promise<MessageWithReactions[]>;
+
+  // Reaction methods
+  addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction>;
+  removeReaction(messageId: number, userId: number, emoji: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -49,6 +57,8 @@ export class MemStorage implements IStorage {
   private serverMembers: Map<number, ServerMember>;
   private friendships: Map<number, Friendship>;
   private serverInvites: Map<string, ServerInvite>;
+  private messages: Map<number, Message>;
+  private reactions: Map<number, Reaction>;
   sessionStore: session.Store;
   currentId: number;
 
@@ -59,6 +69,8 @@ export class MemStorage implements IStorage {
     this.serverMembers = new Map();
     this.friendships = new Map();
     this.serverInvites = new Map();
+    this.messages = new Map();
+    this.reactions = new Map();
     this.currentId = 1;
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000,
@@ -279,6 +291,68 @@ export class MemStorage implements IStorage {
 
     this.users.set(userId, updatedUser);
     return updatedUser;
+  }
+
+  async createMessage(channelId: number, userId: number, content: string): Promise<Message> {
+    const id = this.currentId++;
+    const message: Message = {
+      id,
+      content,
+      channelId,
+      userId,
+      createdAt: new Date(),
+    };
+    this.messages.set(id, message);
+    return message;
+  }
+
+  async getMessages(channelId: number): Promise<MessageWithReactions[]> {
+    const messages = Array.from(this.messages.values())
+      .filter(message => message.channelId === channelId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    return Promise.all(
+      messages.map(async message => {
+        const user = await this.getUser(message.userId);
+        const reactions = Array.from(this.reactions.values())
+          .filter(reaction => reaction.messageId === message.id);
+
+        const reactionsWithUsers = await Promise.all(
+          reactions.map(async reaction => ({
+            ...reaction,
+            user: (await this.getUser(reaction.userId))!
+          }))
+        );
+
+        return {
+          ...message,
+          user: user!,
+          reactions: reactionsWithUsers
+        };
+      })
+    );
+  }
+
+  async addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction> {
+    const id = this.currentId++;
+    const reaction: Reaction = {
+      id,
+      emoji,
+      messageId,
+      userId,
+      createdAt: new Date(),
+    };
+    this.reactions.set(id, reaction);
+    return reaction;
+  }
+
+  async removeReaction(messageId: number, userId: number, emoji: string): Promise<void> {
+    const reaction = Array.from(this.reactions.values()).find(
+      r => r.messageId === messageId && r.userId === userId && r.emoji === emoji
+    );
+    if (reaction) {
+      this.reactions.delete(reaction.id);
+    }
   }
 }
 
