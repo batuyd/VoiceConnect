@@ -14,6 +14,7 @@ export const translations = {
       disable2FA: 'Disable Two-Factor Authentication',
       verify2FA: 'Enter 2FA Code',
       verify2FADescription: 'Enter the 6-digit code from your authenticator app',
+      logout: 'Logout',
     },
     home: {
       welcome: 'Welcome',
@@ -33,6 +34,12 @@ export const translations = {
       leave: 'Leave',
       invite: 'Invite Friends',
       generateInvite: 'Generate Invite Link',
+      mute: 'Mute',
+      unmute: 'Unmute',
+      kick: 'Kick User',
+      ban: 'Ban User',
+      makeAdmin: 'Make Admin',
+      removeAdmin: 'Remove Admin',
     },
     settings: {
       title: 'Settings',
@@ -54,6 +61,7 @@ export const translations = {
       disable2FA: 'İki Faktörlü Doğrulamayı Devre Dışı Bırak',
       verify2FA: '2FA Kodunu Girin',
       verify2FADescription: 'Doğrulayıcı uygulamanızdan 6 haneli kodu girin',
+      logout: 'Çıkış Yap',
     },
     home: {
       welcome: 'Hoş Geldiniz',
@@ -73,6 +81,12 @@ export const translations = {
       leave: 'Ayrıl',
       invite: 'Arkadaşlarını Davet Et',
       generateInvite: 'Davet Linki Oluştur',
+      mute: 'Sustur',
+      unmute: 'Susturmayı Kaldır',
+      kick: 'Kullanıcıyı At',
+      ban: 'Kullanıcıyı Yasakla',
+      makeAdmin: 'Admin Yap',
+      removeAdmin: 'Admin Yetkisini Kaldır',
     },
     settings: {
       title: 'Ayarlar',

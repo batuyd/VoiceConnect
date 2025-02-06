@@ -12,6 +12,13 @@ export function registerRoutes(app: Express): Server {
     res.json(servers);
   });
 
+  app.get("/api/servers/:serverId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const server = await storage.getServer(parseInt(req.params.serverId));
+    if (!server) return res.sendStatus(404);
+    res.json(server);
+  });
+
   app.post("/api/servers", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     const server = await storage.createServer(req.body.name, req.user.id);
@@ -26,6 +33,10 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/servers/:serverId/channels", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
+    const server = await storage.getServer(parseInt(req.params.serverId));
+    if (!server || server.ownerId !== req.user.id) {
+      return res.sendStatus(403);
+    }
     const channel = await storage.createChannel(
       req.body.name,
       parseInt(req.params.serverId),

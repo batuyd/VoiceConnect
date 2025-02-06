@@ -21,6 +21,7 @@ export interface IStorage {
   rejectFriendRequest(friendshipId: number): Promise<void>;
 
   getServers(userId: number): Promise<Server[]>;
+  getServer(serverId: number): Promise<Server | undefined>;
   createServer(name: string, ownerId: number): Promise<Server>;
 
   createServerInvite(serverId: number, inviterId: number): Promise<ServerInvite>;
@@ -42,7 +43,7 @@ export class MemStorage implements IStorage {
   private channels: Map<number, Channel>;
   private serverMembers: Map<number, ServerMember>;
   private friendships: Map<number, Friendship>;
-  private serverInvites: Map<string, ServerInvite>; // Changed to string key for code
+  private serverInvites: Map<string, ServerInvite>;
   sessionStore: session.Store;
   currentId: number;
 
@@ -169,10 +170,10 @@ export class MemStorage implements IStorage {
       serverId,
       inviterId,
       code: nanoid(10),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 saat geçerli
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       createdAt: new Date(),
     };
-    this.serverInvites.set(invite.code, invite); // Use code as key
+    this.serverInvites.set(invite.code, invite);
     return invite;
   }
 
@@ -185,7 +186,7 @@ export class MemStorage implements IStorage {
     const invite = await this.getServerInvite(code);
     if (invite) {
       await this.addServerMember(invite.serverId, userId);
-      this.serverInvites.delete(code); // Delete invite after use
+      this.serverInvites.delete(code);
     }
   }
 
@@ -199,9 +200,9 @@ export class MemStorage implements IStorage {
 
   async createServer(name: string, ownerId: number): Promise<Server> {
     const id = this.currentId++;
-    const server: Server = { 
-      id, 
-      name, 
+    const server: Server = {
+      id,
+      name,
       ownerId,
       createdAt: new Date(),
     };
@@ -218,10 +219,10 @@ export class MemStorage implements IStorage {
 
   async createChannel(name: string, serverId: number, isVoice: boolean): Promise<Channel> {
     const id = this.currentId++;
-    const channel: Channel = { 
-      id, 
-      name, 
-      serverId, 
+    const channel: Channel = {
+      id,
+      name,
+      serverId,
       isVoice,
       createdAt: new Date(),
     };
@@ -241,12 +242,16 @@ export class MemStorage implements IStorage {
 
   async addServerMember(serverId: number, userId: number): Promise<void> {
     const id = this.currentId++;
-    this.serverMembers.set(id, { 
-      id, 
-      serverId, 
+    this.serverMembers.set(id, {
+      id,
+      serverId,
       userId,
       joinedAt: new Date(),
     });
+  }
+
+  async getServer(serverId: number): Promise<Server | undefined> {
+    return this.servers.get(serverId);
   }
 }
 
