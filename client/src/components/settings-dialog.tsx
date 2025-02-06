@@ -5,12 +5,14 @@ import { useLanguage } from "@/hooks/use-language";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { useState } from "react";
 
 export function SettingsDialog() {
   const { language, setLanguage } = useLanguage();
+  const [open, setOpen] = useState(false);
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
           variant="ghost"
@@ -20,7 +22,7 @@ export function SettingsDialog() {
           <Settings className="h-5 w-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Ayarlar</DialogTitle>
         </DialogHeader>
@@ -48,10 +50,9 @@ export function SettingsDialog() {
 
           <Separator />
 
-          {/* Diğer ayarlar buraya eklenebilir */}
           <div>
             <h4 className="font-medium mb-4">Tema Ayarları</h4>
-            {/* Tema ayarları buraya gelecek */}
+            {/* Tema ayarları buraya eklenecek */}
           </div>
         </div>
       </DialogContent>
