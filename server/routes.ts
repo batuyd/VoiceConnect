@@ -416,7 +416,7 @@ export function registerRoutes(app: Express): Server {
   // Media streaming server configuration
   const mediaServerConfig = {
     rtmp: {
-      port: parseInt(process.env.RTMP_PORT || '1935'),
+      port: parseInt(process.env.RTMP_PORT || '1936'), // Port değiştirildi
       chunk_size: 60000,
       gop_cache: true,
       ping: 30,
@@ -424,7 +424,7 @@ export function registerRoutes(app: Express): Server {
       host: '0.0.0.0'
     },
     http: {
-      port: parseInt(process.env.MEDIA_HTTP_PORT || '8000'),
+      port: parseInt(process.env.MEDIA_HTTP_PORT || '8001'),
       host: '0.0.0.0',
       mediaroot: './media',
       allow_origin: '*',
