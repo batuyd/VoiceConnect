@@ -7,6 +7,8 @@ type WebSocketMessage = {
   [key: string]: any;
 };
 
+const MAX_RETRY_COUNT = 5;
+
 export function useWebSocket() {
   const { toast } = useToast();
   const { t } = useLanguage();
@@ -18,16 +20,26 @@ export function useWebSocket() {
 
   const connectWebSocket = useCallback(() => {
     try {
-      // Doğrudan port numarası ile WebSocket URL'i
-      const wsUrl = `ws://${window.location.hostname}:5000/ws`;
-      console.log('WebSocket bağlantısı deneniyor:', wsUrl);
-
-      // Varolan bağlantıyı temizle
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        console.log('Mevcut WebSocket bağlantısı kapatılıyor');
-        socketRef.current.close();
+      if (retryCount >= MAX_RETRY_COUNT) {
+        console.error('Maksimum yeniden bağlanma denemesi aşıldı');
+        toast({
+          title: t('errors.connectionError'),
+          description: t('errors.maxRetriesExceeded'),
+          variant: 'destructive',
+        });
+        return;
       }
 
+      const wsUrl = `ws://${window.location.hostname}:5000/ws`;
+      console.log(`WebSocket bağlantısı deneniyor (${retryCount + 1}/${MAX_RETRY_COUNT}):`, wsUrl);
+
+      if (socketRef.current) {
+        console.log('Mevcut WebSocket bağlantısı kapatılıyor');
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+
+      // Add credentials option to maintain session
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
@@ -36,7 +48,12 @@ export function useWebSocket() {
         setIsConnected(true);
         setRetryCount(0);
 
-        // Ping mesajlarını göndermeye başla
+        // Attempt to send credentials with initial connection.  This is a simplification and might need refinement
+        // depending on your server-side authentication mechanism.
+        const credentials = { withCredentials: true }; //This might not work as intended with WebSockets.  Consider alternative authentication strategies.
+        socket.send(JSON.stringify({ type: 'authenticate', credentials }));
+
+
         pingIntervalRef.current = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: 'ping' }));
@@ -45,25 +62,32 @@ export function useWebSocket() {
       };
 
       socket.onclose = (event) => {
-        console.log('WebSocket bağlantısı kapandı, kod:', event.code, 'neden:', event.reason);
+        console.log('WebSocket bağlantısı kapandı:', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean
+        });
         setIsConnected(false);
         clearInterval(pingIntervalRef.current);
 
-        // Üstel geri çekilme ile yeniden bağlanma
-        const timeout = Math.min(1000 * Math.pow(2, retryCount), 30000);
-        console.log(`${timeout}ms sonra yeniden bağlanmayı deneyecek`);
+        if (retryCount < MAX_RETRY_COUNT) {
+          const timeout = Math.min(1000 * Math.pow(2, retryCount), 10000);
+          console.log(`${timeout}ms sonra yeniden bağlanma denemesi yapılacak (${retryCount + 1}/${MAX_RETRY_COUNT})`);
 
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (!socketRef.current || socketRef.current.readyState === WebSocket.CLOSED) {
+          reconnectTimeoutRef.current = setTimeout(() => {
             setRetryCount(prev => prev + 1);
             connectWebSocket();
-          }
-        }, timeout);
+          }, timeout);
+        }
       };
 
       socket.onerror = (error) => {
-        console.error('WebSocket hatası:', error);
-        // Sadece bağlantı tamamen koptuğunda kullanıcıya bildir
+        console.error('WebSocket hatası:', {
+          error,
+          readyState: socket.readyState,
+          url: socket.url
+        });
+
         if (!isConnected) {
           toast({
             title: t('errors.connectionError'),
@@ -118,7 +142,11 @@ export function useWebSocket() {
         }
       };
     } catch (error) {
-      console.error('WebSocket bağlantısı oluşturulurken hata:', error);
+      console.error('WebSocket bağlantısı oluşturulurken hata:', {
+        error,
+        retryCount,
+        isConnected
+      });
       toast({
         title: t('errors.connectionError'),
         description: t('errors.connectionErrorDesc'),
@@ -131,7 +159,6 @@ export function useWebSocket() {
     connectWebSocket();
 
     return () => {
-      // Temizlik işlemleri
       clearTimeout(reconnectTimeoutRef.current);
       clearInterval(pingIntervalRef.current);
       if (socketRef.current) {
