@@ -208,24 +208,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getServers(userId: number): Promise<Server[]> {
-    const serverMembers = await db
-      .select({
-        serverId: serverMembers.serverId
-      })
-      .from(serverMembers)
-      .where(eq(serverMembers.userId, userId));
+    try {
+      // First get all server memberships for the user
+      const memberships = await db
+        .select()
+        .from(serverMembers)
+        .where(eq(serverMembers.userId, userId));
 
-    if (serverMembers.length === 0) {
+      if (memberships.length === 0) {
+        return [];
+      }
+
+      // Then get all servers for those memberships
+      const serverIds = memberships.map(member => member.serverId);
+      const userServers = await db
+        .select()
+        .from(servers)
+        .where(
+          or(...serverIds.map(id => eq(servers.id, id)))
+        );
+
+      return userServers;
+    } catch (error) {
+      console.error('Error getting servers:', error);
       return [];
     }
-
-    const serverIds = serverMembers.map(member => member.serverId);
-    return db
-      .select()
-      .from(servers)
-      .where(
-        or(...serverIds.map(id => eq(servers.id, id)))
-      );
   }
 
   async getServer(serverId: number): Promise<Server | undefined> {
@@ -234,9 +241,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createServer(name: string, ownerId: number): Promise<Server> {
-    const [server] = await db.insert(servers).values({ name, ownerId }).returning();
-    await this.addServerMember(server.id, ownerId);
-    return server;
+    try {
+      // Start a transaction to ensure both server creation and member addition succeed
+      const server = await db.transaction(async (tx) => {
+        // Create the server first
+        const [newServer] = await tx
+          .insert(servers)
+          .values({ name, ownerId })
+          .returning();
+
+        // Add the owner as a server member
+        await tx
+          .insert(serverMembers)
+          .values({ serverId: newServer.id, userId: ownerId });
+
+        return newServer;
+      });
+
+      console.log('Server created successfully:', server);
+      return server;
+    } catch (error) {
+      console.error('Error creating server:', error);
+      throw new Error('Failed to create server');
+    }
   }
 
   async createServerInvite(serverId: number, inviterId: number, inviteeId: number): Promise<ServerInvite> {
