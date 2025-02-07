@@ -422,6 +422,7 @@ export class DatabaseStorage implements IStorage {
   }
 
 
+
   async getUserCoins(userId: number): Promise<UserCoins | undefined> {
     const [result] = await db
       .select()
@@ -689,27 +690,33 @@ export class DatabaseStorage implements IStorage {
 
       // Use transaction to ensure all related data is deleted
       await db.transaction(async (tx) => {
-        // Delete all messages in all channels of the server
-        const channels = await tx
+        // Get all channels first
+        const serverChannels = await tx
           .select()
           .from(channels)
           .where(eq(channels.serverId, serverId));
 
-        for (const channel of channels) {
+        // Delete all messages and reactions in each channel
+        for (const channel of serverChannels) {
+          // Get all messages for this channel
+          const channelMessages = await tx
+            .select()
+            .from(messages)
+            .where(eq(messages.channelId, channel.id));
+
+          // Delete reactions for all messages in this channel
+          if (channelMessages.length > 0) {
+            await tx
+              .delete(reactions)
+              .where(
+                or(...channelMessages.map(msg => eq(reactions.messageId, msg.id)))
+              );
+          }
+
+          // Delete all messages in this channel
           await tx
             .delete(messages)
             .where(eq(messages.channelId, channel.id));
-
-          await tx
-            .delete(reactions)
-            .where(
-              or(...(await tx
-                .select()
-                .from(messages)
-                .where(eq(messages.channelId, channel.id)))
-                .map(msg => eq(reactions.messageId, msg.id))
-              )
-            );
         }
 
         // Delete all channels
