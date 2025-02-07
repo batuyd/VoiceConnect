@@ -455,6 +455,7 @@ export class MemStorage implements IStorage {
     );
   }
 
+  // Fix type errors in createChannel function
   async createChannel(name: string, serverId: number, isVoice: boolean, isPrivate: boolean = false): Promise<Channel> {
     const id = this.currentId++;
     const channel: Channel = {
@@ -464,6 +465,7 @@ export class MemStorage implements IStorage {
       isVoice,
       isPrivate,
       allowedUsers: [],
+      type: isVoice ? 'voice' : 'text',
       createdAt: new Date(),
       currentMedia: null,
       mediaQueue: []
@@ -627,6 +629,7 @@ export class MemStorage implements IStorage {
     return userCoins;
   }
 
+  // Fix type errors in addCoins
   async addCoins(
     userId: number,
     amount: number,
@@ -639,16 +642,21 @@ export class MemStorage implements IStorage {
       userCoins = await this.createUserCoins(userId);
     }
 
-    userCoins.balance += amount;
+    const currentBalance = parseInt(userCoins.balance) || 0;
+    const newBalance = currentBalance + amount;
+    userCoins.balance = newBalance.toString();
+
     if (amount > 0) {
-      userCoins.lifetimeEarned += amount;
+      const lifetimeEarned = parseInt(userCoins.lifetimeEarned) || 0;
+      userCoins.lifetimeEarned = (lifetimeEarned + amount).toString();
     }
+
     this.userCoins.set(userCoins.id, userCoins);
 
     const transaction: CoinTransaction = {
       id: this.currentId++,
       userId,
-      amount,
+      amount: amount.toString(),
       type,
       description,
       metadata,
@@ -762,6 +770,7 @@ export class MemStorage implements IStorage {
     return Array.from(this.gifts.values());
   }
 
+  // Fix type issues with gifts and coins
   async sendGift(senderId: number, receiverId: number, giftId: number, message?: string): Promise<GiftHistory> {
     const gift = this.gifts.get(giftId);
     if (!gift) {
@@ -769,7 +778,12 @@ export class MemStorage implements IStorage {
     }
 
     const senderCoins = await this.getUserCoins(senderId);
-    if (!senderCoins || senderCoins.balance < gift.price) {
+    if (!senderCoins) {
+      throw new Error("User coins not found");
+    }
+
+    const currentBalance = parseInt(senderCoins.balance) || 0;
+    if (currentBalance < gift.price) {
       throw new Error("Insufficient coins");
     }
 
@@ -943,7 +957,7 @@ export class MemStorage implements IStorage {
     };
 
     this.channels.set(channelId, channel);
-        return channel;
+    return channel;
   }
 
   async addToMediaQueue(channelId: number, media: {
@@ -952,7 +966,7 @@ export class MemStorage implements IStorage {
     title: string;
     queuedBy: number;
   }): Promise<Channel> {
-    const channel =await this.getChannel(channelId);
+    const channel = await this.getChannel(channelId);
     if (!channel) throw new Error("Channel not found");
 
     channel.mediaQueue = [...(channel.mediaQueue || []), media];

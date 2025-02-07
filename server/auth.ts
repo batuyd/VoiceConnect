@@ -11,7 +11,7 @@ import cors from "cors";
 declare global {
   namespace Express {
     interface User extends SelectUser {
-      requiresSecondFactor?: boolean;
+      requiresSecondFactor: boolean;
     }
   }
 }
@@ -32,28 +32,24 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
-  // CORS ayarlarını güncelle - her zaman session için cookie'lere izin ver
   app.use(cors({
-    origin: process.env.NODE_ENV === 'production' 
-      ? process.env.FRONTEND_URL 
-      : ['http://localhost:3000', 'http://localhost:5000'],
+    origin: true, // Allow all origins in development
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
   }));
 
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET || process.env.REPL_ID!,
+    secret: process.env.SESSION_SECRET || 'development_secret',
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
       secure: app.get("env") === "production",
-      maxAge: 24 * 60 * 60 * 1000, // 24 saat
+      maxAge: 24 * 60 * 60 * 1000,
       httpOnly: true,
       sameSite: app.get("env") === "production" ? 'none' : 'lax',
-      path: '/',
-      domain: app.get("env") === "production" ? process.env.COOKIE_DOMAIN : undefined
+      path: '/'
     },
     name: 'ozba.session'
   };
@@ -62,79 +58,62 @@ export function setupAuth(app: Express) {
     app.set("trust proxy", 1);
   }
 
-  const sessionMiddleware = session(sessionSettings);
-  app.use(sessionMiddleware);
+  app.use(session(sessionSettings));
   app.use(passport.initialize());
   app.use(passport.session());
-
-  // WebSocket için session middleware'i dışa aktar
-  (app as any).sessionMiddleware = sessionMiddleware;
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
-        console.log('Login attempt:', username);
         const user = await storage.getUserByUsername(username);
         if (!user) {
-          console.log('Login failed: User not found -', username);
-          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         const isValidPassword = await comparePasswords(password, user.password);
         if (!isValidPassword) {
-          console.log('Login failed: Invalid password -', username);
-          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
-        console.log('Login successful:', username);
         const authUser: Express.User = {
           ...user,
-          requiresSecondFactor: user.twoFactorEnabled
+          requiresSecondFactor: user.twoFactorEnabled || false
         };
 
         return done(null, authUser);
       } catch (error) {
-        console.error('Login error:', error);
         return done(error);
       }
     }),
   );
 
   passport.serializeUser((user, done) => {
-    console.log('Serializing user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
-      console.log('Deserializing user:', id);
       const user = await storage.getUser(id);
       if (!user) {
-        console.log('User not found:', id);
         return done(null, false);
       }
 
       const authUser: Express.User = {
         ...user,
-        requiresSecondFactor: user.twoFactorEnabled
+        requiresSecondFactor: user.twoFactorEnabled || false
       };
 
-      console.log('User deserialized successfully:', id);
       done(null, authUser);
     } catch (error) {
-      console.error('Deserialization error:', error);
       done(error);
     }
   });
 
-  // Register endpoint
   app.post("/api/register", async (req, res, next) => {
     try {
-      console.log('Register attempt:', req.body.username);
       const existingUser = await storage.getUserByUsername(req.body.username);
       if (existingUser) {
-        console.log('Registration failed: Username exists -', req.body.username);
-        return res.status(400).json({ message: "Bu kullanıcı adı zaten kullanılıyor" });
+        return res.status(400).json({ message: "Username already exists" });
       }
 
       const hashedPassword = await hashPassword(req.body.password);
@@ -145,69 +124,53 @@ export function setupAuth(app: Express) {
 
       const authUser: Express.User = {
         ...user,
-        requiresSecondFactor: user.twoFactorEnabled
+        requiresSecondFactor: false
       };
 
       req.login(authUser, (err) => {
-        if (err) {
-          console.error('Registration login error:', err);
-          return next(err);
-        }
-        console.log('User registered and logged in:', authUser.id);
+        if (err) return next(err);
         res.status(201).json(authUser);
       });
     } catch (error) {
-      console.error('Registration error:', error);
       next(error);
     }
   });
 
-  // Login endpoint
   app.post("/api/login", (req, res, next) => {
-    console.log('Login attempt:', req.body.username);
     passport.authenticate("local", (err: Error | null, user: Express.User | false, info: any) => {
       if (err) {
-        console.error('Authentication error:', err);
         return next(err);
       }
 
       if (!user) {
-        console.log('Login failed:', info?.message);
-        return res.status(401).json({ message: info?.message || "Kimlik doğrulama başarısız" });
+        return res.status(401).json({ message: info?.message || "Authentication failed" });
       }
 
       req.login(user, (loginErr) => {
         if (loginErr) {
-          console.error('Login error:', loginErr);
           return next(loginErr);
         }
-        console.log('User logged in:', user.id);
         res.status(200).json(user);
       });
     })(req, res, next);
   });
 
-  // Logout endpoint
   app.post("/api/logout", (req, res, next) => {
-    console.log('Logout request for user:', req.user?.id);
-    req.logout((err) => {
-      if (err) {
-        console.error('Logout error:', err);
-        return next(err);
-      }
-      console.log('User logged out successfully');
+    if (req.session) {
+      req.session.destroy((err) => {
+        if (err) return next(err);
+        res.clearCookie('ozba.session');
+        res.sendStatus(200);
+      });
+    } else {
       res.sendStatus(200);
-    });
+    }
   });
 
-  // User info endpoint
   app.get("/api/user", (req, res) => {
-    console.log('User request:', req.isAuthenticated(), req.user?.id);
     if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Yetkilendirme gerekli" });
+      return res.status(401).json({ message: "Authentication required" });
     }
     res.json(req.user);
   });
-
-  return sessionMiddleware;
 }
