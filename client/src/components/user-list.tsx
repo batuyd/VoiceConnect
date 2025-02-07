@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 
 const setupWebSocket = () => {
@@ -27,11 +27,14 @@ const setupWebSocket = () => {
 
   ws.onopen = () => {
     console.log("WebSocket connection established");
+    // Send authentication message
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'authenticate' }));
+    }
   };
 
   ws.onclose = (event) => {
     console.log("WebSocket connection closed:", event.code, event.reason);
-    setTimeout(setupWebSocket, 5000);
   };
 
   ws.onerror = (error) => {
@@ -45,6 +48,7 @@ export function UserList({ serverId }: { serverId: number }) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
+  const wsRef = useRef<WebSocket | null>(null);
 
   const { data: users = [] } = useQuery<User[]>({
     queryKey: [`/api/servers/${serverId}/members`],
@@ -58,8 +62,12 @@ export function UserList({ serverId }: { serverId: number }) {
     if (!currentUser) return;
 
     console.log("Setting up WebSocket for user:", currentUser.id);
-    const ws = setupWebSocket();
 
+    // WebSocket bağlantısını kur
+    const ws = setupWebSocket();
+    wsRef.current = ws;
+
+    // Mesaj işleme
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -91,11 +99,27 @@ export function UserList({ serverId }: { serverId: number }) {
       }
     };
 
+    // Cleanup
     return () => {
       console.log("Cleaning up WebSocket connection");
-      ws.close();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.close();
+      }
     };
   }, [currentUser, toast, t]);
+
+  // WebSocket yeniden bağlanma mantığı
+  useEffect(() => {
+    const reconnectInterval = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.CLOSED) {
+        console.log("Attempting to reconnect WebSocket...");
+        const ws = setupWebSocket();
+        wsRef.current = ws;
+      }
+    }, 5000); // Her 5 saniyede bir kontrol et
+
+    return () => clearInterval(reconnectInterval);
+  }, []);
 
   const acceptInviteMutation = useMutation({
     mutationFn: async (inviteId: number) => {

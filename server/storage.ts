@@ -99,10 +99,17 @@ export class DatabaseStorage implements IStorage {
 
   async getPendingFriendRequests(userId: number): Promise<Friendship[]> {
     console.log(`Getting pending friend requests for user ${userId}`);
-    const requests = await db.select({
-      friendship: friendships,
-      sender: users,
-    })
+
+    // Use proper join and select statements
+    const requests = await db
+      .select({
+        id: friendships.id,
+        senderId: friendships.senderId,
+        receiverId: friendships.receiverId,
+        status: friendships.status,
+        createdAt: friendships.createdAt,
+        sender: users,
+      })
       .from(friendships)
       .innerJoin(users, eq(users.id, friendships.senderId))
       .where(
@@ -114,7 +121,8 @@ export class DatabaseStorage implements IStorage {
 
     console.log("Found requests:", requests);
 
-    return requests.map(({ friendship, sender }) => ({
+    // Map the results to match the Friendship type
+    return requests.map(({ sender, ...friendship }) => ({
       ...friendship,
       sender,
     }));

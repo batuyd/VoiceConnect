@@ -32,16 +32,18 @@ async function comparePasswords(supplied: string, stored: string) {
 
 export const sessionSettings: session.SessionOptions = {
   secret: process.env.REPL_ID!,
-  resave: false,
+  resave: true,
   saveUninitialized: false,
   store: storage.sessionStore,
   cookie: {
     secure: false,
-    maxAge: 24 * 60 * 60 * 1000,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 gün
     httpOnly: true,
-    sameSite: 'lax'
+    sameSite: 'lax',
+    path: '/'
   },
-  name: 'sid'
+  name: 'sid',
+  rolling: true // Her istekte session süresini yeniler
 };
 
 export function setupAuth(app: Express) {
@@ -50,7 +52,10 @@ export function setupAuth(app: Express) {
     sessionSettings.cookie!.secure = true;
   }
 
+  // Session middleware'ini passport'tan önce ekleyelim
   app.use(session(sessionSettings));
+
+  // Passport middleware'lerini ekleyelim
   app.use(passport.initialize());
   app.use(passport.session());
 
@@ -77,16 +82,20 @@ export function setupAuth(app: Express) {
   );
 
   passport.serializeUser((user, done) => {
+    console.log('Serializing user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
+      console.log('Deserializing user:', id);
       const user = await storage.getUser(id);
       if (!user) {
+        console.log('User not found during deserialization:', id);
         return done(null, false);
       }
       await storage.updateLastActive(user.id);
+      console.log('User deserialized successfully:', user.id);
       done(null, user);
     } catch (error) {
       console.error('Session deserialization error:', error);
@@ -141,6 +150,8 @@ export function setupAuth(app: Express) {
           to: email,
           subject,
           html
+        }).catch(error => {
+          console.error('Welcome email error:', error);
         });
 
         req.login(user, (err) => {
@@ -186,7 +197,16 @@ export function setupAuth(app: Express) {
           console.error('Session creation error:', err);
           return next(err);
         }
-        res.json(user);
+        console.log('User logged in successfully:', user.id);
+
+        // Session'ı kaydet
+        req.session.save((err) => {
+          if (err) {
+            console.error('Session save error:', err);
+            return next(err);
+          }
+          res.json(user);
+        });
       });
     })(req, res, next);
   });
@@ -198,6 +218,7 @@ export function setupAuth(app: Express) {
       });
     }
 
+    console.log('Logging out user:', req.user?.id);
     req.logout((err) => {
       if (err) {
         console.error('Logout error:', err);
@@ -208,7 +229,12 @@ export function setupAuth(app: Express) {
           console.error('Session destruction error:', err);
           return next(err);
         }
-        res.clearCookie('sid');
+        res.clearCookie('sid', { 
+          path: '/',
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: false 
+        });
         res.sendStatus(200);
       });
     });
