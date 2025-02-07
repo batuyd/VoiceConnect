@@ -10,7 +10,9 @@ import { sendEmail } from "./mail-service";
 
 declare global {
   namespace Express {
-    interface User extends SelectUser {}
+    interface User extends SelectUser {
+      requiresSecondFactor?: boolean;
+    }
   }
 }
 
@@ -85,11 +87,15 @@ export function setupAuth(app: Express) {
           return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
         }
 
-        // 2FA kodu oluştur ve gönder
-        if (user.email) {
+        if (user.twoFactorEnabled && user.email) {
           const code = await generate2FACode();
           await storage.set2FACode(user.id, code);
-          await send2FACode(user.email, code);
+          const emailSent = await send2FACode(user.email, code);
+
+          if (!emailSent) {
+            return done(new Error("2FA kodu gönderilemedi"));
+          }
+
           return done(null, { ...user, requiresSecondFactor: true });
         }
 
@@ -118,7 +124,6 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Auth routes
   app.post("/api/register", async (req, res, next) => {
     try {
       const existingUser = await storage.getUserByUsername(req.body.username);
@@ -140,11 +145,28 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    if (req.user?.requiresSecondFactor) {
-      return res.status(202).json({ message: "2FA kodu gerekli" });
-    }
-    res.status(200).json(req.user);
+  app.post("/api/login", (req, res, next) => {
+    passport.authenticate("local", (err, user, info) => {
+      if (err) {
+        return next(err);
+      }
+
+      if (!user) {
+        return res.status(401).json({ message: info?.message || "Kimlik doğrulama başarısız" });
+      }
+
+      req.login(user, (loginErr) => {
+        if (loginErr) {
+          return next(loginErr);
+        }
+
+        if (user.requiresSecondFactor) {
+          return res.status(202).json({ message: "2FA kodu gerekli", requiresSecondFactor: true });
+        }
+
+        res.status(200).json(user);
+      });
+    })(req, res, next);
   });
 
   app.post("/api/verify-2fa", async (req, res) => {
@@ -153,20 +175,33 @@ export function setupAuth(app: Express) {
     }
 
     const { code } = req.body;
-    const isValid = await storage.verify2FACode(req.user.id, code);
-
-    if (!isValid) {
-      return res.status(400).json({ message: "Geçersiz veya süresi dolmuş kod" });
+    if (!code) {
+      return res.status(400).json({ message: "Doğrulama kodu gerekli" });
     }
 
-    // 2FA başarılı, tam yetkili kullanıcı oturumunu başlat
-    const user = await storage.getUser(req.user.id);
-    req.login(user, (err) => {
-      if (err) {
-        return res.status(500).json({ message: "Oturum başlatılamadı" });
+    try {
+      const isValid = await storage.verify2FACode(req.user.id, code);
+
+      if (!isValid) {
+        return res.status(400).json({ message: "Geçersiz veya süresi dolmuş kod" });
       }
-      res.status(200).json(user);
-    });
+
+      const user = await storage.getUser(req.user.id);
+      if (!user) {
+        return res.status(404).json({ message: "Kullanıcı bulunamadı" });
+      }
+
+      // 2FA başarılı, tam yetkili kullanıcı oturumunu başlat
+      req.login(user, (err) => {
+        if (err) {
+          return res.status(500).json({ message: "Oturum başlatılamadı" });
+        }
+        res.status(200).json(user);
+      });
+    } catch (error) {
+      console.error('2FA doğrulama hatası:', error);
+      res.status(500).json({ message: "2FA doğrulama işlemi başarısız" });
+    }
   });
 
   app.post("/api/logout", (req, res, next) => {
@@ -177,7 +212,9 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Yetkilendirme gerekli" });
+    }
     res.json(req.user);
   });
 

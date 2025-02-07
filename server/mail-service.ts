@@ -1,6 +1,5 @@
 import { MailService } from '@sendgrid/mail';
-
-const mailService = new MailService();
+import nodemailer from 'nodemailer';
 
 interface EmailParams {
   to: string;
@@ -17,21 +16,19 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
       throw new Error('SMTP ayarları eksik');
     }
 
-    const emailConfig = {
+    const transporter = nodemailer.createTransport({
       host: SMTP_HOST,
       port: parseInt(SMTP_PORT),
+      secure: parseInt(SMTP_PORT) === 465,
       auth: {
         user: SMTP_USER,
         pass: SMTP_PASSWORD
-      },
-      secure: parseInt(SMTP_PORT) === 465
-    };
+      }
+    });
 
-    mailService.setApiKey(SMTP_PASSWORD);
-
-    await mailService.send({
-      to: params.to,
+    await transporter.sendMail({
       from: SMTP_USER,
+      to: params.to,
       subject: params.subject,
       text: params.text || '',
       html: params.html || '',

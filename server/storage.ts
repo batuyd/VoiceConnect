@@ -324,12 +324,22 @@ export class MemStorage implements IStorage {
     const user: User = {
       id,
       username: insertUser.username,
+      nickname: insertUser.nickname || null,
       password: insertUser.password,
       email: insertUser.email || `user${id}@placeholder.com`,
       phone: insertUser.phone || `+${Math.floor(Math.random() * 100000000000)}`,
       avatar: insertUser.avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)],
+      bio: insertUser.bio || null,
+      status: insertUser.status || null,
+      age: insertUser.age || null,
+      lastActive: new Date(),
+      socialLinks: insertUser.socialLinks || null,
+      theme: insertUser.theme || "system",
+      isPrivateProfile: insertUser.isPrivateProfile || false,
+      showLastSeen: insertUser.showLastSeen || true,
       twoFactorEnabled: false,
       twoFactorSecret: null,
+      requiresSecondFactor: false,
       createdAt: new Date(),
     };
 
