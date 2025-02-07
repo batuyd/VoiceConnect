@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { insertUserSchema, User as SelectUser } from "@shared/schema";
 import { ZodError } from "zod";
+import { sendEmail, emailTemplates } from "./services/email";
 
 declare global {
   namespace Express {
@@ -132,6 +133,14 @@ export function setupAuth(app: Express) {
           ...validatedData,
           password: hashedPassword,
           avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}`
+        });
+
+        // Send welcome email
+        const { subject, html } = emailTemplates.welcomeEmail(username);
+        await sendEmail({
+          to: email,
+          subject,
+          html
         });
 
         req.login(user, (err) => {

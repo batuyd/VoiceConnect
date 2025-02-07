@@ -1,11 +1,13 @@
 import { db } from "./db";
 import { eq, and, or } from "drizzle-orm";
-import { users, friendships, type User, type InsertUser, type Friendship, servers, channels, serverMembers, serverInvites, userCoins, coinTransactions, coinProducts, userAchievements } from "@shared/schema";
+import { users, friendships, servers, channels, serverMembers, serverInvites, userCoins, coinTransactions, coinProducts, userAchievements, messages, reactions } from "@shared/schema";
 import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite, UserCoins, CoinTransaction, CoinProduct, UserAchievement, Message, MessageWithReactions, Reaction } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
 import { nanoid } from "nanoid";
+import emailTemplates from './services/emailTemplates';
+import { sendEmail } from './services/email';
 
 const PostgresSessionStore = connectPg(session);
 
@@ -49,7 +51,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFriends(userId: number): Promise<User[]> {
-    const friendships = await db.select()
+    const friendshipResults = await db
+      .select()
       .from(friendships)
       .where(
         and(
@@ -61,32 +64,32 @@ export class DatabaseStorage implements IStorage {
         )
       );
 
-    const friendIds = friendships.map(f => 
+    const friendIds = friendshipResults.map(f =>
       f.senderId === userId ? f.receiverId : f.senderId
     );
 
     if (friendIds.length === 0) return [];
 
-    return await db.select()
+    return await db
+      .select()
       .from(users)
-      .where(
-        or(...friendIds.map(id => eq(users.id, id)))
-      );
+      .where(or(...friendIds.map(id => eq(users.id, id))));
   }
 
   async getFriendRequests(userId: number): Promise<Friendship[]> {
-    const requests = await db.select({
-      friendship: friendships,
-      sender: users,
-    })
-    .from(friendships)
-    .innerJoin(users, eq(users.id, friendships.senderId))
-    .where(
-      and(
-        eq(friendships.receiverId, userId),
-        eq(friendships.status, 'pending')
-      )
-    );
+    const requests = await db
+      .select({
+        friendship: friendships,
+        sender: users,
+      })
+      .from(friendships)
+      .innerJoin(users, eq(users.id, friendships.senderId))
+      .where(
+        and(
+          eq(friendships.receiverId, userId),
+          eq(friendships.status, 'pending')
+        )
+      );
 
     return requests.map(({ friendship, sender }) => ({
       ...friendship,
@@ -94,20 +97,20 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getPendingFriendRequests(userId: number): Promise<Friendship[]> { 
+  async getPendingFriendRequests(userId: number): Promise<Friendship[]> {
     console.log(`Getting pending friend requests for user ${userId}`);
     const requests = await db.select({
       friendship: friendships,
       sender: users,
     })
-    .from(friendships)
-    .innerJoin(users, eq(users.id, friendships.senderId))
-    .where(
-      and(
-        eq(friendships.receiverId, userId),
-        eq(friendships.status, 'pending')
-      )
-    );
+      .from(friendships)
+      .innerJoin(users, eq(users.id, friendships.senderId))
+      .where(
+        and(
+          eq(friendships.receiverId, userId),
+          eq(friendships.status, 'pending')
+        )
+      );
 
     console.log("Found requests:", requests);
 
@@ -119,8 +122,10 @@ export class DatabaseStorage implements IStorage {
 
   async createFriendRequest(senderId: number, receiverId: number): Promise<Friendship> {
     console.log(`Creating friend request from ${senderId} to ${receiverId}`);
+
     // Check if friendship already exists
-    const [existingFriendship] = await db.select()
+    const [existingFriendship] = await db
+      .select()
       .from(friendships)
       .where(
         or(
@@ -141,7 +146,8 @@ export class DatabaseStorage implements IStorage {
 
     console.log("No existing friendship found, creating new request");
 
-    const [friendship] = await db.insert(friendships)
+    const [friendship] = await db
+      .insert(friendships)
       .values({
         senderId,
         receiverId,
@@ -151,11 +157,27 @@ export class DatabaseStorage implements IStorage {
 
     console.log("Created friendship:", friendship);
 
-    const [sender] = await db.select()
+    const [sender] = await db
+      .select()
       .from(users)
       .where(eq(users.id, senderId));
 
-    console.log("Found sender:", sender);
+    const [receiver] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, receiverId));
+
+    // Send email notification to receiver
+    if (receiver && receiver.email) {
+      const { subject, html } = emailTemplates.friendRequest(sender.username);
+      await sendEmail({
+        to: receiver.email,
+        subject,
+        html
+      }).catch(error => {
+        console.error('Error sending friend request email:', error);
+      });
+    }
 
     return {
       ...friendship,
@@ -164,19 +186,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async acceptFriendRequest(friendshipId: number): Promise<void> {
-    await db.update(friendships)
+    await db
+      .update(friendships)
       .set({ status: 'accepted' })
       .where(eq(friendships.id, friendshipId));
   }
 
   async rejectFriendRequest(friendshipId: number): Promise<void> {
-    await db.update(friendships)
+    await db
+      .update(friendships)
       .set({ status: 'rejected' })
       .where(eq(friendships.id, friendshipId));
   }
 
   async getServers(userId: number): Promise<Server[]> {
-    const serverIds = (await db.select({serverId: servers.id}).from(serverMembers).where(eq(serverMembers.userId, userId))).map(item => item.serverId);
+    const serverIds = (await db.select({ serverId: servers.id }).from(serverMembers).where(eq(serverMembers.userId, userId))).map(item => item.serverId);
     return db.select().from(servers).where(or(...serverIds.map(id => eq(servers.id, id))));
   }
 
@@ -199,7 +223,7 @@ export class DatabaseStorage implements IStorage {
       inviteeId,
       status: 'pending',
       code: nanoid(10),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), 
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       createdAt: new Date(),
     };
     const [insertedInvite] = await db.insert(serverInvites).values(invite).returning();
@@ -257,7 +281,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getServerMembers(serverId: number): Promise<User[]> {
-    const userIds = (await db.select({userId: serverMembers.userId}).from(serverMembers).where(eq(serverMembers.serverId, serverId))).map(item => item.userId);
+    const userIds = (await db.select({ userId: serverMembers.userId }).from(serverMembers).where(eq(serverMembers.serverId, serverId))).map(item => item.userId);
     return db.select().from(users).where(or(...userIds.map(id => eq(users.id, id))));
   }
 
@@ -311,23 +335,23 @@ export class DatabaseStorage implements IStorage {
   }
   async getMessages(channelId: number): Promise<MessageWithReactions[]> {
     const messages = await db.select().from(messages).where(eq(messages.channelId, channelId)).orderBy(messages.createdAt);
-        return Promise.all(
-          messages.map(async message => {
-            const [user] = await db.select().from(users).where(eq(users.id, message.userId));
-            const reactions = await db.select().from(reactions).where(eq(reactions.messageId, message.id));
-            const reactionsWithUsers = await Promise.all(
-              reactions.map(async reaction => ({
-                ...reaction,
-                user: (await this.getUser(reaction.userId))!
-              }))
-            );
-            return {
-              ...message,
-              user: user!,
-              reactions: reactionsWithUsers
-            };
-          })
+    return Promise.all(
+      messages.map(async message => {
+        const [user] = await db.select().from(users).where(eq(users.id, message.userId));
+        const reactions = await db.select().from(reactions).where(eq(reactions.messageId, message.id));
+        const reactionsWithUsers = await Promise.all(
+          reactions.map(async reaction => ({
+            ...reaction,
+            user: (await this.getUser(reaction.userId))!
+          }))
         );
+        return {
+          ...message,
+          user: user!,
+          reactions: reactionsWithUsers
+        };
+      })
+    );
   }
 
   async addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction> {
@@ -568,21 +592,21 @@ export class DatabaseStorage implements IStorage {
     throw new Error("Method not implemented.");
   }
 
-    // Friend related methods (These methods will need to be implemented using the database)
+  // Friend related methods (These methods will need to be implemented using the database)
   async getFriendship(userId1: number, userId2: number): Promise<Friendship | undefined> {
     const [friendship] = await db.select().from(friendships).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
     return friendship;
   }
 
   async addFriend(userId1: number, userId2: number): Promise<void> {
-    await db.update(friendships).set({status: 'accepted'}).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
+    await db.update(friendships).set({ status: 'accepted' }).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
   }
 
   async removeFriend(userId1: number, userId2: number): Promise<void> {
     await db.delete(friendships).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
   }
   async getFriendshipById(friendshipId: number): Promise<Friendship | undefined> {
-    const [friendship] = await db.select({friendship: friendships, sender: users}).from(friendships).innerJoin(users, eq(users.id, friendships.senderId)).where(eq(friendships.id, friendshipId));
+    const [friendship] = await db.select({ friendship: friendships, sender: users }).from(friendships).innerJoin(users, eq(users.id, friendships.senderId)).where(eq(friendships.id, friendshipId));
     return friendship;
   }
 }
@@ -644,7 +668,7 @@ interface IStorage {
 
   getFriends(userId: number): Promise<User[]>;
   getFriendRequests(userId: number): Promise<Friendship[]>;
-  getPendingFriendRequests(userId: number): Promise<Friendship[]>; 
+  getPendingFriendRequests(userId: number): Promise<Friendship[]>;
   createFriendRequest(senderId: number, receiverId: number): Promise<Friendship>;
   acceptFriendRequest(friendshipId: number): Promise<void>;
   rejectFriendRequest(friendshipId: number): Promise<void>;
