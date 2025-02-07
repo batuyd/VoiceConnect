@@ -1,6 +1,6 @@
 import { Volume2, VolumeX } from "lucide-react";
 import { Channel } from "@shared/schema";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { MediaControls } from "./media-controls";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -32,6 +33,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [audioPermissionGranted, setAudioPermissionGranted] = useState(false);
 
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
@@ -45,10 +47,68 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     enabled: isJoined
   });
 
+  const setupAudioStream = useCallback(async () => {
+    if (!selectedInputDevice || !isJoined || !audioPermissionGranted) return;
+
+    try {
+      // Cleanup existing stream if any
+      if (stream.current) {
+        stream.current.getTracks().forEach(track => track.stop());
+      }
+
+      // Get new media stream with specified device
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          deviceId: { exact: selectedInputDevice },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+
+      // Create audio context if not exists
+      if (!audioContext.current || audioContext.current.state === 'closed') {
+        audioContext.current = new AudioContext();
+      }
+
+      stream.current = mediaStream;
+      const source = audioContext.current.createMediaStreamSource(mediaStream);
+      gainNode.current = audioContext.current.createGain();
+
+      source.connect(gainNode.current);
+      if (!isMuted) {
+        gainNode.current.connect(audioContext.current.destination);
+      }
+
+      console.log('Audio stream setup successful');
+    } catch (error) {
+      console.error('Audio setup error:', error);
+      toast({
+        description: t('voice.deviceAccessError'),
+        variant: "destructive",
+      });
+    }
+  }, [selectedInputDevice, isJoined, audioPermissionGranted, isMuted, toast, t]);
+
+  const requestAudioPermissions = useCallback(async () => {
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setAudioPermissionGranted(true);
+      return true;
+    } catch (error) {
+      console.error('Audio permission error:', error);
+      toast({
+        description: t('voice.permissionDenied'),
+        variant: "destructive",
+      });
+      return false;
+    }
+  }, [toast, t]);
+
   useEffect(() => {
     let mounted = true;
 
-    const connectWebSocket = () => {
+    const connectWebSocket = async () => {
       if (!isJoined || !user?.id || wsRef.current?.readyState === WebSocket.OPEN || retryCount >= maxRetries) {
         return;
       }
@@ -58,11 +118,13 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         wsRef.current = null;
       }
 
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-
       try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        console.log('Connecting to WebSocket:', wsUrl);
+
         const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
         ws.onopen = () => {
           if (!mounted) return;
@@ -106,6 +168,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           if (!mounted) return;
           try {
             const data = JSON.parse(event.data);
+            console.log('WebSocket message received:', data);
+
             if (data.type === 'error') {
               console.error('WebSocket error:', data.message);
               toast({
@@ -119,8 +183,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             console.error('Failed to parse WebSocket message:', error);
           }
         };
-
-        wsRef.current = ws;
       } catch (error) {
         console.error('Failed to create WebSocket connection:', error);
         if (mounted) {
@@ -132,10 +194,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       }
     };
 
-    // Only try to connect if we're joined and have a user
-    if (isJoined && user?.id) {
-      connectWebSocket();
-    }
+    connectWebSocket();
 
     return () => {
       mounted = false;
@@ -150,70 +209,20 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers]);
 
   useEffect(() => {
-    let mounted = true;
-
-    const setupAudioStream = async () => {
-      if (!selectedInputDevice || !isJoined) return;
-
-      if (stream.current) {
-        stream.current.getTracks().forEach(track => track.stop());
-      }
-
-      try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            deviceId: { exact: selectedInputDevice },
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        });
-
-        if (!mounted) {
-          mediaStream.getTracks().forEach(track => track.stop());
-          return;
+    if (isJoined && !audioPermissionGranted) {
+      requestAudioPermissions().then(granted => {
+        if (granted) {
+          setupAudioStream();
         }
+      });
+    }
+  }, [isJoined, audioPermissionGranted, requestAudioPermissions, setupAudioStream]);
 
-        if (!audioContext.current) {
-          audioContext.current = new AudioContext();
-        }
-
-        stream.current = mediaStream;
-        const source = audioContext.current.createMediaStreamSource(mediaStream);
-        gainNode.current = audioContext.current.createGain();
-
-        source.connect(gainNode.current);
-        if (!isMuted) {
-          gainNode.current.connect(audioContext.current.destination);
-        }
-      } catch (error) {
-        console.error('Audio setup error:', error);
-        if (mounted) {
-          toast({
-            description: t('voice.deviceAccessError'),
-            variant: "destructive",
-          });
-        }
-      }
-    };
-
-    if (isJoined) {
+  useEffect(() => {
+    if (isJoined && audioPermissionGranted) {
       setupAudioStream();
     }
-
-    return () => {
-      mounted = false;
-      if (stream.current) {
-        stream.current.getTracks().forEach(track => track.stop());
-      }
-      if (gainNode.current) {
-        gainNode.current.disconnect();
-      }
-      if (audioContext.current?.state !== 'closed') {
-        audioContext.current?.close();
-      }
-    };
-  }, [selectedInputDevice, isJoined, isMuted, toast, t]);
+  }, [isJoined, audioPermissionGranted, setupAudioStream]);
 
   useEffect(() => {
     if (!gainNode.current || !audioContext.current) return;
@@ -225,19 +234,29 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     }
   }, [isMuted]);
 
-  const handleJoinLeave = () => {
+  const handleJoinLeave = useCallback(async () => {
     if (isJoined) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
+      if (stream.current) {
+        stream.current.getTracks().forEach(track => track.stop());
+      }
+      if (audioContext.current?.state !== 'closed') {
+        await audioContext.current?.close();
+      }
       setIsJoined(false);
       setWsConnected(false);
       setRetryCount(0);
+      setAudioPermissionGranted(false);
     } else {
-      setIsJoined(true);
+      const hasPermission = await requestAudioPermissions();
+      if (hasPermission) {
+        setIsJoined(true);
+      }
     }
-  };
+  }, [isJoined, requestAudioPermissions]);
 
   return (
     <div className="space-y-2">

@@ -1,6 +1,11 @@
 import nodemailer from 'nodemailer';
+import { emailTemplates } from './emailTemplates';
 
-// Create a transporter using Outlook SMTP settings
+if (!process.env.SMTP_HOST || !process.env.SMTP_PORT || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.SMTP_FROM_EMAIL) {
+  console.error('Missing required SMTP environment variables');
+}
+
+// Create a transporter using SMTP settings
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT || '587'),
@@ -9,6 +14,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD,
   },
+  tls: {
+    rejectUnauthorized: false // Development only
+  }
 });
 
 interface SendEmailOptions {
@@ -20,13 +28,14 @@ interface SendEmailOptions {
 
 export async function sendEmail({ to, subject, text, html }: SendEmailOptions): Promise<boolean> {
   try {
-    await transporter.sendMail({
+    const result = await transporter.sendMail({
       from: process.env.SMTP_FROM_EMAIL,
       to,
       subject,
       text,
       html,
     });
+    console.log('Email sent successfully:', result);
     return true;
   } catch (error) {
     console.error('Error sending email:', error);
@@ -46,33 +55,5 @@ export async function verifyEmailConnection(): Promise<boolean> {
   }
 }
 
-// Email templates
-export const emailTemplates = {
-  welcomeEmail: (username: string) => ({
-    subject: 'Hoş Geldiniz!',
-    html: `
-      <h1>Merhaba ${username}!</h1>
-      <p>Platformumuza hoş geldiniz. Hesabınız başarıyla oluşturuldu.</p>
-      <p>İyi eğlenceler!</p>
-    `,
-  }),
-
-  passwordReset: (resetToken: string) => ({
-    subject: 'Şifre Sıfırlama İsteği',
-    html: `
-      <h1>Şifre Sıfırlama</h1>
-      <p>Şifrenizi sıfırlamak için aşağıdaki bağlantıya tıklayın:</p>
-      <a href="${process.env.APP_URL}/reset-password?token=${resetToken}">Şifremi Sıfırla</a>
-      <p>Bu bağlantı 1 saat süreyle geçerlidir.</p>
-    `,
-  }),
-
-  friendRequest: (fromUsername: string) => ({
-    subject: 'Yeni Arkadaşlık İsteği',
-    html: `
-      <h1>Yeni Arkadaşlık İsteği</h1>
-      <p>${fromUsername} size arkadaşlık isteği gönderdi.</p>
-      <p>İsteği kabul etmek veya reddetmek için uygulamaya giriş yapın.</p>
-    `,
-  }),
-};
+// Export email templates
+export { emailTemplates };

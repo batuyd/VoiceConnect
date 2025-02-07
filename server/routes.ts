@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from 'ws';
 import session from 'express-session';
 import type { User } from "@shared/schema";
+import ytdl from 'ytdl-core';
 
 // Track connected users globally
 const connectedUsers = new Map<number, {
@@ -32,11 +33,11 @@ function sendWebSocketNotification(userId: number, notification: any) {
 }
 
 // Error handling helper
-function handleError(error: unknown): Error {
+function handleError(error: unknown): string {
   if (error instanceof Error) {
-    return error;
+    return error.message;
   }
-  return new Error(String(error));
+  return String(error);
 }
 
 export function registerRoutes(app: Express): Server {
@@ -50,58 +51,82 @@ export function registerRoutes(app: Express): Server {
       console.log('Pending friend requests for user', req.user.id, ':', requests);
       res.json(requests);
     } catch (error) {
-      const err = handleError(error);
-      console.error('Get friend requests error:', err);
+      console.error('Get friend requests error:', handleError(error));
       res.status(500).json({ message: "Failed to get friend requests" });
     }
   });
 
   app.get("/api/servers", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const servers = await storage.getServers(req.user.id);
-    res.json(servers);
+    try {
+      const servers = await storage.getServers(req.user.id);
+      res.json(servers);
+    } catch (error) {
+      console.error('Get servers error:', handleError(error));
+      res.status(500).json({ message: "Failed to get servers" });
+    }
   });
 
   app.get("/api/servers/:serverId", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const server = await storage.getServer(parseInt(req.params.serverId));
-    if (!server) return res.sendStatus(404);
-    res.json(server);
+    try {
+      const server = await storage.getServer(parseInt(req.params.serverId));
+      if (!server) return res.sendStatus(404);
+      res.json(server);
+    } catch (error) {
+      console.error('Get server error:', handleError(error));
+      res.status(500).json({ message: "Failed to get server" });
+    }
   });
 
   app.post("/api/servers", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const server = await storage.createServer(req.body.name, req.user.id);
-    res.status(201).json(server);
+    try {
+      const server = await storage.createServer(req.body.name, req.user.id);
+      res.status(201).json(server);
+    } catch (error) {
+      console.error('Create server error:', handleError(error));
+      res.status(500).json({ message: "Failed to create server" });
+    }
   });
 
   app.get("/api/servers/:serverId/channels", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const channels = await storage.getChannels(parseInt(req.params.serverId));
-    res.json(channels);
+    try {
+      const channels = await storage.getChannels(parseInt(req.params.serverId));
+      res.json(channels);
+    } catch (error) {
+      console.error('Get channels error:', handleError(error));
+      res.status(500).json({ message: "Failed to get channels" });
+    }
   });
 
   app.post("/api/servers/:serverId/channels", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const server = await storage.getServer(parseInt(req.params.serverId));
-    if (!server || server.ownerId !== req.user.id) {
-      return res.sendStatus(403);
-    }
-    // Premium kullanıcı kontrolü
-    if (req.body.isPrivate) {
-      const hasSubscription = await storage.hasActiveSubscription(req.user.id);
-      if (!hasSubscription) {
-        return res.status(403).json({ error: "Bu özellik sadece premium üyelere açıktır" });
+    try {
+      const server = await storage.getServer(parseInt(req.params.serverId));
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
       }
-    }
+      // Premium kullanıcı kontrolü
+      if (req.body.isPrivate) {
+        const hasSubscription = await storage.hasActiveSubscription(req.user.id);
+        if (!hasSubscription) {
+          return res.status(403).json({ error: "Bu özellik sadece premium üyelere açıktır" });
+        }
+      }
 
-    const channel = await storage.createChannel(
-      req.body.name,
-      parseInt(req.params.serverId),
-      req.body.isVoice,
-      req.body.isPrivate
-    );
-    res.status(201).json(channel);
+      const channel = await storage.createChannel(
+        req.body.name,
+        parseInt(req.params.serverId),
+        req.body.isVoice,
+        req.body.isPrivate
+      );
+      res.status(201).json(channel);
+    } catch (error) {
+      console.error('Create channel error:', handleError(error));
+      res.status(500).json({ message: "Failed to create channel" });
+    }
   });
 
   // Kanal silme endpoint'i
@@ -120,45 +145,66 @@ export function registerRoutes(app: Express): Server {
       await storage.deleteChannel(parseInt(req.params.channelId));
       res.sendStatus(200);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('Delete channel error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
 
   app.get("/api/servers/:serverId/members", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const members = await storage.getServerMembers(parseInt(req.params.serverId));
-    res.json(members);
+    try {
+      const members = await storage.getServerMembers(parseInt(req.params.serverId));
+      res.json(members);
+    } catch (error) {
+      console.error('Get server members error:', handleError(error));
+      res.status(500).json({ message: "Failed to get server members" });
+    }
   });
 
   app.post("/api/servers/:serverId/members", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    await storage.addServerMember(parseInt(req.params.serverId), req.body.userId);
-    res.sendStatus(201);
+    try {
+      await storage.addServerMember(parseInt(req.params.serverId), req.body.userId);
+      res.sendStatus(201);
+    } catch (error) {
+      console.error('Add server member error:', handleError(error));
+      res.status(500).json({ message: "Failed to add server member" });
+    }
   });
 
   app.get("/api/channels/:channelId/members", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const channel = await storage.getChannel(parseInt(req.params.channelId));
-    if (!channel) return res.sendStatus(404);
-    const members = await storage.getServerMembers(channel.serverId);
-    const connectedMembers = members.map(member => ({
-      ...member,
-      isMuted: Math.random() > 0.5
-    }));
-    res.json(connectedMembers);
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+      const members = await storage.getServerMembers(channel.serverId);
+      const connectedMembers = members.map(member => ({
+        ...member,
+        isMuted: Math.random() > 0.5
+      }));
+      res.json(connectedMembers);
+    } catch (error) {
+      console.error('Get channel members error:', handleError(error));
+      res.status(500).json({ message: "Failed to get channel members" });
+    }
   });
 
   app.patch("/api/user/profile", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
-    const updatedUser = await storage.updateUserProfile(req.user.id, {
-      bio: req.body.bio,
-      age: req.body.age,
-      avatar: req.body.avatar,
-    });
+    try {
+      const updatedUser = await storage.updateUserProfile(req.user.id, {
+        bio: req.body.bio,
+        age: req.body.age,
+        avatar: req.body.avatar,
+      });
 
-    res.json(updatedUser);
+      res.json(updatedUser);
+    } catch (error) {
+      console.error('Update user profile error:', handleError(error));
+      res.status(500).json({ message: "Failed to update user profile" });
+    }
   });
 
   // Server invite routes
@@ -182,14 +228,20 @@ export function registerRoutes(app: Express): Server {
 
       res.status(201).json(invite);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('Create server invite error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
   app.get("/api/invites", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const invites = await storage.getServerInvitesByUser(req.user.id);
-    res.json(invites);
+    try {
+      const invites = await storage.getServerInvitesByUser(req.user.id);
+      res.json(invites);
+    } catch (error) {
+      console.error('Get server invites error:', handleError(error));
+      res.status(500).json({ message: "Failed to get server invites" });
+    }
   });
 
   app.post("/api/invites/:inviteId/accept", async (req, res) => {
@@ -199,7 +251,8 @@ export function registerRoutes(app: Express): Server {
       await storage.acceptServerInvite(parseInt(req.params.inviteId));
       res.sendStatus(200);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('Accept server invite error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
@@ -210,64 +263,90 @@ export function registerRoutes(app: Express): Server {
       await storage.rejectServerInvite(parseInt(req.params.inviteId));
       res.sendStatus(200);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('Reject server invite error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
   // Message routes
   app.get("/api/channels/:channelId/messages", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const messages = await storage.getMessages(parseInt(req.params.channelId));
-    res.json(messages);
+    try {
+      const messages = await storage.getMessages(parseInt(req.params.channelId));
+      res.json(messages);
+    } catch (error) {
+      console.error('Get messages error:', handleError(error));
+      res.status(500).json({ message: "Failed to get messages" });
+    }
   });
 
   app.post("/api/channels/:channelId/messages", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
-    // Call original handler.  This assumes app.routes.post is available and contains the original handler.  This might require refactoring depending on the express setup.
-    const originalPostMessage = app.routes.post["/api/channels/:channelId/messages"];
-    await originalPostMessage(req, res);
+    try {
+      // Call original handler.  This assumes app.routes.post is available and contains the original handler.  This might require refactoring depending on the express setup.
+      const originalPostMessage = app.routes.post["/api/channels/:channelId/messages"];
+      await originalPostMessage(req, res);
 
 
-    const achievements = await storage.getUserAchievements(req.user.id);
-    const messageAchievement = achievements.find(a => a.type === "messages");
-    if (messageAchievement) {
-      await storage.updateUserAchievement(req.user.id, "messages", messageAchievement.progress + 1);
-    } else {
-      await storage.updateUserAchievement(req.user.id, "messages", 1);
+      const achievements = await storage.getUserAchievements(req.user.id);
+      const messageAchievement = achievements.find(a => a.type === "messages");
+      if (messageAchievement) {
+        await storage.updateUserAchievement(req.user.id, "messages", messageAchievement.progress + 1);
+      } else {
+        await storage.updateUserAchievement(req.user.id, "messages", 1);
+      }
+    } catch (error) {
+      console.error('Post message error:', handleError(error));
+      res.status(500).json({ message: "Failed to post message" });
     }
   });
 
   // Reaction routes
   app.post("/api/messages/:messageId/reactions", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const reaction = await storage.addReaction(
-      parseInt(req.params.messageId),
-      req.user.id,
-      req.body.emoji
-    );
-    res.status(201).json(reaction);
+    try {
+      const reaction = await storage.addReaction(
+        parseInt(req.params.messageId),
+        req.user.id,
+        req.body.emoji
+      );
+      res.status(201).json(reaction);
+    } catch (error) {
+      console.error('Add reaction error:', handleError(error));
+      res.status(500).json({ message: "Failed to add reaction" });
+    }
   });
 
   app.delete("/api/messages/:messageId/reactions/:emoji", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    await storage.removeReaction(
-      parseInt(req.params.messageId),
-      req.user.id,
-      req.params.emoji
-    );
-    res.sendStatus(200);
+    try {
+      await storage.removeReaction(
+        parseInt(req.params.messageId),
+        req.user.id,
+        req.params.emoji
+      );
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Remove reaction error:', handleError(error));
+      res.status(500).json({ message: "Failed to remove reaction" });
+    }
   });
 
   // Coin related routes
   app.get("/api/coins", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const userCoins = await storage.getUserCoins(req.user.id);
-    if (!userCoins) {
-      const newUserCoins = await storage.createUserCoins(req.user.id);
-      res.json(newUserCoins);
-    } else {
-      res.json(userCoins);
+    try {
+      const userCoins = await storage.getUserCoins(req.user.id);
+      if (!userCoins) {
+        const newUserCoins = await storage.createUserCoins(req.user.id);
+        res.json(newUserCoins);
+      } else {
+        res.json(userCoins);
+      }
+    } catch (error) {
+      console.error('Get coins error:', handleError(error));
+      res.status(500).json({ message: "Failed to get coins" });
     }
   });
 
@@ -277,27 +356,43 @@ export function registerRoutes(app: Express): Server {
       const transaction = await storage.claimDailyReward(req.user.id);
       res.json(transaction);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('Claim daily reward error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
   app.get("/api/coins/products", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const products = await storage.getCoinProducts();
-    res.json(products);
+    try {
+      const products = await storage.getCoinProducts();
+      res.json(products);
+    } catch (error) {
+      console.error('Get coin products error:', handleError(error));
+      res.status(500).json({ message: "Failed to get coin products" });
+    }
   });
 
   app.get("/api/achievements", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const achievements = await storage.getUserAchievements(req.user.id);
-    res.json(achievements);
+    try {
+      const achievements = await storage.getUserAchievements(req.user.id);
+      res.json(achievements);
+    } catch (error) {
+      console.error('Get achievements error:', handleError(error));
+      res.status(500).json({ message: "Failed to get achievements" });
+    }
   });
 
   // Gift related routes
   app.get("/api/gifts", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const gifts = await storage.getGifts();
-    res.json(gifts);
+    try {
+      const gifts = await storage.getGifts();
+      res.json(gifts);
+    } catch (error) {
+      console.error('Get gifts error:', handleError(error));
+      res.status(500).json({ message: "Failed to get gifts" });
+    }
   });
 
   app.post("/api/gifts/send", async (req, res) => {
@@ -311,71 +406,97 @@ export function registerRoutes(app: Express): Server {
       );
       res.status(201).json(giftHistory);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('Send gift error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
   app.get("/api/gifts/history", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const history = await storage.getGiftHistory(req.user.id);
-    res.json(history);
+    try {
+      const history = await storage.getGiftHistory(req.user.id);
+      res.json(history);
+    } catch (error) {
+      console.error('Get gift history error:', handleError(error));
+      res.status(500).json({ message: "Failed to get gift history" });
+    }
   });
 
   // Level related routes
   app.get("/api/user/level", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const userLevel = await storage.getUserLevel(req.user.id);
-    res.json(userLevel);
+    try {
+      const userLevel = await storage.getUserLevel(req.user.id);
+      res.json(userLevel);
+    } catch (error) {
+      console.error('Get user level error:', handleError(error));
+      res.status(500).json({ message: "Failed to get user level" });
+    }
   });
 
   app.post("/api/channels/:channelId/members", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
-    const channel = await storage.getChannel(parseInt(req.params.channelId));
-    if (!channel) return res.sendStatus(404);
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
 
-    const server = await storage.getServer(channel.serverId);
-    if (!server || server.ownerId !== req.user.id) {
-      return res.sendStatus(403);
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.addUserToPrivateChannel(
+        parseInt(req.params.channelId),
+        req.body.userId
+      );
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Add user to private channel error:', handleError(error));
+      res.status(500).json({ message: "Failed to add user to private channel" });
     }
-
-    await storage.addUserToPrivateChannel(
-      parseInt(req.params.channelId),
-      req.body.userId
-    );
-    res.sendStatus(200);
   });
 
   app.delete("/api/channels/:channelId/members/:userId", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
-    const channel = await storage.getChannel(parseInt(req.params.channelId));
-    if (!channel) return res.sendStatus(404);
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
 
-    const server = await storage.getServer(channel.serverId);
-    if (!server || server.ownerId !== req.user.id) {
-      return res.sendStatus(403);
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.removeUserFromPrivateChannel(
+        parseInt(req.params.channelId),
+        parseInt(req.params.userId)
+      );
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Remove user from private channel error:', handleError(error));
+      res.status(500).json({ message: "Failed to remove user from private channel" });
     }
-
-    await storage.removeUserFromPrivateChannel(
-      parseInt(req.params.channelId),
-      parseInt(req.params.userId)
-    );
-    res.sendStatus(200);
   });
 
   app.get("/api/channels/:channelId", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
-    const channelId = parseInt(req.params.channelId);
-    const canAccess = await storage.canAccessChannel(channelId, req.user.id);
+    try {
+      const channelId = parseInt(req.params.channelId);
+      const canAccess = await storage.canAccessChannel(channelId, req.user.id);
 
-    if (!canAccess) {
-      return res.sendStatus(403);
+      if (!canAccess) {
+        return res.sendStatus(403);
+      }
+
+      const channel = await storage.getChannel(channelId);
+      res.json(channel);
+    } catch (error) {
+      console.error('Get channel error:', handleError(error));
+      res.status(500).json({ message: "Failed to get channel" });
     }
-
-    const channel = await storage.getChannel(channelId);
-    res.json(channel);
   });
 
   // Media related routes
@@ -402,7 +523,9 @@ export function registerRoutes(app: Express): Server {
         res.json(updatedChannel);
       }
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      const errorMessage = handleError(error);
+      console.error('Media error:', errorMessage);
+      res.status(400).json({ error: errorMessage });
     }
   });
 
@@ -421,7 +544,8 @@ export function registerRoutes(app: Express): Server {
       const updatedChannel = await storage.skipCurrentMedia(parseInt(req.params.channelId));
       res.json(updatedChannel);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('Skip media error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
@@ -440,7 +564,8 @@ export function registerRoutes(app: Express): Server {
       await storage.clearMediaQueue(parseInt(req.params.channelId));
       res.sendStatus(200);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('Clear media queue error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
@@ -464,7 +589,8 @@ export function registerRoutes(app: Express): Server {
 
       res.json(data);
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      console.error('YouTube search error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
     }
   });
 
@@ -472,8 +598,13 @@ export function registerRoutes(app: Express): Server {
 
   app.get("/api/friends", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-    const friends = await storage.getFriends(req.user.id);
-    res.json(friends);
+    try {
+      const friends = await storage.getFriends(req.user.id);
+      res.json(friends);
+    } catch (error) {
+      console.error('Get friends error:', handleError(error));
+      res.status(500).json({ message: "Failed to get friends" });
+    }
   });
 
   app.post("/api/friends", async (req, res) => {
@@ -594,7 +725,7 @@ export function registerRoutes(app: Express): Server {
   // WebSocket session middleware setup
   const sessionParser = session(sessionSettings);
 
-  // WebSocket connection handler with improved logging
+  // WebSocket connection handler with improved logging and error handling
   wss.on('connection', async (ws, req) => {
     console.log('New WebSocket connection attempt', {
       timestamp: new Date().toISOString(),
@@ -609,9 +740,8 @@ export function registerRoutes(app: Express): Server {
         sessionParser(req as any, {} as any, (err) => {
           if (err) {
             console.error('Session parsing error:', {
-              error: err,
-              timestamp: new Date().toISOString(),
-              stack: err.stack
+              error: handleError(err),
+              timestamp: new Date().toISOString()
             });
             reject(err);
           } else {
@@ -658,6 +788,12 @@ export function registerRoutes(app: Express): Server {
         username: user.username
       });
 
+      // Remove existing connection if any
+      const existingConnection = connectedUsers.get(userId);
+      if (existingConnection?.ws.readyState === WebSocket.OPEN) {
+        existingConnection.ws.close();
+      }
+
       // Add user to connected users
       connectedUsers.set(userId, {
         ws,
@@ -688,10 +824,6 @@ export function registerRoutes(app: Express): Server {
               const userConnection = connectedUsers.get(userId);
               if (userConnection) {
                 userConnection.lastPing = Date.now();
-                console.log('Ping received, sending pong', {
-                  timestamp: new Date().toISOString(),
-                  userId
-                });
                 ws.send(JSON.stringify({ type: 'pong' }));
               }
               break;
@@ -707,7 +839,7 @@ export function registerRoutes(app: Express): Server {
           console.error('Error processing message', {
             timestamp: new Date().toISOString(),
             userId,
-            error,
+            error: handleError(error),
             rawMessage: message.toString()
           });
           ws.send(JSON.stringify({
@@ -732,8 +864,7 @@ export function registerRoutes(app: Express): Server {
         console.error('WebSocket connection error', {
           timestamp: new Date().toISOString(),
           userId,
-          error: error.message,
-          stack: error.stack
+          error: handleError(error)
         });
         connectedUsers.delete(userId);
       });
@@ -741,8 +872,7 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('WebSocket connection setup error', {
         timestamp: new Date().toISOString(),
-        error: error.message,
-        stack: error.stack
+        error: handleError(error)
       });
       ws.close();
     }

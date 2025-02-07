@@ -380,21 +380,24 @@ export class DatabaseStorage implements IStorage {
 
 
   async getUserCoins(userId: number): Promise<UserCoins | undefined> {
-    const [userCoins] = await db.select().from(userCoins).where(eq(userCoins.userId, userId));
-    return userCoins;
+    const [result] = await db
+      .select()
+      .from(userCoins)
+      .where(eq(userCoins.userId, userId));
+    return result;
   }
 
   async createUserCoins(userId: number): Promise<UserCoins> {
-    const userCoins: UserCoins = {
-      id: 0, //Auto-incremented by database
-      userId,
-      balance: 0,
-      lifetimeEarned: 0,
-      lastDailyReward: null,
-      createdAt: new Date(),
-    };
-    const [insertedUserCoins] = await db.insert(userCoins).values(userCoins).returning();
-    return insertedUserCoins;
+    const [result] = await db
+      .insert(userCoins)
+      .values({
+        userId,
+        balance: "0",
+        lifetimeEarned: "0",
+        lastDailyReward: null,
+      })
+      .returning();
+    return result;
   }
 
   async addCoins(
@@ -404,28 +407,39 @@ export class DatabaseStorage implements IStorage {
     description: string,
     metadata?: any
   ): Promise<CoinTransaction> {
-    let userCoins = await this.getUserCoins(userId);
-    if (!userCoins) {
-      userCoins = await this.createUserCoins(userId);
+    let coins = await this.getUserCoins(userId);
+    if (!coins) {
+      coins = await this.createUserCoins(userId);
     }
 
-    userCoins.balance += amount;
-    if (amount > 0) {
-      userCoins.lifetimeEarned += amount;
-    }
-    await db.update(userCoins).set(userCoins).where(eq(userCoins.id, userCoins.id));
+    // Convert number to string for decimal columns
+    const amountStr = amount.toString();
 
-    const transaction: CoinTransaction = {
-      id: 0, //Auto-incremented by database
-      userId,
-      amount,
-      type,
-      description,
-      metadata,
-      createdAt: new Date(),
-    };
-    const [insertedTransaction] = await db.insert(coinTransactions).values(transaction).returning();
-    return insertedTransaction;
+    const newBalance = (parseFloat(coins.balance) + amount).toString();
+    const newLifetimeEarned = amount > 0
+      ? (parseFloat(coins.lifetimeEarned) + amount).toString()
+      : coins.lifetimeEarned;
+
+    await db
+      .update(userCoins)
+      .set({
+        balance: newBalance,
+        lifetimeEarned: newLifetimeEarned,
+      })
+      .where(eq(userCoins.id, coins.id));
+
+    const [transaction] = await db
+      .insert(coinTransactions)
+      .values({
+        userId,
+        amount: amountStr,
+        type,
+        description,
+        metadata,
+      })
+      .returning();
+
+    return transaction;
   }
 
   async getCoinProducts(): Promise<CoinProduct[]> {
