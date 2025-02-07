@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useEffect } from "react";
+import { useAuth } from "@/hooks/use-auth";
 
 // WebSocket bağlantısı için helper
 const setupWebSocket = () => {
@@ -38,6 +39,8 @@ const setupWebSocket = () => {
 export function UserList({ serverId }: { serverId: number }) {
   const { t } = useLanguage();
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+
   const { data: users = [] } = useQuery<User[]>({
     queryKey: [`/api/servers/${serverId}/members`],
   });
@@ -62,6 +65,8 @@ export function UserList({ serverId }: { serverId: number }) {
 
   // WebSocket bağlantısını kur ve dinle
   useEffect(() => {
+    if (!currentUser) return;
+
     const ws = setupWebSocket();
 
     ws.onmessage = (event) => {
@@ -73,7 +78,7 @@ export function UserList({ serverId }: { serverId: number }) {
           case "friend_request":
             toast({
               title: t("friend.newRequest"),
-              description: t("friend.requestFrom", { username: data.from.username }),
+              description: `${data.from.username} ${t("friend.requestFrom")}`,
             });
             // Friend request listesini yenile
             queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
@@ -82,7 +87,7 @@ export function UserList({ serverId }: { serverId: number }) {
           case "friend_request_accepted":
             toast({
               title: t("friend.requestAccepted"),
-              description: t("friend.acceptedBy", { username: data.by.username }),
+              description: `${data.by.username} ${t("friend.acceptedBy")}`,
             });
             // Friend listesini yenile
             queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
@@ -93,11 +98,21 @@ export function UserList({ serverId }: { serverId: number }) {
       }
     };
 
+    // Error handling
+    ws.onerror = (error) => {
+      console.error("WebSocket bağlantı hatası:", error);
+      toast({
+        title: t("error.websocket"),
+        description: t("error.websocketConnection"),
+        variant: "destructive",
+      });
+    };
+
     // Cleanup
     return () => {
       ws.close();
     };
-  }, [toast, t]);
+  }, [currentUser, toast, t, queryClient]);
 
   const acceptInviteMutation = useMutation({
     mutationFn: async (inviteId: number) => {

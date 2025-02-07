@@ -372,9 +372,12 @@ export class MemStorage implements IStorage {
       f => (f.senderId === userId || f.receiverId === userId) && f.status === 'accepted'
     );
     const friendIds = friendships.map(f => f.senderId === userId ? f.receiverId : f.senderId);
-    return friendIds
-      .map(id => this.users.get(id))
-      .filter((user): user is User => user !== undefined);
+    return Promise.all(
+      friendIds.map(async id => {
+        const user = await this.getUser(id);
+        return user!;
+      })
+    );
   }
 
   async getFriendRequests(userId: number): Promise<Friendship[]> {
@@ -407,6 +410,10 @@ export class MemStorage implements IStorage {
     if (friendship && friendship.status === 'pending') {
       friendship.status = 'accepted';
       this.friendships.set(friendshipId, friendship);
+
+      // Otomatik olarak karşılıklı arkadaşlık oluştur
+      await this.addFriend(friendship.senderId, friendship.receiverId);
+      await this.addFriend(friendship.receiverId, friendship.senderId);
     }
   }
 
@@ -1063,15 +1070,18 @@ export class MemStorage implements IStorage {
   }
 
   async addFriend(userId1: number, userId2: number): Promise<void> {
-    const id = this.currentId++;
-    const friendship: Friendship = {
-      id,
-      senderId: userId1,
-      receiverId: userId2,
-      status: 'accepted',
-      createdAt: new Date(),
-    };
-    this.friendships.set(id, friendship);
+    const existingFriendship = await this.getFriendship(userId1, userId2);
+    if (!existingFriendship) {
+      const id = this.currentId++;
+      const friendship: Friendship = {
+        id,
+        senderId: userId1,
+        receiverId: userId2,
+        status: 'accepted',
+        createdAt: new Date(),
+      };
+      this.friendships.set(id, friendship);
+    }
   }
 
   async removeFriend(userId1: number, userId2: number): Promise<void> {

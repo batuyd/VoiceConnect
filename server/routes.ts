@@ -17,6 +17,23 @@ const connectedUsers = new Map<number, {
     currentChannel?: number;
 }>();
 
+// WebSocket notification helper
+function sendWebSocketNotification(userId: number, notification: any) {
+  const userConnection = connectedUsers.get(userId);
+  if (userConnection && userConnection.ws.readyState === WebSocket.OPEN) {
+    try {
+      userConnection.ws.send(JSON.stringify(notification));
+      console.log(`Notification sent to user ${userId}:`, notification);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send notification to user ${userId}:`, error);
+      connectedUsers.delete(userId);
+      return false;
+    }
+  }
+  return false;
+}
+
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
@@ -469,6 +486,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Cannot add yourself as a friend" });
       }
 
+      // Check if already friends or pending request exists
       const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
       if (existingFriendship) {
         if (existingFriendship.status === 'pending') {
@@ -478,36 +496,24 @@ export function registerRoutes(app: Express): Server {
       }
 
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
-      console.log('Sending friend request notification to user:', targetUser.id);
+      console.log('Created friend request:', friendship);
 
-      // Send WebSocket notification to the target user if they are online
-      const targetUserConnection = connectedUsers.get(targetUser.id);
-      if (targetUserConnection) {
-        if (targetUserConnection.ws.readyState === WebSocket.OPEN) {
-          console.log('Target user is online, sending WebSocket notification');
-          try {
-            targetUserConnection.ws.send(JSON.stringify({
-              type: 'friend_request',
-              from: {
-                id: req.user.id,
-                username: req.user.username,
-                avatar: req.user.avatar
-              },
-              friendshipId: friendship.id
-            }));
-            console.log('Friend request notification sent successfully');
-          } catch (error) {
-            console.error('Failed to send friend request notification:', error);
-            // Remove the connection if it's broken
-            connectedUsers.delete(targetUser.id);
-          }
-        } else {
-          console.log('Target user WebSocket not ready, removing from connected users');
-          connectedUsers.delete(targetUser.id);
-        }
-      } else {
-        console.log('Target user is not online');
-      }
+      // Send WebSocket notification to target user
+      const notificationSent = sendWebSocketNotification(targetUser.id, {
+        type: 'friend_request',
+        from: {
+          id: req.user.id,
+          username: req.user.username,
+          avatar: req.user.avatar
+        },
+        friendshipId: friendship.id
+      });
+
+      console.log(
+        notificationSent
+          ? `Notification sent to user ${targetUser.id}`
+          : `User ${targetUser.id} is offline or notification failed`
+      );
 
       res.status(201).json(friendship);
     } catch (error) {
@@ -520,24 +526,27 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
 
     try {
-      await storage.acceptFriendRequest(parseInt(req.params.friendshipId));
-      res.sendStatus(200);
+      const friendshipId = parseInt(req.params.friendshipId);
+      const friendship = await storage.getFriendshipById(friendshipId);
+
+      if (!friendship) {
+        return res.status(404).json({ message: "Friendship request not found" });
+      }
+
+      await storage.acceptFriendRequest(friendshipId);
 
       // Notify the friend request sender
-      const friendship = await storage.getFriendshipById(parseInt(req.params.friendshipId));
-      if (friendship) {
-        const senderConnection = connectedUsers.get(friendship.senderId);
-        if (senderConnection && senderConnection.ws.readyState === WebSocket.OPEN) {
-          senderConnection.ws.send(JSON.stringify({
-            type: 'friend_request_accepted',
-            by: {
-              id: req.user.id,
-              username: req.user.username,
-              avatar: req.user.avatar
-            }
-          }));
-        }
-      }
+      sendWebSocketNotification(friendship.senderId, {
+        type: 'friend_request_accepted',
+        by: {
+          id: req.user.id,
+          username: req.user.username,
+          avatar: req.user.avatar
+        },
+        friendshipId
+      });
+
+      res.sendStatus(200);
     } catch (error) {
       console.error('Accept friend request error:', error);
       res.status(500).json({ message: "Failed to accept friend request" });
@@ -604,22 +613,31 @@ export function registerRoutes(app: Express): Server {
     perMessageDeflate: false
   });
 
+  // Session middleware for WebSocket
+  const sessionParser = session({
+    secret: process.env.REPL_ID!,
+    resave: false,
+    saveUninitialized: false,
+    store: storage.sessionStore,
+    cookie: {
+      secure: app.get("env") === "production",
+      sameSite: "strict",
+    }
+  });
+
   wss.on('connection', async (ws, req) => {
-    console.log('New WebSocket connection established');
+    console.log('New WebSocket connection attempt');
 
     try {
       // Parse session
-      const sessionParser = session({
-        secret: process.env.REPL_ID!,
-        resave: true,
-        saveUninitialized: true,
-        store: storage.sessionStore
-      });
-
       await new Promise((resolve, reject) => {
         sessionParser(req as any, {} as any, (err) => {
-          if (err) reject(err);
-          else resolve(undefined);
+          if (err) {
+            console.error('Session parsing error:', err);
+            reject(err);
+          } else {
+            resolve(undefined);
+          }
         });
       });
 
@@ -668,30 +686,27 @@ export function registerRoutes(app: Express): Server {
       ws.on('message', async (message) => {
         try {
           const data = JSON.parse(message.toString());
-          console.log('Received WebSocket message:', data);
+          console.log(`Received message from user ${userId}:`, data);
 
           switch (data.type) {
             case 'ping':
               ws.send(JSON.stringify({ type: 'pong' }));
               break;
+
             case 'friend_request_response':
               try {
                 if (data.accept) {
                   await storage.acceptFriendRequest(data.friendshipId);
-                  // Notify the original sender
                   const friendship = await storage.getFriendshipById(data.friendshipId);
                   if (friendship) {
-                    const senderConnection = connectedUsers.get(friendship.senderId);
-                    if (senderConnection?.ws.readyState === WebSocket.OPEN) {
-                      senderConnection.ws.send(JSON.stringify({
-                        type: 'friend_request_accepted',
-                        by: {
-                          id: user.id,
-                          username: user.username,
-                          avatar: user.avatar
-                        }
-                      }));
-                    }
+                    sendWebSocketNotification(friendship.senderId, {
+                      type: 'friend_request_accepted',
+                      by: {
+                        id: user.id,
+                        username: user.username,
+                        avatar: user.avatar
+                      }
+                    });
                   }
                 } else {
                   await storage.rejectFriendRequest(data.friendshipId);
@@ -704,6 +719,7 @@ export function registerRoutes(app: Express): Server {
                 }));
               }
               break;
+
             default:
               console.log('Unknown message type:', data.type);
           }
@@ -718,13 +734,13 @@ export function registerRoutes(app: Express): Server {
 
       // Handle connection close
       ws.on('close', () => {
-        console.log('WebSocket connection closed for user:', userId);
+        console.log(`WebSocket connection closed for user ${userId}`);
         connectedUsers.delete(userId);
       });
 
       // Handle errors
       ws.on('error', (error) => {
-        console.error('WebSocket error for user:', userId, error);
+        console.error(`WebSocket error for user ${userId}:`, error);
         connectedUsers.delete(userId);
       });
 
