@@ -14,6 +14,26 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { useEffect } from "react";
+
+// WebSocket bağlantısı için helper
+const setupWebSocket = () => {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${protocol}//${window.location.host}/ws`;
+  const ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    console.log("WebSocket bağlantısı kuruldu");
+  };
+
+  ws.onclose = () => {
+    console.log("WebSocket bağlantısı kapandı");
+    // 5 saniye sonra yeniden bağlanmayı dene
+    setTimeout(setupWebSocket, 5000);
+  };
+
+  return ws;
+};
 
 export function UserList({ serverId }: { serverId: number }) {
   const { t } = useLanguage();
@@ -25,7 +45,6 @@ export function UserList({ serverId }: { serverId: number }) {
   const { data: invites = [] } = useQuery<ServerInvite[]>({
     queryKey: ["/api/invites"],
     select: async (invites) => {
-      // Fetch server names for each invite
       const invitesWithServerNames = await Promise.all(
         invites.map(async (invite) => {
           const server = await queryClient.fetchQuery({
@@ -40,6 +59,45 @@ export function UserList({ serverId }: { serverId: number }) {
       return invitesWithServerNames;
     },
   });
+
+  // WebSocket bağlantısını kur ve dinle
+  useEffect(() => {
+    const ws = setupWebSocket();
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("WebSocket mesajı alındı:", data);
+
+        switch (data.type) {
+          case "friend_request":
+            toast({
+              title: t("friend.newRequest"),
+              description: t("friend.requestFrom", { username: data.from.username }),
+            });
+            // Friend request listesini yenile
+            queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+            break;
+
+          case "friend_request_accepted":
+            toast({
+              title: t("friend.requestAccepted"),
+              description: t("friend.acceptedBy", { username: data.by.username }),
+            });
+            // Friend listesini yenile
+            queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+            break;
+        }
+      } catch (error) {
+        console.error("WebSocket mesaj işleme hatası:", error);
+      }
+    };
+
+    // Cleanup
+    return () => {
+      ws.close();
+    };
+  }, [toast, t]);
 
   const acceptInviteMutation = useMutation({
     mutationFn: async (inviteId: number) => {
