@@ -32,12 +32,12 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
-  // CORS ayarları
+  // CORS ayarları - tüm routelardan önce olmalı
   app.use(cors({
-    origin: true,
+    origin: true, // Development için tüm originlere izin ver
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
   }));
 
   const sessionSettings: session.SessionOptions = {
@@ -47,9 +47,10 @@ export function setupAuth(app: Express) {
     store: storage.sessionStore,
     cookie: {
       secure: app.get("env") === "production",
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 24 * 60 * 60 * 1000, // 24 saat
       httpOnly: true,
-      sameSite: app.get("env") === "production" ? 'none' : 'lax'
+      sameSite: app.get("env") === "production" ? 'none' : 'lax',
+      path: '/'
     },
     name: 'ozba.session'
   };
@@ -63,12 +64,13 @@ export function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Make session middleware available for WebSocket
+  // WebSocket için session middleware'i dışa aktar
   (app as any).sessionMiddleware = sessionMiddleware;
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
+        console.log('Login attempt:', username);
         const user = await storage.getUserByUsername(username);
         if (!user) {
           return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });

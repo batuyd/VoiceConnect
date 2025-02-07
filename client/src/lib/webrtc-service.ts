@@ -21,6 +21,34 @@ class WebRTCService {
     this.retryAttempts = 0;
   }
 
+  private async checkBrowserSupport(): Promise<void> {
+    if (typeof window === 'undefined' || !window.navigator) {
+      throw new Error('Bu özellik sadece web tarayıcısında kullanılabilir.');
+    }
+
+    if (!this.mediaDevicesSupported) {
+      throw new Error('Tarayıcınız WebRTC desteklemiyor. Lütfen modern bir tarayıcı kullanın.');
+    }
+
+    if (!window.RTCPeerConnection) {
+      throw new Error('Tarayıcınız RTCPeerConnection desteklemiyor.');
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioDevices = devices.filter(device => device.kind === 'audioinput');
+
+      if (audioDevices.length === 0) {
+        throw new Error('Mikrofon cihazı bulunamadı. Lütfen bir mikrofon bağlayın.');
+      }
+
+      console.log('✅ Tarayıcı ve donanım kontrolleri başarılı');
+    } catch (error) {
+      console.error('❌ Donanım kontrol hatası:', error);
+      throw this.createUserFriendlyError(error);
+    }
+  }
+
   private async initializeAudioContext(): Promise<AudioContext> {
     try {
       if (!this.audioContext) {
@@ -54,16 +82,20 @@ class WebRTCService {
           }
         });
 
+        console.log('✅ Mikrofon erişimi başarılı');
         this.retryAttempts = 0;
         return stream;
       } catch (error: any) {
-        console.error(`Mikrofon erişim denemesi ${attempt + 1}/${this.MAX_RETRY_ATTEMPTS + 1} başarısız:`, error);
+        console.error(`❌ Mikrofon erişim denemesi ${attempt + 1}/${this.MAX_RETRY_ATTEMPTS + 1} başarısız:`, error);
 
         if (attempt === this.MAX_RETRY_ATTEMPTS) {
           throw this.createUserFriendlyError(error);
         }
 
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        // Exponential backoff
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`⏳ ${delay/1000} saniye sonra tekrar denenecek...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 
@@ -90,7 +122,7 @@ class WebRTCService {
     return error;
   }
 
-  async startLocalStream(audioConstraints: MediaTrackConstraints = {}): Promise<MediaStream> {
+  async startLocalStream(): Promise<MediaStream> {
     try {
       await this.checkBrowserSupport();
 
