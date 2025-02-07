@@ -40,7 +40,8 @@ export function setupAuth(app: Express) {
       httpOnly: true,
       sameSite: 'lax'
     },
-    name: 'sid' // Session cookie ismi değiştirildi
+    name: 'sid', // Özel session cookie ismi
+    rolling: true // Her istekte session süresini yenile
   };
 
   if (app.get("env") === "production") {
@@ -160,7 +161,6 @@ export function setupAuth(app: Express) {
       });
     }
 
-    const userId = req.user.id;
     req.logout((err) => {
       if (err) {
         console.error('Logout error:', err);
@@ -171,6 +171,7 @@ export function setupAuth(app: Express) {
           console.error('Session destruction error:', err);
           return next(err);
         }
+        res.clearCookie('sid');
         res.sendStatus(200);
       });
     });

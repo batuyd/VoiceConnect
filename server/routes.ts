@@ -468,8 +468,9 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
     try {
       const requests = await storage.getPendingFriendRequests(req.user.id);
+      console.log('Pending friend requests for user', req.user.id, ':', requests);
       res.json(requests);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Get friend requests error:', error);
       res.status(500).json({ message: "Failed to get friend requests" });
     }
@@ -524,7 +525,7 @@ export function registerRoutes(app: Express): Server {
       );
 
       res.status(201).json(friendship);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Add friend error:', error);
       res.status(500).json({ message: "Failed to send friend request" });
     }
@@ -555,7 +556,7 @@ export function registerRoutes(app: Express): Server {
       });
 
       res.sendStatus(200);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Accept friend request error:', error);
       res.status(500).json({ message: "Failed to accept friend request" });
     }
@@ -567,7 +568,7 @@ export function registerRoutes(app: Express): Server {
     try {
       await storage.rejectFriendRequest(parseInt(req.params.friendshipId));
       res.sendStatus(200);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Reject friend request error:', error);
       res.status(500).json({ message: "Failed to reject friend request" });
     }
@@ -580,7 +581,7 @@ export function registerRoutes(app: Express): Server {
       const friendId = parseInt(req.params.friendId);
       await storage.removeFriend(req.user.id, friendId);
       res.sendStatus(200);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Remove friend error:', error);
       res.status(500).json({ message: "Failed to remove friend" });
     }

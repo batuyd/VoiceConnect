@@ -16,6 +16,10 @@ type AuthContextType = {
   loginMutation: UseMutationResult<SelectUser, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
   registerMutation: UseMutationResult<SelectUser, Error, InsertUser>;
+  friendRequests: any[];
+  friendRequestsLoading: boolean;
+  acceptFriendRequestMutation: UseMutationResult<void, Error, number>;
+  rejectFriendRequestMutation: UseMutationResult<void, Error, number>;
 };
 
 type LoginData = Pick<InsertUser, "username" | "password">;
@@ -35,6 +39,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
     staleTime: 30000, // Cache valid for 30 seconds
+  });
+
+  // Friend requests query
+  const {
+    data: friendRequests = [],
+    isLoading: friendRequestsLoading,
+  } = useQuery({
+    queryKey: ["/api/friends/requests"],
+    queryFn: getQueryFn(),
+    enabled: !!user,
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 
   // Oturum durumu değişikliklerinde temizleme işlemleri
@@ -57,6 +72,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Component unmount olduğunda temizlik yap
     return cleanup;
   }, [user?.id]);
+
+  const acceptFriendRequestMutation = useMutation({
+    mutationFn: async (friendshipId: number) => {
+      const res = await apiRequest("POST", `/api/friends/${friendshipId}/accept`);
+      if (!res.ok) {
+        throw new Error(t('friends.acceptError'));
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+      toast({
+        description: t('friends.acceptSuccess'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('friends.acceptError'),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const rejectFriendRequestMutation = useMutation({
+    mutationFn: async (friendshipId: number) => {
+      const res = await apiRequest("POST", `/api/friends/${friendshipId}/reject`);
+      if (!res.ok) {
+        throw new Error(t('friends.rejectError'));
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
+      toast({
+        description: t('friends.rejectSuccess'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('friends.rejectError'),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
@@ -123,13 +183,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!res.ok) {
           throw new Error(t('auth.errors.logoutFailed'));
         }
-        // Medya akışlarını temizle
-        Array.from(document.querySelectorAll('audio, video'))
-          .map(media => (media as HTMLMediaElement).srcObject)
-          .filter(stream => stream instanceof MediaStream)
-          .forEach(stream => {
-            stream?.getTracks().forEach(track => track.stop());
-          });
       } catch (error: any) {
         throw new Error(error.message || t('auth.errors.logoutFailed'));
       }
@@ -159,6 +212,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginMutation,
         logoutMutation,
         registerMutation,
+        friendRequests,
+        friendRequestsLoading,
+        acceptFriendRequestMutation,
+        rejectFriendRequestMutation,
       }}
     >
       {children}
