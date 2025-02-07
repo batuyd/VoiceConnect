@@ -7,6 +7,8 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+const getAuthToken = () => localStorage.getItem('auth_token');
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -16,6 +18,11 @@ export async function apiRequest(
     'Accept': 'application/json',
     'X-Requested-With': 'XMLHttpRequest'
   };
+
+  const token = getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   if (data) {
     headers['Content-Type'] = 'application/json';
@@ -46,17 +53,25 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     try {
       console.log('Making query request:', queryKey[0]);
+      const headers: Record<string, string> = {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      };
+
+      const token = getAuthToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(queryKey[0] as string, {
         credentials: "include",
-        headers: {
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
+        headers,
         mode: 'cors'
       });
 
       if (unauthorizedBehavior === "returnNull" && res.status === 401) {
         console.log('Returning null for 401 response');
+        localStorage.removeItem('auth_token');
         return null;
       }
 

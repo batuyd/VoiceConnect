@@ -1,13 +1,13 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
-import { Express } from "express";
-import session from "express-session";
+import { Express, Request, Response, NextFunction } from "express";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { sendEmail } from "./mail-service";
 import cors from 'cors';
+import jwt from 'jsonwebtoken';
 
 declare global {
   namespace Express {
@@ -18,6 +18,8 @@ declare global {
 }
 
 const scryptAsync = promisify(scrypt);
+const JWT_SECRET = process.env.JWT_SECRET || process.env.REPL_ID!;
+const TOKEN_EXPIRY = '24h';
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -48,40 +50,59 @@ async function send2FACode(email: string, code: string): Promise<boolean> {
   });
 }
 
+function generateToken(user: SelectUser) {
+  return jwt.sign(
+    { 
+      id: user.id, 
+      username: user.username,
+      requiresSecondFactor: user.twoFactorEnabled 
+    },
+    JWT_SECRET,
+    { expiresIn: TOKEN_EXPIRY }
+  );
+}
+
+function verifyToken(token: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+      if (err) return reject(err);
+      resolve(decoded);
+    });
+  });
+}
+
+async function authenticateToken(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ message: "Token gerekli" });
+    }
+
+    const decoded = await verifyToken(token);
+    const user = await storage.getUser(decoded.id);
+
+    if (!user) {
+      return res.status(401).json({ message: "Geçersiz token" });
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: "Geçersiz token" });
+  }
+}
+
 export function setupAuth(app: Express) {
-  // CORS ayarlarını güncelledim
   app.use(cors({
     origin: process.env.NODE_ENV === 'production' ? 'https://your-domain.com' : 'http://localhost:3000',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    exposedHeaders: ['Set-Cookie'],
   }));
 
-  const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET || process.env.REPL_ID!,
-    name: 'ozba.session',
-    resave: false,
-    saveUninitialized: false,
-    store: storage.sessionStore,
-    proxy: true, // Trust the reverse proxy
-    cookie: {
-      secure: app.get("env") === "production",
-      httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 saat
-      sameSite: app.get("env") === "production" ? 'none' : 'lax',
-      path: '/',
-      domain: app.get("env") === "production" ? '.your-domain.com' : undefined
-    }
-  };
-
-  if (app.get("env") === "production") {
-    app.set("trust proxy", 1);
-  }
-
-  app.use(session(sessionSettings));
   app.use(passport.initialize());
-  app.use(passport.session());
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
@@ -116,27 +137,8 @@ export function setupAuth(app: Express) {
     }),
   );
 
-  passport.serializeUser((user, done) => {
-    console.log('Serializing user:', user.id);
-    done(null, user.id);
-  });
 
-  passport.deserializeUser(async (id: number, done) => {
-    try {
-      console.log('Deserializing user:', id);
-      const user = await storage.getUser(id);
-      if (!user) {
-        console.log('User not found during deserialization');
-        return done(null, false);
-      }
-      done(null, user);
-    } catch (error) {
-      console.error('Oturum deserializasyon hatası:', error);
-      done(error);
-    }
-  });
-
-  app.post("/api/register", async (req, res, next) => {
+  app.post("/api/register", async (req, res) => {
     try {
       const existingUser = await storage.getUserByUsername(req.body.username);
       if (existingUser) {
@@ -148,12 +150,11 @@ export function setupAuth(app: Express) {
         password: await hashPassword(req.body.password),
       });
 
-      req.login(user, (err) => {
-        if (err) return next(err);
-        res.status(201).json(user);
-      });
+      const token = generateToken(user);
+      res.status(201).json({ user, token });
     } catch (error) {
-      next(error);
+      console.error('Kayıt hatası:', error);
+      res.status(500).json({ message: "Kayıt işlemi başarısız" });
     }
   });
 
@@ -161,80 +162,64 @@ export function setupAuth(app: Express) {
     passport.authenticate("local", (err, user, info) => {
       if (err) {
         console.error('Login error:', err);
-        return next(err);
+        return res.status(500).json({ message: "Giriş hatası" });
       }
 
       if (!user) {
         return res.status(401).json({ message: info?.message || "Kimlik doğrulama başarısız" });
       }
 
-      req.login(user, (loginErr) => {
-        if (loginErr) {
-          console.error('Login error:', loginErr);
-          return next(loginErr);
-        }
+      if (user.requiresSecondFactor) {
+        return res.status(202).json({ 
+          message: "2FA kodu gerekli", 
+          requiresSecondFactor: true,
+          tempToken: generateToken({ ...user, twoFactorEnabled: true })
+        });
+      }
 
-        if (user.requiresSecondFactor) {
-          return res.status(202).json({ message: "2FA kodu gerekli", requiresSecondFactor: true });
-        }
-
-        console.log('Login successful:', user.id);
-        res.status(200).json(user);
-      });
+      const token = generateToken(user);
+      res.status(200).json({ user, token });
     })(req, res, next);
   });
 
   app.post("/api/verify-2fa", async (req, res) => {
-    if (!req.user?.requiresSecondFactor) {
-      return res.status(400).json({ message: "2FA doğrulaması gerekli değil" });
-    }
+    const authHeader = req.headers.authorization;
+    const tempToken = authHeader?.split(' ')[1];
 
-    const { code } = req.body;
-    if (!code) {
-      return res.status(400).json({ message: "Doğrulama kodu gerekli" });
+    if (!tempToken) {
+      return res.status(401).json({ message: "Token gerekli" });
     }
 
     try {
-      const isValid = await storage.verify2FACode(req.user.id, code);
+      const decoded = await verifyToken(tempToken);
+      if (!decoded.requiresSecondFactor) {
+        return res.status(400).json({ message: "2FA doğrulaması gerekli değil" });
+      }
 
+      const { code } = req.body;
+      if (!code) {
+        return res.status(400).json({ message: "Doğrulama kodu gerekli" });
+      }
+
+      const isValid = await storage.verify2FACode(decoded.id, code);
       if (!isValid) {
         return res.status(400).json({ message: "Geçersiz veya süresi dolmuş kod" });
       }
 
-      const user = await storage.getUser(req.user.id);
+      const user = await storage.getUser(decoded.id);
       if (!user) {
         return res.status(404).json({ message: "Kullanıcı bulunamadı" });
       }
 
-      // 2FA başarılı, tam yetkili kullanıcı oturumunu başlat
-      req.login(user, (err) => {
-        if (err) {
-          return res.status(500).json({ message: "Oturum başlatılamadı" });
-        }
-        console.log('2FA verification successful:', user.id);
-        res.status(200).json(user);
-      });
+      const token = generateToken(user);
+      res.status(200).json({ user, token });
     } catch (error) {
       console.error('2FA doğrulama hatası:', error);
       res.status(500).json({ message: "2FA doğrulama işlemi başarısız" });
     }
   });
 
-  app.post("/api/logout", (req, res, next) => {
-    const userId = req.user?.id;
-    console.log('Logging out user:', userId);
-    req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
-    });
-  });
-
-  app.get("/api/user", (req, res) => {
-    console.log('User request - authenticated:', req.isAuthenticated());
-    console.log('User request - session:', req.session);
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Yetkilendirme gerekli" });
-    }
+  app.get("/api/user", authenticateToken, (req, res) => {
     res.json(req.user);
   });
 
