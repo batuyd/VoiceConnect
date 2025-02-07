@@ -31,213 +31,150 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const gainNode = useRef<GainNode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const retryTimeoutRef = useRef<NodeJS.Timeout>();
-  const maxRetries = 3;
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined
   });
 
-  useEffect(() => {
-    let mounted = true;
-
-    const connectWebSocket = () => {
-      if (!isJoined || !user?.id || wsRef.current?.readyState === WebSocket.OPEN || retryCount >= maxRetries) {
-        return;
+  const setupAudioDevices = async () => {
+    try {
+      if (!selectedInputDevice) {
+        return null;
       }
 
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: { exact: selectedInputDevice },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+
+      const context = new AudioContext();
+      const source = context.createMediaStreamSource(stream);
+      const gain = context.createGain();
+
+      source.connect(gain);
+      if (!isMuted) {
+        gain.connect(context.destination);
       }
 
+      audioContext.current = context;
+      gainNode.current = gain;
+      return stream;
+
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const connectWebSocket = async () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    try {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
 
-      try {
-        const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(wsUrl);
 
-        ws.onopen = () => {
-          if (!mounted) return;
-          console.log('WebSocket connected');
-          setWsConnected(true);
-          setRetryCount(0);
-          ws.send(JSON.stringify({
-            type: 'join_channel',
-            channelId: channel.id,
-            userId: user.id
-          }));
-        };
+      ws.onopen = () => {
+        setWsConnected(true);
+        ws.send(JSON.stringify({
+          type: 'join_channel',
+          channelId: channel.id,
+          userId: user?.id
+        }));
+      };
 
-        ws.onclose = () => {
-          if (!mounted) return;
-          console.log('WebSocket disconnected');
-          setWsConnected(false);
-          wsRef.current = null;
-
-          if (isJoined && retryCount < maxRetries) {
-            const timeout = Math.min(1000 * Math.pow(2, retryCount), 5000);
-            retryTimeoutRef.current = setTimeout(() => {
-              if (mounted) {
-                setRetryCount(prev => prev + 1);
-              }
-            }, timeout);
-          }
-        };
-
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          if (mounted) {
-            toast({
-              description: t('voice.connectionError'),
-              variant: "destructive",
-            });
-          }
-        };
-
-        ws.onmessage = (event) => {
-          if (!mounted) return;
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'error') {
-              console.error('WebSocket error:', data.message);
-              toast({
-                description: data.message,
-                variant: "destructive",
-              });
-            } else if (data.type === 'member_update') {
-              refetchMembers();
-            }
-          } catch (error) {
-            console.error('Failed to parse WebSocket message:', error);
-          }
-        };
-
-        wsRef.current = ws;
-      } catch (error) {
-        console.error('Failed to create WebSocket connection:', error);
-        if (mounted) {
-          toast({
-            description: t('voice.connectionFailed'),
-            variant: "destructive",
-          });
-        }
-      }
-    };
-
-    // Only try to connect if we're joined and have a user
-    if (isJoined && user?.id) {
-      connectWebSocket();
-    }
-
-    return () => {
-      mounted = false;
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
+      ws.onclose = () => {
+        setWsConnected(false);
         wsRef.current = null;
-      }
-    };
-  }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers]);
+      };
 
-  useEffect(() => {
-    let mounted = true;
+      ws.onerror = () => {
+        wsRef.current = null;
+      };
 
-    const setupAudioStream = async () => {
-      if (!selectedInputDevice || !isJoined) return;
-
-      if (stream.current) {
-        stream.current.getTracks().forEach(track => track.stop());
-      }
-
-      try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            deviceId: { exact: selectedInputDevice },
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'member_update') {
+            refetchMembers();
           }
-        });
-
-        if (!mounted) {
-          mediaStream.getTracks().forEach(track => track.stop());
-          return;
+        } catch (error) {
+          // Sessizce devam et
         }
+      };
 
-        if (!audioContext.current) {
-          audioContext.current = new AudioContext();
-        }
-
-        stream.current = mediaStream;
-        const source = audioContext.current.createMediaStreamSource(mediaStream);
-        gainNode.current = audioContext.current.createGain();
-
-        source.connect(gainNode.current);
-        if (!isMuted) {
-          gainNode.current.connect(audioContext.current.destination);
-        }
-      } catch (error) {
-        console.error('Audio setup error:', error);
-        if (mounted) {
-          toast({
-            description: t('voice.deviceAccessError'),
-            variant: "destructive",
-          });
-        }
-      }
-    };
-
-    if (isJoined) {
-      setupAudioStream();
+      wsRef.current = ws;
+    } catch (error) {
+      // Sessizce devam et
     }
+  };
 
-    return () => {
-      mounted = false;
+  const handleJoinLeave = async () => {
+    if (isJoined) {
+      // Leave channel
       if (stream.current) {
         stream.current.getTracks().forEach(track => track.stop());
+        stream.current = null;
       }
-      if (gainNode.current) {
-        gainNode.current.disconnect();
-      }
-      if (audioContext.current?.state !== 'closed') {
-        audioContext.current?.close();
-      }
-    };
-  }, [selectedInputDevice, isJoined, isMuted, toast, t]);
-
-  useEffect(() => {
-    if (!gainNode.current || !audioContext.current) return;
-
-    if (isMuted) {
-      gainNode.current.disconnect();
-    } else {
-      gainNode.current.connect(audioContext.current.destination);
-    }
-  }, [isMuted]);
-
-  const handleJoinLeave = () => {
-    if (isJoined) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
       setIsJoined(false);
       setWsConnected(false);
-      setRetryCount(0);
     } else {
-      setIsJoined(true);
+      // Join channel
+      setIsConnecting(true);
+      try {
+        const audioStream = await setupAudioDevices();
+        if (audioStream) {
+          stream.current = audioStream;
+          await connectWebSocket();
+          setIsJoined(true);
+        }
+      } catch (error) {
+        // Sessizce devam et
+      } finally {
+        setIsConnecting(false);
+      }
     }
   };
+
+  const handleMuteToggle = () => {
+    if (!gainNode.current || !audioContext.current) return;
+
+    setIsMuted(!isMuted);
+    if (isMuted) {
+      gainNode.current.connect(audioContext.current.destination);
+    } else {
+      gainNode.current.disconnect();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (stream.current) {
+        stream.current.getTracks().forEach(track => track.stop());
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (audioContext.current?.state !== 'closed') {
+        audioContext.current?.close();
+      }
+    };
+  }, []);
 
   return (
     <div className="space-y-2">
@@ -260,6 +197,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           variant={isJoined ? "destructive" : "default"}
           size="sm"
           onClick={handleJoinLeave}
+          disabled={isConnecting}
           className="w-20"
         >
           {isJoined ? t('server.leave') : t('server.join')}
@@ -272,7 +210,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setIsMuted(!isMuted)}
+              onClick={handleMuteToggle}
               className={isMuted ? "text-red-400" : "text-green-400"}
             >
               {isMuted ? t('voice.unmute') : t('voice.mute')}
