@@ -161,6 +161,7 @@ export const translations = {
       },
     },
     friends: {
+      title: 'Friends',
       add: 'Add Friend',
       remove: 'Remove Friend',
       addSuccess: 'Friend Added',
@@ -169,6 +170,9 @@ export const translations = {
       removeSuccess: 'Friend Removed',
       removeSuccessDescription: '{username} has been removed from your friends list.',
       removeError: 'Could not remove friend',
+      empty: 'No friends yet. Add some friends to get started!',
+      searchPlaceholder: 'Enter username to add friend',
+      sendMessage: 'Send Message',
     },
     blocks: {
       add: 'Block User',
@@ -383,6 +387,7 @@ export const translations = {
       },
     },
     friends: {
+      title: 'Arkadaşlarım',
       add: 'Arkadaş Ekle',
       remove: 'Arkadaşı Sil',
       addSuccess: 'Arkadaş Eklendi',
@@ -391,6 +396,9 @@ export const translations = {
       removeSuccess: 'Arkadaş Silindi',
       removeSuccessDescription: '{username} arkadaş listenizden silindi.',
       removeError: 'Arkadaş silinemedi',
+      empty: 'Henüz arkadaşınız yok. Arkadaş ekleyerek başlayın!',
+      searchPlaceholder: 'Arkadaş eklemek için kullanıcı adı girin',
+      sendMessage: 'Mesaj Gönder',
     },
     blocks: {
       add: 'Engelle',

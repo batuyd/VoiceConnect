@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { UserCoins, CoinProduct, UserAchievement } from "@shared/schema";
+import { FriendList } from "./friend-list";
 
 export function CoinDisplay() {
   const { t } = useLanguage();
@@ -48,6 +49,7 @@ export function CoinDisplay() {
 
   return (
     <div className="flex items-center gap-1 md:gap-2">
+      <FriendList />
       {/* Daily Reward Button */}
       <Button
         variant="ghost"

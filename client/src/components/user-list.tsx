@@ -1,14 +1,58 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLanguage } from "@/hooks/use-language";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { User } from "@shared/schema";
-import { Volume2, VolumeX } from "lucide-react";
+import { User, ServerInvite } from "@shared/schema";
+import { Volume2, VolumeX, Bell } from "lucide-react";
 import { UserContextMenu } from "./user-context-menu";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 export function UserList({ serverId }: { serverId: number }) {
   const { t } = useLanguage();
+  const { toast } = useToast();
   const { data: users = [] } = useQuery<User[]>({
     queryKey: [`/api/servers/${serverId}/members`],
+  });
+
+  const { data: invites = [] } = useQuery<ServerInvite[]>({
+    queryKey: ["/api/invites"],
+  });
+
+  const acceptInviteMutation = useMutation({
+    mutationFn: async (inviteId: number) => {
+      const res = await apiRequest("POST", `/api/invites/${inviteId}/accept`);
+      if (!res.ok) throw new Error("Failed to accept invite");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invites"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
+      toast({
+        title: t('server.inviteAccepted'),
+        description: t('server.inviteAcceptedDesc'),
+      });
+    },
+  });
+
+  const rejectInviteMutation = useMutation({
+    mutationFn: async (inviteId: number) => {
+      const res = await apiRequest("POST", `/api/invites/${inviteId}/reject`);
+      if (!res.ok) throw new Error("Failed to reject invite");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invites"] });
+      toast({
+        title: t('server.inviteRejected'),
+        description: t('server.inviteRejectedDesc'),
+      });
+    },
   });
 
   const mockStatus = (userId: number) => {
@@ -21,7 +65,52 @@ export function UserList({ serverId }: { serverId: number }) {
 
   return (
     <div className="w-full md:w-64 bg-gray-800 p-4">
-      <h2 className="font-semibold mb-4 text-sm md:text-base">{t('server.members')} - {users.length}</h2>
+      <div className="flex justify-between items-center">
+        <h2 className="font-semibold mb-4 text-sm md:text-base">
+          {t('server.members')} - {users.length}
+        </h2>
+        {invites.length > 0 && (
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative">
+                <Bell className="h-4 w-4" />
+                <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full text-xs flex items-center justify-center">
+                  {invites.length}
+                </span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{t('server.pendingInvites')}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {invites.map((invite) => (
+                  <div key={invite.id} className="flex items-center justify-between gap-4 p-2 bg-gray-700 rounded">
+                    <span>{t('server.inviteFrom', { server: invite.serverId })}</span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => acceptInviteMutation.mutate(invite.id)}
+                        disabled={acceptInviteMutation.isPending}
+                      >
+                        {t('server.accept')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => rejectInviteMutation.mutate(invite.id)}
+                        disabled={rejectInviteMutation.isPending}
+                      >
+                        {t('server.reject')}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
       <div className="space-y-2">
         {users.map((user) => {
           const status = mockStatus(user.id);

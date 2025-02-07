@@ -72,9 +72,12 @@ export interface IStorage {
   getServer(serverId: number): Promise<Server | undefined>;
   createServer(name: string, ownerId: number): Promise<Server>;
 
-  createServerInvite(serverId: number, inviterId: number): Promise<ServerInvite>;
+  createServerInvite(serverId: number, inviterId: number, inviteeId: number): Promise<ServerInvite>;
   getServerInvite(code: string): Promise<ServerInvite | undefined>;
+  getServerInvitesByUser(userId: number): Promise<ServerInvite[]>;
   joinServerWithInvite(code: string, userId: number): Promise<void>;
+  acceptServerInvite(inviteId: number): Promise<void>;
+  rejectServerInvite(inviteId: number): Promise<void>;
 
   getChannels(serverId: number): Promise<Channel[]>;
   createChannel(name: string, serverId: number, isVoice: boolean, isPrivate?: boolean): Promise<Channel>;
@@ -156,6 +159,11 @@ export interface IStorage {
   skipCurrentMedia(channelId: number): Promise<Channel>;
   clearMediaQueue(channelId: number): Promise<void>;
   deleteChannel(channelId: number): Promise<void>;
+
+  // Friend related methods
+  getFriendship(userId1: number, userId2: number): Promise<Friendship | undefined>;
+  addFriend(userId1: number, userId2: number): Promise<void>;
+  removeFriend(userId1: number, userId2: number): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -396,14 +404,16 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async createServerInvite(serverId: number, inviterId: number): Promise<ServerInvite> {
+  async createServerInvite(serverId: number, inviterId: number, inviteeId: number): Promise<ServerInvite> {
     const id = this.currentId++;
     const invite: ServerInvite = {
       id,
       serverId,
       inviterId,
+      inviteeId,
+      status: 'pending',
       code: nanoid(10),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       createdAt: new Date(),
     };
     this.serverInvites.set(invite.code, invite);
@@ -415,6 +425,11 @@ export class MemStorage implements IStorage {
     return invite && (!invite.expiresAt || invite.expiresAt > new Date()) ? invite : undefined;
   }
 
+  async getServerInvitesByUser(userId: number): Promise<ServerInvite[]> {
+    return Array.from(this.serverInvites.values())
+      .filter(invite => invite.inviteeId === userId && invite.status === 'pending');
+  }
+
   async joinServerWithInvite(code: string, userId: number): Promise<void> {
     const invite = await this.getServerInvite(code);
     if (invite) {
@@ -422,6 +437,28 @@ export class MemStorage implements IStorage {
       this.serverInvites.delete(code);
     }
   }
+
+  async acceptServerInvite(inviteId: number): Promise<void> {
+    const invite = Array.from(this.serverInvites.values())
+      .find(inv => inv.id === inviteId);
+
+    if (invite && invite.status === 'pending') {
+      invite.status = 'accepted';
+      await this.addServerMember(invite.serverId, invite.inviteeId);
+      this.serverInvites.set(invite.code, invite);
+    }
+  }
+
+  async rejectServerInvite(inviteId: number): Promise<void> {
+    const invite = Array.from(this.serverInvites.values())
+      .find(inv => inv.id === inviteId);
+
+    if (invite && invite.status === 'pending') {
+      invite.status = 'rejected';
+      this.serverInvites.set(invite.code, invite);
+    }
+  }
+
 
   async getServers(userId: number): Promise<Server[]> {
     const memberServers = Array.from(this.serverMembers.values())
@@ -881,7 +918,7 @@ export class MemStorage implements IStorage {
         customEmojis: true,
         voiceEffects: true,
         extendedUpload: true,
-      },
+            },
       createdAt: new Date(),
     };
     this.userSubscriptions.set(id, subscription);
@@ -994,6 +1031,31 @@ export class MemStorage implements IStorage {
       .map(([id]) => id);
 
     reactionIds.forEach(id => this.reactions.delete(id));
+  }
+  async getFriendship(userId1: number, userId2: number): Promise<Friendship | undefined> {
+    return Array.from(this.friendships.values()).find(
+      f => (f.senderId === userId1 && f.receiverId === userId2) ||
+           (f.senderId === userId2 && f.receiverId === userId1)
+    );
+  }
+
+  async addFriend(userId1: number, userId2: number): Promise<void> {
+    const id = this.currentId++;
+    const friendship: Friendship = {
+      id,
+      senderId: userId1,
+      receiverId: userId2,
+      status: 'accepted',
+      createdAt: new Date(),
+    };
+    this.friendships.set(id, friendship);
+  }
+
+  async removeFriend(userId1: number, userId2: number): Promise<void> {
+    const friendship = await this.getFriendship(userId1, userId2);
+    if (friendship) {
+      this.friendships.delete(friendship.id);
+    }
   }
 }
 

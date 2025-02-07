@@ -133,6 +133,59 @@ export function registerRoutes(app: Express): Server {
     res.json(updatedUser);
   });
 
+  // Server invite routes
+  app.post("/api/servers/:serverId/invites", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const server = await storage.getServer(parseInt(req.params.serverId));
+      if (!server) return res.sendStatus(404);
+
+      // Sadece sunucu sahibi davet gönderebilir
+      if (server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      const invite = await storage.createServerInvite(
+        parseInt(req.params.serverId),
+        req.user.id,
+        req.body.userId
+      );
+
+      res.status(201).json(invite);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/invites", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const invites = await storage.getServerInvitesByUser(req.user.id);
+    res.json(invites);
+  });
+
+  app.post("/api/invites/:inviteId/accept", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.acceptServerInvite(parseInt(req.params.inviteId));
+      res.sendStatus(200);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/invites/:inviteId/reject", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.rejectServerInvite(parseInt(req.params.inviteId));
+      res.sendStatus(200);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // Message routes
   app.get("/api/channels/:channelId/messages", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
@@ -384,6 +437,52 @@ export function registerRoutes(app: Express): Server {
       res.json(data);
     } catch (error) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Friend related routes
+  app.get("/api/friends", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    const friends = await storage.getFriends(req.user.id);
+    res.json(friends);
+  });
+
+  app.post("/api/friends", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const targetUser = await storage.getUserByUsername(req.body.username);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (targetUser.id === req.user.id) {
+        return res.status(400).json({ message: "Cannot add yourself as a friend" });
+      }
+
+      const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
+      if (existingFriendship) {
+        return res.status(400).json({ message: "Already friends with this user" });
+      }
+
+      await storage.addFriend(req.user.id, targetUser.id);
+      res.status(201).json(targetUser);
+    } catch (error) {
+      console.error('Add friend error:', error);
+      res.status(500).json({ message: "Failed to add friend" });
+    }
+  });
+
+  app.delete("/api/friends/:friendId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const friendId = parseInt(req.params.friendId);
+      await storage.removeFriend(req.user.id, friendId);
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Remove friend error:', error);
+      res.status(500).json({ message: "Failed to remove friend" });
     }
   });
 
