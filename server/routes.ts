@@ -9,7 +9,6 @@ import fetch from 'node-fetch';
 import session from 'express-session';
 import {User} from "./storage";
 
-
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
@@ -464,14 +463,71 @@ export function registerRoutes(app: Express): Server {
 
       const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
       if (existingFriendship) {
+        if (existingFriendship.status === 'pending') {
+          return res.status(400).json({ message: "Friend request already sent" });
+        }
         return res.status(400).json({ message: "Already friends with this user" });
       }
 
-      await storage.addFriend(req.user.id, targetUser.id);
-      res.status(201).json(targetUser);
+      const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
+
+      // Send WebSocket notification to the target user if they are online
+      const targetUserConnection = connectedUsers.get(targetUser.id);
+      if (targetUserConnection && targetUserConnection.ws.readyState === WebSocket.OPEN) {
+        targetUserConnection.ws.send(JSON.stringify({
+          type: 'friend_request',
+          from: {
+            id: req.user.id,
+            username: req.user.username,
+            avatar: req.user.avatar
+          }
+        }));
+      }
+
+      res.status(201).json(friendship);
     } catch (error) {
       console.error('Add friend error:', error);
-      res.status(500).json({ message: "Failed to add friend" });
+      res.status(500).json({ message: "Failed to send friend request" });
+    }
+  });
+
+  app.post("/api/friends/:friendshipId/accept", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.acceptFriendRequest(parseInt(req.params.friendshipId));
+      res.sendStatus(200);
+
+      // Notify the friend request sender
+      const friendship = await storage.getFriendshipById(parseInt(req.params.friendshipId));
+      if (friendship) {
+        const senderConnection = connectedUsers.get(friendship.senderId);
+        if (senderConnection && senderConnection.ws.readyState === WebSocket.OPEN) {
+          senderConnection.ws.send(JSON.stringify({
+            type: 'friend_request_accepted',
+            by: {
+              id: req.user.id,
+              username: req.user.username,
+              avatar: req.user.avatar
+            }
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Accept friend request error:', error);
+      res.status(500).json({ message: "Failed to accept friend request" });
+    }
+  });
+
+  app.post("/api/friends/:friendshipId/reject", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.rejectFriendRequest(parseInt(req.params.friendshipId));
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Reject friend request error:', error);
+      res.status(500).json({ message: "Failed to reject friend request" });
     }
   });
 
@@ -585,24 +641,12 @@ export function registerRoutes(app: Express): Server {
         username: user.username
       }));
 
-      // Broadcast user connected event
-      wss.clients.forEach(client => {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({
-            type: 'user_connected',
-            userId: user.id,
-            username: user.username
-          }));
-        }
-      });
-
       // Handle incoming messages
       ws.on('message', async (message) => {
         try {
           const data = JSON.parse(message.toString());
           console.log('Received message:', data);
 
-          // Handle different message types
           switch (data.type) {
             case 'ping':
               ws.send(JSON.stringify({ type: 'pong' }));
@@ -624,6 +668,10 @@ export function registerRoutes(app: Express): Server {
                 });
               } catch (error) {
                 console.error('Error updating status:', error);
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Failed to update status'
+                }));
               }
               break;
             default:
@@ -638,22 +686,10 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      // Keep connection alive with ping/pong
-      const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.ping();
-          const userConnection = connectedUsers.get(userId);
-          if (userConnection) {
-            userConnection.lastPing = Date.now();
-          }
-        }
-      }, 30000);
-
-      // Cleanup on connection close
+      // Handle connection close
       ws.on('close', () => {
         console.log('WebSocket connection closed for user:', userId);
         connectedUsers.delete(userId);
-        clearInterval(pingInterval);
 
         // Broadcast user disconnected event
         wss.clients.forEach(client => {
@@ -665,6 +701,12 @@ export function registerRoutes(app: Express): Server {
             }));
           }
         });
+      });
+
+      // Handle errors
+      ws.on('error', (error) => {
+        console.error('WebSocket error for user:', userId, error);
+        connectedUsers.delete(userId);
       });
 
     } catch (error) {

@@ -164,6 +164,7 @@ export interface IStorage {
   getFriendship(userId1: number, userId2: number): Promise<Friendship | undefined>;
   addFriend(userId1: number, userId2: number): Promise<void>;
   removeFriend(userId1: number, userId2: number): Promise<void>;
+  getFriendshipById(friendshipId: number): Promise<Friendship | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -196,8 +197,15 @@ export class MemStorage implements IStorage {
     this.messages = new Map();
     this.reactions = new Map();
     this.currentId = 1;
+
+    // Session store yapılandırması güncellendi
     this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000,
+      checkPeriod: 86400000, // 24 saat
+      ttl: 86400000, // 24 saat
+      noDisposeOnSet: true,
+      dispose: (sid) => {
+        console.log(`Session destroyed: ${sid}`);
+      }
     });
     this.userCoins = new Map();
     this.coinTransactions = new Map();
@@ -376,6 +384,12 @@ export class MemStorage implements IStorage {
   }
 
   async createFriendRequest(senderId: number, receiverId: number): Promise<Friendship> {
+    // Mevcut arkadaşlık kontrolü
+    const existingFriendship = await this.getFriendship(senderId, receiverId);
+    if (existingFriendship) {
+      throw new Error("Friendship already exists");
+    }
+
     const id = this.currentId++;
     const friendship: Friendship = {
       id,
@@ -915,7 +929,7 @@ export class MemStorage implements IStorage {
   }
 
   async createUserSubscription(userId: number): Promise<UserSubscription> {
-    const id = this.currentId++;
+    const id =this.currentId++;
     const subscription: UserSubscription = {
       id,
       userId,
@@ -990,7 +1004,7 @@ export class MemStorage implements IStorage {
     title: string;
     queuedBy: number;
   }): Promise<Channel> {
-    const channel =await this.getChannel(channelId);
+    const channel = await this.getChannel(channelId);
     if (!channel) throw new Error("Channel not found");
 
     channel.mediaQueue = [...(channel.mediaQueue || []), media];
@@ -1065,6 +1079,9 @@ export class MemStorage implements IStorage {
     if (friendship) {
       this.friendships.delete(friendship.id);
     }
+  }
+  async getFriendshipById(friendshipId: number): Promise<Friendship | undefined> {
+    return this.friendships.get(friendshipId);
   }
 }
 
