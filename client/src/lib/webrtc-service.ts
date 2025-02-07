@@ -10,11 +10,30 @@ class WebRTCService {
   private localStream: MediaStream | null = null;
   private mediaDevicesSupported: boolean;
   private audioContext: AudioContext | null = null;
+  private permissionGranted: boolean = false;
 
   constructor() {
     this.mediaDevicesSupported = typeof window !== 'undefined' &&
       !!navigator.mediaDevices &&
       !!navigator.mediaDevices.getUserMedia;
+  }
+
+  private async checkPermissions(): Promise<void> {
+    try {
+      const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      this.permissionGranted = result.state === 'granted';
+
+      result.addEventListener('change', () => {
+        this.permissionGranted = result.state === 'granted';
+      });
+
+      if (result.state === 'denied') {
+        throw new Error('Microphone access is blocked. Please allow microphone access in your browser settings.');
+      }
+    } catch (error) {
+      console.warn('Permission check failed:', error);
+      // Continue anyway as some browsers don't support the permissions API
+    }
   }
 
   private async checkBrowserSupport(): Promise<void> {
@@ -26,15 +45,9 @@ class WebRTCService {
       throw new Error('Your browser does not support WebRTC. Please use a modern browser.');
     }
 
-    if (!window.RTCPeerConnection) {
-      throw new Error('Your browser does not support RTCPeerConnection.');
-    }
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('Your browser does not support audio device access.');
-    }
-
     try {
+      await this.checkPermissions();
+
       const devices = await navigator.mediaDevices.enumerateDevices();
       const audioDevices = devices.filter(device => device.kind === 'audioinput');
 
@@ -75,7 +88,7 @@ class WebRTCService {
     if (error instanceof DOMException) {
       switch (error.name) {
         case 'NotAllowedError':
-          return new Error('Microphone permission denied. Please check your browser settings.');
+          return new Error('Microphone permission denied. Please check your browser settings and try again.');
         case 'NotFoundError':
           return new Error('No microphone found. Please connect a microphone and refresh.');
         case 'NotReadableError':
@@ -93,43 +106,69 @@ class WebRTCService {
     return error;
   }
 
-  async startLocalStream(): Promise<MediaStream> {
+  async startLocalStream(retry: boolean = true): Promise<MediaStream> {
     try {
       await this.checkBrowserSupport();
 
-      if (this.localStream?.active) {
-        console.log('ℹ️ Active audio stream exists, using current stream');
-        return this.localStream;
-      }
+    // Check existing stream
+    if (this.localStream?.active) {
+      console.log('ℹ️ Active audio stream exists, using current stream');
+      return this.localStream;
+    }
 
-      if (this.localStream) {
-        this.stopLocalStream();
-      }
+    // Cleanup existing stream if inactive
+    if (this.localStream) {
+      this.stopLocalStream();
+    }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 1
+    // Request permissions first
+    await this.checkPermissions();
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 48000,
+        channelCount: 1
+      }
+    });
+
+    if (!stream.active) {
+      throw new Error('Failed to start audio stream.');
+    }
+
+    this.localStream = stream;
+    await this.initializeAudioContext();
+
+    // Set up audio track ended event handler with auto-recovery
+    stream.getAudioTracks().forEach(track => {
+      track.addEventListener('ended', () => {
+        console.log('🎤 Audio track ended, attempting to restart...');
+        if (retry) {
+          setTimeout(() => {
+            this.startLocalStream(false).catch(console.error);
+          }, 1000);
         }
       });
 
-      if (!stream.active) {
-        throw new Error('Failed to start audio stream.');
-      }
+      // Monitor track muted state
+      track.addEventListener('mute', () => {
+        console.log('🎤 Audio track muted');
+      });
 
-      this.localStream = stream;
-      await this.initializeAudioContext();
+      track.addEventListener('unmute', () => {
+        console.log('🎤 Audio track unmuted');
+      });
+    });
 
-      console.log('✅ Audio stream successfully started');
-      return stream;
-    } catch (error) {
-      console.error('❌ Audio device error:', error);
-      throw this.createUserFriendlyError(error);
-    }
+    console.log('✅ Audio stream successfully started');
+    return stream;
+  } catch (error) {
+    console.error('❌ Audio device error:', error);
+    throw this.createUserFriendlyError(error);
   }
+}
 
   async stopLocalStream() {
     if (this.localStream) {

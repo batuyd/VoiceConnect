@@ -1,12 +1,8 @@
 import { users, servers, channels, serverMembers, friendships, serverInvites } from "@shared/schema";
 import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite, Message, Reaction, MessageWithReactions } from "@shared/schema";
-import session from "express-session";
-import createMemoryStore from "memorystore";
 import { nanoid } from "nanoid";
 import { userCoins, coinTransactions, coinProducts, userAchievements } from "@shared/schema";
 import type { UserCoins, CoinTransaction, CoinProduct, UserAchievement } from "@shared/schema";
-
-const MemoryStore = createMemoryStore(session);
 
 interface Gift {
   id: number;
@@ -83,7 +79,6 @@ export interface IStorage {
   addServerMember(serverId: number, userId: number): Promise<void>;
   getChannel(channelId: number): Promise<Channel | undefined>;
 
-  sessionStore: session.Store;
   updateUserProfile(
     userId: number,
     data: {
@@ -169,7 +164,6 @@ export class MemStorage implements IStorage {
   private serverInvites: Map<string, ServerInvite>;
   private messages: Map<number, Message>;
   private reactions: Map<number, Reaction>;
-  sessionStore: session.Store;
   currentId: number;
   private userCoins: Map<number, UserCoins>;
   private coinTransactions: Map<number, CoinTransaction>;
@@ -191,9 +185,6 @@ export class MemStorage implements IStorage {
     this.messages = new Map();
     this.reactions = new Map();
     this.currentId = 1;
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000,
-    });
     this.userCoins = new Map();
     this.coinTransactions = new Map();
     this.coinProducts = new Map();
