@@ -33,6 +33,10 @@ const setupWebSocket = () => {
     setTimeout(setupWebSocket, 5000);
   };
 
+  ws.onerror = (error) => {
+    console.error("WebSocket bağlantı hatası:", error);
+  };
+
   return ws;
 };
 
@@ -47,20 +51,6 @@ export function UserList({ serverId }: { serverId: number }) {
 
   const { data: invites = [] } = useQuery<ServerInvite[]>({
     queryKey: ["/api/invites"],
-    select: async (invites) => {
-      const invitesWithServerNames = await Promise.all(
-        invites.map(async (invite) => {
-          const server = await queryClient.fetchQuery({
-            queryKey: [`/api/servers/${invite.serverId}`],
-          });
-          return {
-            ...invite,
-            serverName: server?.name || `Server ${invite.serverId}`,
-          };
-        })
-      );
-      return invitesWithServerNames;
-    },
   });
 
   // WebSocket bağlantısını kur ve dinle
@@ -82,6 +72,7 @@ export function UserList({ serverId }: { serverId: number }) {
             });
             // Friend request listesini yenile
             queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
             break;
 
           case "friend_request_accepted":
@@ -98,17 +89,6 @@ export function UserList({ serverId }: { serverId: number }) {
       }
     };
 
-    // Error handling
-    ws.onerror = (error) => {
-      console.error("WebSocket bağlantı hatası:", error);
-      toast({
-        title: t("error.websocket"),
-        description: t("error.websocketConnection"),
-        variant: "destructive",
-      });
-    };
-
-    // Cleanup
     return () => {
       ws.close();
     };

@@ -1,12 +1,593 @@
-import { users, servers, channels, serverMembers, friendships, serverInvites } from "@shared/schema";
-import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite } from "@shared/schema";
+import { db } from "./db";
+import { eq, and, or } from "drizzle-orm";
+import { users, friendships, type User, type InsertUser, type Friendship, servers, channels, serverMembers, serverInvites, userCoins, coinTransactions, coinProducts, userAchievements } from "@shared/schema";
+import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite, UserCoins, CoinTransaction, CoinProduct, UserAchievement, Message, MessageWithReactions, Reaction } from "@shared/schema";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import connectPg from "connect-pg-simple";
+import { pool } from "./db";
 import { nanoid } from "nanoid";
-import { userCoins, coinTransactions, coinProducts, userAchievements } from "@shared/schema";
-import type { UserCoins, CoinTransaction, CoinProduct, UserAchievement } from "@shared/schema";
 
-const MemoryStore = createMemoryStore(session);
+const PostgresSessionStore = connectPg(session);
+
+export class DatabaseStorage implements IStorage {
+  sessionStore: session.Store;
+
+  constructor() {
+    this.sessionStore = new PostgresSessionStore({
+      pool,
+      createTableIfMissing: true,
+    });
+  }
+
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async getUserByPhone(phone: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.phone, phone));
+    return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+
+  async updateUserTwoFactor(userId: number, enabled: boolean, secret?: string): Promise<void> {
+    await db.update(users).set({ twoFactorEnabled: enabled, twoFactorSecret: secret || null }).where(eq(users.id, userId));
+  }
+
+  async getFriends(userId: number): Promise<User[]> {
+    const friendships = await db.select()
+      .from(friendships)
+      .where(
+        and(
+          or(
+            eq(friendships.senderId, userId),
+            eq(friendships.receiverId, userId)
+          ),
+          eq(friendships.status, 'accepted')
+        )
+      );
+
+    const friendIds = friendships.map(f => 
+      f.senderId === userId ? f.receiverId : f.senderId
+    );
+
+    if (friendIds.length === 0) return [];
+
+    return await db.select()
+      .from(users)
+      .where(
+        or(...friendIds.map(id => eq(users.id, id)))
+      );
+  }
+
+  async getFriendRequests(userId: number): Promise<Friendship[]> {
+    const requests = await db.select({
+      friendship: friendships,
+      sender: users,
+    })
+    .from(friendships)
+    .innerJoin(users, eq(users.id, friendships.senderId))
+    .where(
+      and(
+        eq(friendships.receiverId, userId),
+        eq(friendships.status, 'pending')
+      )
+    );
+
+    return requests.map(({ friendship, sender }) => ({
+      ...friendship,
+      sender,
+    }));
+  }
+
+  async getPendingFriendRequests(userId: number): Promise<Friendship[]> { 
+    console.log(`Getting pending friend requests for user ${userId}`);
+    const requests = await db.select({
+      friendship: friendships,
+      sender: users,
+    })
+    .from(friendships)
+    .innerJoin(users, eq(users.id, friendships.senderId))
+    .where(
+      and(
+        eq(friendships.receiverId, userId),
+        eq(friendships.status, 'pending')
+      )
+    );
+
+    console.log("Found requests:", requests);
+
+    return requests.map(({ friendship, sender }) => ({
+      ...friendship,
+      sender,
+    }));
+  }
+
+  async createFriendRequest(senderId: number, receiverId: number): Promise<Friendship> {
+    console.log(`Creating friend request from ${senderId} to ${receiverId}`);
+    // Check if friendship already exists
+    const [existingFriendship] = await db.select()
+      .from(friendships)
+      .where(
+        or(
+          and(
+            eq(friendships.senderId, senderId),
+            eq(friendships.receiverId, receiverId)
+          ),
+          and(
+            eq(friendships.senderId, receiverId),
+            eq(friendships.receiverId, senderId)
+          )
+        )
+      );
+
+    if (existingFriendship) {
+      throw new Error("Friendship already exists");
+    }
+
+    console.log("No existing friendship found, creating new request");
+
+    const [friendship] = await db.insert(friendships)
+      .values({
+        senderId,
+        receiverId,
+        status: 'pending',
+      })
+      .returning();
+
+    console.log("Created friendship:", friendship);
+
+    const [sender] = await db.select()
+      .from(users)
+      .where(eq(users.id, senderId));
+
+    console.log("Found sender:", sender);
+
+    return {
+      ...friendship,
+      sender,
+    };
+  }
+
+  async acceptFriendRequest(friendshipId: number): Promise<void> {
+    await db.update(friendships)
+      .set({ status: 'accepted' })
+      .where(eq(friendships.id, friendshipId));
+  }
+
+  async rejectFriendRequest(friendshipId: number): Promise<void> {
+    await db.update(friendships)
+      .set({ status: 'rejected' })
+      .where(eq(friendships.id, friendshipId));
+  }
+
+  async getServers(userId: number): Promise<Server[]> {
+    const serverIds = (await db.select({serverId: servers.id}).from(serverMembers).where(eq(serverMembers.userId, userId))).map(item => item.serverId);
+    return db.select().from(servers).where(or(...serverIds.map(id => eq(servers.id, id))));
+  }
+
+  async getServer(serverId: number): Promise<Server | undefined> {
+    const [server] = await db.select().from(servers).where(eq(servers.id, serverId));
+    return server;
+  }
+
+  async createServer(name: string, ownerId: number): Promise<Server> {
+    const [server] = await db.insert(servers).values({ name, ownerId }).returning();
+    await this.addServerMember(server.id, ownerId);
+    return server;
+  }
+
+  async createServerInvite(serverId: number, inviterId: number, inviteeId: number): Promise<ServerInvite> {
+    const invite: ServerInvite = {
+      id: 0, //Will be auto-incremented by database
+      serverId,
+      inviterId,
+      inviteeId,
+      status: 'pending',
+      code: nanoid(10),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), 
+      createdAt: new Date(),
+    };
+    const [insertedInvite] = await db.insert(serverInvites).values(invite).returning();
+    return insertedInvite;
+  }
+
+  async getServerInvite(code: string): Promise<ServerInvite | undefined> {
+    const [invite] = await db.select().from(serverInvites).where(eq(serverInvites.code, code));
+    return invite && (!invite.expiresAt || invite.expiresAt > new Date()) ? invite : undefined;
+  }
+
+  async getServerInvitesByUser(userId: number): Promise<ServerInvite[]> {
+    return db.select().from(serverInvites).where(and(eq(serverInvites.inviteeId, userId), eq(serverInvites.status, 'pending')));
+  }
+
+  async joinServerWithInvite(code: string, userId: number): Promise<void> {
+    const [invite] = await db.select().from(serverInvites).where(eq(serverInvites.code, code));
+    if (invite) {
+      await this.addServerMember(invite.serverId, userId);
+      await db.delete(serverInvites).where(eq(serverInvites.code, code));
+    }
+  }
+
+  async acceptServerInvite(inviteId: number): Promise<void> {
+    const [invite] = await db.select().from(serverInvites).where(eq(serverInvites.id, inviteId));
+    if (invite && invite.status === 'pending') {
+      await db.update(serverInvites).set({ status: 'accepted' }).where(eq(serverInvites.id, inviteId));
+      await this.addServerMember(invite.serverId, invite.inviteeId);
+    }
+  }
+
+  async rejectServerInvite(inviteId: number): Promise<void> {
+    await db.update(serverInvites).set({ status: 'rejected' }).where(eq(serverInvites.id, inviteId));
+  }
+
+  async getChannels(serverId: number): Promise<Channel[]> {
+    return db.select().from(channels).where(eq(channels.serverId, serverId));
+  }
+
+  async createChannel(name: string, serverId: number, isVoice: boolean, isPrivate: boolean = false): Promise<Channel> {
+    const channel: Channel = {
+      id: 0, //Auto-incremented by database
+      name,
+      serverId,
+      isVoice,
+      isPrivate,
+      type: "text",
+      allowedUsers: [],
+      createdAt: new Date(),
+      currentMedia: null,
+      mediaQueue: []
+    };
+    const [insertedChannel] = await db.insert(channels).values(channel).returning();
+    return insertedChannel;
+  }
+
+  async getServerMembers(serverId: number): Promise<User[]> {
+    const userIds = (await db.select({userId: serverMembers.userId}).from(serverMembers).where(eq(serverMembers.serverId, serverId))).map(item => item.userId);
+    return db.select().from(users).where(or(...userIds.map(id => eq(users.id, id))));
+  }
+
+  async addServerMember(serverId: number, userId: number): Promise<void> {
+    await db.insert(serverMembers).values({ serverId, userId });
+  }
+
+  async getChannel(channelId: number): Promise<Channel | undefined> {
+    const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+    return channel;
+  }
+
+  async updateUserProfile(
+    userId: number,
+    data: {
+      bio?: string;
+      age?: number;
+      avatar?: string;
+      nickname?: string;
+      status?: string;
+      socialLinks?: {
+        discord?: string;
+        twitter?: string;
+        instagram?: string;
+        website?: string;
+      };
+      theme?: string;
+      isPrivateProfile?: boolean;
+      showLastSeen?: boolean;
+    }
+  ): Promise<User> {
+    const updatedUser = { ...data, lastActive: new Date() };
+    await db.update(users).set(updatedUser).where(eq(users.id, userId));
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    return user;
+  }
+
+  async updateLastActive(userId: number): Promise<void> {
+    await db.update(users).set({ lastActive: new Date() }).where(eq(users.id, userId));
+  }
+  async createMessage(channelId: number, userId: number, content: string): Promise<Message> {
+    const message: Message = {
+      id: 0, //Auto-incremented by database
+      content,
+      channelId,
+      userId,
+      createdAt: new Date(),
+    };
+    const [insertedMessage] = await db.insert(messages).values(message).returning();
+    return insertedMessage;
+  }
+  async getMessages(channelId: number): Promise<MessageWithReactions[]> {
+    const messages = await db.select().from(messages).where(eq(messages.channelId, channelId)).orderBy(messages.createdAt);
+        return Promise.all(
+          messages.map(async message => {
+            const [user] = await db.select().from(users).where(eq(users.id, message.userId));
+            const reactions = await db.select().from(reactions).where(eq(reactions.messageId, message.id));
+            const reactionsWithUsers = await Promise.all(
+              reactions.map(async reaction => ({
+                ...reaction,
+                user: (await this.getUser(reaction.userId))!
+              }))
+            );
+            return {
+              ...message,
+              user: user!,
+              reactions: reactionsWithUsers
+            };
+          })
+        );
+  }
+
+  async addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction> {
+    const reaction: Reaction = {
+      id: 0, //Auto-incremented by database
+      emoji,
+      messageId,
+      userId,
+      createdAt: new Date(),
+    };
+    const [insertedReaction] = await db.insert(reactions).values(reaction).returning();
+    return insertedReaction;
+  }
+
+  async removeReaction(messageId: number, userId: number, emoji: string): Promise<void> {
+    await db.delete(reactions).where(and(eq(reactions.messageId, messageId), eq(reactions.userId, userId), eq(reactions.emoji, emoji)));
+  }
+
+
+  async getUserCoins(userId: number): Promise<UserCoins | undefined> {
+    const [userCoins] = await db.select().from(userCoins).where(eq(userCoins.userId, userId));
+    return userCoins;
+  }
+
+  async createUserCoins(userId: number): Promise<UserCoins> {
+    const userCoins: UserCoins = {
+      id: 0, //Auto-incremented by database
+      userId,
+      balance: 0,
+      lifetimeEarned: 0,
+      lastDailyReward: null,
+      createdAt: new Date(),
+    };
+    const [insertedUserCoins] = await db.insert(userCoins).values(userCoins).returning();
+    return insertedUserCoins;
+  }
+
+  async addCoins(
+    userId: number,
+    amount: number,
+    type: string,
+    description: string,
+    metadata?: any
+  ): Promise<CoinTransaction> {
+    let userCoins = await this.getUserCoins(userId);
+    if (!userCoins) {
+      userCoins = await this.createUserCoins(userId);
+    }
+
+    userCoins.balance += amount;
+    if (amount > 0) {
+      userCoins.lifetimeEarned += amount;
+    }
+    await db.update(userCoins).set(userCoins).where(eq(userCoins.id, userCoins.id));
+
+    const transaction: CoinTransaction = {
+      id: 0, //Auto-incremented by database
+      userId,
+      amount,
+      type,
+      description,
+      metadata,
+      createdAt: new Date(),
+    };
+    const [insertedTransaction] = await db.insert(coinTransactions).values(transaction).returning();
+    return insertedTransaction;
+  }
+
+  async getCoinProducts(): Promise<CoinProduct[]> {
+    return db.select().from(coinProducts);
+  }
+
+  async getUserAchievements(userId: number): Promise<UserAchievement[]> {
+    return db.select().from(userAchievements).where(eq(userAchievements.userId, userId));
+  }
+
+  async updateUserAchievement(
+    userId: number,
+    type: string,
+    progress: number
+  ): Promise<UserAchievement> {
+    let [achievement] = await db.select().from(userAchievements).where(and(eq(userAchievements.userId, userId), eq(userAchievements.type, type)));
+
+    if (!achievement) {
+      achievement = {
+        id: 0, //Auto-incremented by database
+        userId,
+        type,
+        progress,
+        goal: this.getAchievementGoal(type),
+        rewardAmount: this.getAchievementReward(type).toString(),
+        completedAt: null,
+        createdAt: new Date(),
+      };
+      const [insertedAchievement] = await db.insert(userAchievements).values(achievement).returning();
+      achievement = insertedAchievement;
+    }
+
+    if (achievement) {
+      achievement.progress = progress;
+      if (progress >= achievement.goal && !achievement.completedAt) {
+        achievement.completedAt = new Date();
+        await this.addCoins(
+          userId,
+          parseInt(achievement.rewardAmount),
+          'achievement',
+          `Completed achievement: ${type}`,
+          { achievementId: achievement.id }
+        );
+      }
+
+      await db.update(userAchievements).set(achievement).where(eq(userAchievements.id, achievement.id));
+    }
+
+    return achievement;
+  }
+
+  private getAchievementGoal(type: string): number {
+    const goals: Record<string, number> = {
+      voice_time: 3600,
+      referrals: 5,
+      reactions: 50,
+      messages: 100,
+    };
+    return goals[type] || 100;
+  }
+
+  private getAchievementReward(type: string): number {
+    const rewards: Record<string, number> = {
+      voice_time: 100,
+      referrals: 500,
+      reactions: 50,
+      messages: 100,
+    };
+    return rewards[type] || 50;
+  }
+
+  async claimDailyReward(userId: number): Promise<CoinTransaction> {
+    let [userCoins] = await db.select().from(userCoins).where(eq(userCoins.userId, userId));
+    if (!userCoins) {
+      userCoins = await this.createUserCoins(userId);
+    }
+
+    const now = new Date();
+    if (userCoins.lastDailyReward) {
+      const lastReward = new Date(userCoins.lastDailyReward);
+      if (
+        lastReward.getDate() === now.getDate() &&
+        lastReward.getMonth() === now.getMonth() &&
+        lastReward.getFullYear() === now.getFullYear()
+      ) {
+        throw new Error("Daily reward already claimed today");
+      }
+    }
+
+    userCoins.lastDailyReward = now;
+    await db.update(userCoins).set(userCoins).where(eq(userCoins.id, userCoins.id));
+
+    return this.addCoins(
+      userId,
+      50,
+      'daily_reward',
+      'Daily login reward',
+      { claimedAt: now }
+    );
+  }
+
+  // Gift related methods (These methods will need to be implemented using the database)
+  async getGifts(): Promise<Gift[]> {
+    throw new Error("Method not implemented.");
+  }
+  async sendGift(senderId: number, receiverId: number, giftId: number, message?: string): Promise<GiftHistory> {
+    throw new Error("Method not implemented.");
+  }
+  async getGiftHistory(userId: number): Promise<GiftHistory[]> {
+    throw new Error("Method not implemented.");
+  }
+
+  // Level related methods (These methods will need to be implemented using the database)
+  async getUserLevel(userId: number): Promise<UserLevel> {
+    throw new Error("Method not implemented.");
+  }
+  async addExperience(userId: number, amount: number): Promise<UserLevel> {
+    throw new Error("Method not implemented.");
+  }
+  calculateTitle(level: number): string {
+    throw new Error("Method not implemented.");
+  }
+
+  // Premium üyelik metodları (These methods will need to be implemented using the database)
+  async getUserSubscription(userId: number): Promise<UserSubscription | undefined> {
+    throw new Error("Method not implemented.");
+  }
+  async createUserSubscription(userId: number): Promise<UserSubscription> {
+    throw new Error("Method not implemented.");
+  }
+  async hasActiveSubscription(userId: number): Promise<boolean> {
+    throw new Error("Method not implemented.");
+  }
+
+  // Gizli kanal metodları (These methods will need to be implemented using the database)
+  async addUserToPrivateChannel(channelId: number, userId: number): Promise<void> {
+    throw new Error("Method not implemented.");
+  }
+  async removeUserFromPrivateChannel(channelId: number, userId: number): Promise<void> {
+    throw new Error("Method not implemented.");
+  }
+  async canAccessChannel(channelId: number, userId: number): Promise<boolean> {
+    throw new Error("Method not implemented.");
+  }
+
+  // Media related methods (These methods will need to be implemented using the database)
+  async setChannelMedia(channelId: number, media: {
+    type: "music" | "video";
+    url: string;
+    title: string;
+    queuedBy: number;
+  }): Promise<Channel> {
+    throw new Error("Method not implemented.");
+  }
+
+  async addToMediaQueue(channelId: number, media: {
+    type: "music" | "video";
+    url: string;
+    title: string;
+    queuedBy: number;
+  }): Promise<Channel> {
+    throw new Error("Method not implemented.");
+  }
+
+  async skipCurrentMedia(channelId: number): Promise<Channel> {
+    throw new Error("Method not implemented.");
+  }
+  async clearMediaQueue(channelId: number): Promise<void> {
+    throw new Error("Method not implemented.");
+  }
+  async deleteChannel(channelId: number): Promise<void> {
+    throw new Error("Method not implemented.");
+  }
+
+    // Friend related methods (These methods will need to be implemented using the database)
+  async getFriendship(userId1: number, userId2: number): Promise<Friendship | undefined> {
+    const [friendship] = await db.select().from(friendships).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
+    return friendship;
+  }
+
+  async addFriend(userId1: number, userId2: number): Promise<void> {
+    await db.update(friendships).set({status: 'accepted'}).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
+  }
+
+  async removeFriend(userId1: number, userId2: number): Promise<void> {
+    await db.delete(friendships).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
+  }
+  async getFriendshipById(friendshipId: number): Promise<Friendship | undefined> {
+    const [friendship] = await db.select({friendship: friendships, sender: users}).from(friendships).innerJoin(users, eq(users.id, friendships.senderId)).where(eq(friendships.id, friendshipId));
+    return friendship;
+  }
+}
+
+export const storage = new DatabaseStorage();
 
 interface Gift {
   id: number;
@@ -53,8 +634,7 @@ interface UserSubscription {
   createdAt: Date;
 }
 
-
-export interface IStorage {
+interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
@@ -64,7 +644,7 @@ export interface IStorage {
 
   getFriends(userId: number): Promise<User[]>;
   getFriendRequests(userId: number): Promise<Friendship[]>;
-  getPendingFriendRequests(userId: number): Promise<Friendship[]>; // Added
+  getPendingFriendRequests(userId: number): Promise<Friendship[]>; 
   createFriendRequest(senderId: number, receiverId: number): Promise<Friendship>;
   acceptFriendRequest(friendshipId: number): Promise<void>;
   rejectFriendRequest(friendshipId: number): Promise<void>;
@@ -167,964 +747,3 @@ export interface IStorage {
   removeFriend(userId1: number, userId2: number): Promise<void>;
   getFriendshipById(friendshipId: number): Promise<Friendship | undefined>;
 }
-
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private servers: Map<number, Server>;
-  private channels: Map<number, Channel>;
-  private serverMembers: Map<number, ServerMember>;
-  private friendships: Map<number, Friendship>;
-  private serverInvites: Map<string, ServerInvite>;
-  private messages: Map<number, Message>;
-  private reactions: Map<number, Reaction>;
-  sessionStore: session.Store;
-  currentId: number;
-  private userCoins: Map<number, UserCoins>;
-  private coinTransactions: Map<number, CoinTransaction>;
-  private coinProducts: Map<number, CoinProduct>;
-  private userAchievements: Map<number, UserAchievement>;
-  private gifts: Map<number, Gift>;
-  private userLevels: Map<number, UserLevel>;
-  private giftHistory: Map<number, GiftHistory>;
-  private userSubscriptions: Map<number, UserSubscription>;
-
-  constructor() {
-    this.users = new Map();
-    this.servers = new Map();
-    this.channels = new Map();
-    this.serverMembers = new Map();
-    this.friendships = new Map();
-    this.serverInvites = new Map();
-    this.messages = new Map();
-    this.reactions = new Map();
-    this.currentId = 1;
-
-    // Session store yapılandırması güncellendi
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000, // 24 saat
-      ttl: 86400000, // 24 saat
-      noDisposeOnSet: true,
-      dispose: (sid) => {
-        console.log(`Session destroyed: ${sid}`);
-      }
-    });
-    this.userCoins = new Map();
-    this.coinTransactions = new Map();
-    this.coinProducts = new Map();
-    this.userAchievements = new Map();
-    this.gifts = new Map();
-    this.userLevels = new Map();
-    this.giftHistory = new Map();
-    this.userSubscriptions = new Map();
-
-    this.initializeCoinProducts();
-    this.initializeGifts();
-  }
-
-  private initializeCoinProducts() {
-    const products = [
-      {
-        id: this.currentId++,
-        name: "Başlangıç Paketi",
-        description: "Yeni başlayanlar için ideal - 100 Ozba Coin",
-        amount: "100",
-        price: "29.99",
-        bonus: "0",
-        isPopular: false,
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Popüler Paket",
-        description: "En çok tercih edilen - 500 Ozba Coin + 50 Bonus Coin",
-        amount: "500",
-        price: "149.99",
-        bonus: "50",
-        isPopular: true,
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Premium Paket",
-        description: "En iyi fiyat/performans - 1200 Ozba Coin + 200 Bonus Coin + Premium Üyelik",
-        amount: "1200",
-        price: "299.99",
-        bonus: "200",
-        isPopular: false,
-        createdAt: new Date(),
-      },
-    ];
-
-    products.forEach(product => this.coinProducts.set(product.id, product));
-  }
-
-  private initializeGifts() {
-    const gifts = [
-      {
-        id: this.currentId++,
-        name: "Çiçek",
-        description: "Güzel bir çiçek buketi",
-        price: 50,
-        icon: "🌸",
-        experiencePoints: 10,
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Kalp",
-        description: "Sevgi dolu bir kalp",
-        price: 100,
-        icon: "❤️",
-        experiencePoints: 20,
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Yıldız",
-        description: "Parlak bir yıldız",
-        price: 200,
-        icon: "⭐",
-        experiencePoints: 40,
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Taç",
-        description: "Gösterişli bir taç",
-        price: 500,
-        icon: "👑",
-        experiencePoints: 100,
-        createdAt: new Date(),
-      },
-    ];
-
-    gifts.forEach(gift => this.gifts.set(gift.id, gift));
-  }
-
-  async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
-  }
-
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.email === email,
-    );
-  }
-
-  async getUserByPhone(phone: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.phone === phone,
-    );
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentId++;
-    const defaultAvatars = [
-      "https://images.unsplash.com/photo-1630910561339-4e22c7150093",
-      "https://images.unsplash.com/photo-1438761681033-6461ffad8d80",
-      "https://images.unsplash.com/photo-1646617747609-45b466ace9a6",
-      "https://images.unsplash.com/photo-1628891435222-065925dcb365",
-      "https://images.unsplash.com/photo-1507499036636-f716246c2c23",
-      "https://images.unsplash.com/photo-1601388352547-2802c6f32eb8"
-    ];
-
-    const user: User = {
-      id,
-      username: insertUser.username,
-      password: insertUser.password,
-      email: insertUser.email || `user${id}@placeholder.com`,
-      phone: insertUser.phone || `+${Math.floor(Math.random() * 100000000000)}`,
-      avatar: insertUser.avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)],
-      status: "online",
-      nickname: insertUser.username,
-      bio: null,
-      age: null,
-      socialLinks: null,
-      theme: "system",
-      isPrivateProfile: false,
-      showLastSeen: true,
-      lastActive: new Date(),
-      twoFactorEnabled: false,
-      twoFactorSecret: null,
-      createdAt: new Date(),
-    };
-
-    this.users.set(id, user);
-    return user;
-  }
-
-  async updateUserTwoFactor(userId: number, enabled: boolean, secret?: string): Promise<void> {
-    const user = await this.getUser(userId);
-    if (user) {
-      user.twoFactorEnabled = enabled;
-      user.twoFactorSecret = secret || null;
-      this.users.set(userId, user);
-    }
-  }
-
-  async getFriends(userId: number): Promise<User[]> {
-    const friendships = Array.from(this.friendships.values()).filter(
-      f => (f.senderId === userId || f.receiverId === userId) && f.status === 'accepted'
-    );
-    const friendIds = friendships.map(f => f.senderId === userId ? f.receiverId : f.senderId);
-    return Promise.all(
-      friendIds.map(async id => {
-        const user = await this.getUser(id);
-        return user!;
-      })
-    );
-  }
-
-  async getFriendRequests(userId: number): Promise<Friendship[]> {
-    const requests = Array.from(this.friendships.values()).filter(
-      f => f.receiverId === userId && f.status === 'pending'
-    );
-
-    // Sender bilgilerini ekle
-    return Promise.all(requests.map(async request => {
-      const sender = await this.getUser(request.senderId);
-      return {
-        ...request,
-        sender
-      };
-    }));
-  }
-
-  async getPendingFriendRequests(userId: number): Promise<Friendship[]> { // Added method implementation
-    const requests = Array.from(this.friendships.values()).filter(
-      f => f.receiverId === userId && f.status === 'pending'
-    );
-
-    // Sender bilgilerini ekle
-    return Promise.all(requests.map(async request => {
-      const sender = await this.getUser(request.senderId);
-      return {
-        ...request,
-        sender
-      };
-    }));
-  }
-
-
-  async createFriendRequest(senderId: number, receiverId: number): Promise<Friendship> {
-    // Mevcut arkadaşlık kontrolü
-    const existingFriendship = await this.getFriendship(senderId, receiverId);
-    if (existingFriendship) {
-      throw new Error("Friendship already exists");
-    }
-
-    const id = this.currentId++;
-    const friendship: Friendship = {
-      id,
-      senderId,
-      receiverId,
-      status: 'pending',
-      createdAt: new Date(),
-    };
-    this.friendships.set(id, friendship);
-
-    // Sender bilgilerini ekleyerek döndür
-    const sender = await this.getUser(senderId);
-    return {
-      ...friendship,
-      sender
-    };
-  }
-
-  async acceptFriendRequest(friendshipId: number): Promise<void> {
-    const friendship = this.friendships.get(friendshipId);
-    if (friendship && friendship.status === 'pending') {
-      friendship.status = 'accepted';
-      this.friendships.set(friendshipId, friendship);
-
-      // Otomatik olarak karşılıklı arkadaşlık oluştur
-      await this.addFriend(friendship.senderId, friendship.receiverId);
-    }
-  }
-
-  async rejectFriendRequest(friendshipId: number): Promise<void> {
-    const friendship = this.friendships.get(friendshipId);
-    if (friendship && friendship.status === 'pending') {
-      friendship.status = 'rejected';
-      this.friendships.set(friendshipId, friendship);
-    }
-  }
-
-  async createServerInvite(serverId: number, inviterId: number, inviteeId: number): Promise<ServerInvite> {
-    const id = this.currentId++;
-    const server = await this.getServer(serverId);
-    if (!server) {
-      throw new Error("Server not found");
-    }
-
-    const invite: ServerInvite = {
-      id,
-      serverId,
-      inviterId,
-      inviteeId,
-      status: 'pending',
-      code: nanoid(10),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-      createdAt: new Date(),
-    };
-    this.serverInvites.set(invite.code, invite);
-    return invite;
-  }
-
-  async getServerInvite(code: string): Promise<ServerInvite | undefined> {
-    const invite = this.serverInvites.get(code);
-    return invite && (!invite.expiresAt || invite.expiresAt > new Date()) ? invite : undefined;
-  }
-
-  async getServerInvitesByUser(userId: number): Promise<ServerInvite[]> {
-    return Array.from(this.serverInvites.values())
-      .filter(invite => invite.inviteeId === userId && invite.status === 'pending');
-  }
-
-  async joinServerWithInvite(code: string, userId: number): Promise<void> {
-    const invite = await this.getServerInvite(code);
-    if (invite) {
-      await this.addServerMember(invite.serverId, userId);
-      this.serverInvites.delete(code);
-    }
-  }
-
-  async acceptServerInvite(inviteId: number): Promise<void> {
-    const invite = Array.from(this.serverInvites.values())
-      .find(inv => inv.id === inviteId);
-
-    if (invite && invite.status === 'pending') {
-      invite.status = 'accepted';
-      await this.addServerMember(invite.serverId, invite.inviteeId);
-      this.serverInvites.set(invite.code, invite);
-    }
-  }
-
-  async rejectServerInvite(inviteId: number): Promise<void> {
-    const invite = Array.from(this.serverInvites.values())
-      .find(inv => inv.id === inviteId);
-
-    if (invite && invite.status === 'pending') {
-      invite.status = 'rejected';
-      this.serverInvites.set(invite.code, invite);
-    }
-  }
-
-
-  async getServers(userId: number): Promise<Server[]> {
-    const memberServers = Array.from(this.serverMembers.values())
-      .filter(member => member.userId === userId)
-      .map(member => this.servers.get(member.serverId))
-      .filter((server): server is Server => server !== undefined);
-    return memberServers;
-  }
-
-  async createServer(name: string, ownerId: number): Promise<Server> {
-    const id = this.currentId++;
-    const server: Server = {
-      id,
-      name,
-      ownerId,
-      createdAt: new Date(),
-    };
-    this.servers.set(id, server);
-    await this.addServerMember(id, ownerId);
-    return server;
-  }
-
-  async getChannels(serverId: number): Promise<Channel[]> {
-    return Array.from(this.channels.values()).filter(
-      channel => channel.serverId === serverId
-    );
-  }
-
-  async createChannel(name: string, serverId: number, isVoice: boolean, isPrivate: boolean = false): Promise<Channel> {
-    const id = this.currentId++;
-    const channel: Channel = {
-      id,
-      name,
-      serverId,
-      isVoice,
-      isPrivate,
-      type: "text",
-      allowedUsers: [],
-      createdAt: new Date(),
-      currentMedia: null,
-      mediaQueue: []
-    };
-    this.channels.set(id, channel);
-    return channel;
-  }
-
-  async getServerMembers(serverId: number): Promise<User[]> {
-    const memberIds = Array.from(this.serverMembers.values())
-      .filter(member => member.serverId === serverId)
-      .map(member => member.userId);
-
-    return memberIds
-      .map(id => this.users.get(id))
-      .filter((user): user is User => user !== undefined);
-  }
-
-  async addServerMember(serverId: number, userId: number): Promise<void> {
-    const id = this.currentId++;
-    this.serverMembers.set(id, {
-      id,
-      serverId,
-      userId,
-      joinedAt: new Date(),
-    });
-  }
-
-  async getServer(serverId: number): Promise<Server | undefined> {
-    return this.servers.get(serverId);
-  }
-  async getChannel(channelId: number): Promise<Channel | undefined> {
-    return this.channels.get(channelId);
-  }
-  async updateUserProfile(
-    userId: number,
-    data: {
-      bio?: string;
-      age?: number;
-      avatar?: string;
-      nickname?: string;
-      status?: string;
-      socialLinks?: {
-        discord?: string;
-        twitter?: string;
-        instagram?: string;
-        website?: string;
-      };
-      theme?: string;
-      isPrivateProfile?: boolean;
-      showLastSeen?: boolean;
-    }
-  ): Promise<User> {
-    const user = await this.getUser(userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
-
-    const updatedUser = {
-      ...user,
-      bio: data.bio ?? user.bio,
-      age: data.age ?? user.age,
-      avatar: data.avatar ?? user.avatar,
-      nickname: data.nickname ?? user.nickname,
-      status: data.status ?? user.status,
-      socialLinks: data.socialLinks ?? user.socialLinks,
-      theme: data.theme ?? user.theme,
-      isPrivateProfile: data.isPrivateProfile ?? user.isPrivateProfile,
-      showLastSeen: data.showLastSeen ?? user.showLastSeen,
-      lastActive: new Date(),
-    };
-
-    this.users.set(userId, updatedUser);
-    return updatedUser;
-  }
-
-  async updateLastActive(userId: number): Promise<void> {
-    const user = await this.getUser(userId);
-    if (user) {
-      user.lastActive = new Date();
-      this.users.set(userId, user);
-    }
-  }
-  async createMessage(channelId: number, userId: number, content: string): Promise<Message> {
-    const id = this.currentId++;
-    const message: Message = {
-      id,
-      content,
-      channelId,
-      userId,
-      createdAt: new Date(),
-    };
-    this.messages.set(id, message);
-    return message;
-  }
-
-  async getMessages(channelId: number): Promise<MessageWithReactions[]> {
-    const messages = Array.from(this.messages.values())
-      .filter(message => message.channelId === channelId)
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-
-    return Promise.all(
-      messages.map(async message => {
-        const user = await this.getUser(message.userId);
-        const reactions = Array.from(this.reactions.values())
-          .filter(reaction => reaction.messageId === message.id);
-
-        const reactionsWithUsers = await Promise.all(
-          reactions.map(async reaction => ({
-            ...reaction,
-            user: (await this.getUser(reaction.userId))!
-          }))
-        );
-
-        return {
-          ...message,
-          user: user!,
-          reactions: reactionsWithUsers
-        };
-      })
-    );
-  }
-
-  async addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction> {
-    const id = this.currentId++;
-    const reaction: Reaction = {
-      id,
-      emoji,
-      messageId,
-      userId,
-      createdAt: new Date(),
-    };
-    this.reactions.set(id, reaction);
-    return reaction;
-  }
-
-  async removeReaction(messageId: number, userId: number, emoji: string): Promise<void> {
-    const reaction = Array.from(this.reactions.values()).find(
-      r => r.messageId === messageId && r.userId === userId && r.emoji === emoji
-    );
-    if (reaction) {
-      this.reactions.delete(reaction.id);
-    }
-  }
-
-  async getUserCoins(userId: number): Promise<UserCoins | undefined> {
-    return Array.from(this.userCoins.values()).find(uc => uc.userId === userId);
-  }
-
-  async createUserCoins(userId: number): Promise<UserCoins> {
-    const id = this.currentId++;
-    const userCoins: UserCoins = {
-      id,
-      userId,
-      balance: 0,
-      lifetimeEarned: 0,
-      lastDailyReward: null,
-      createdAt: new Date(),
-    };
-    this.userCoins.set(id, userCoins);
-    return userCoins;
-  }
-
-  async addCoins(
-    userId: number,
-    amount: number,
-    type: string,
-    description: string,
-    metadata?: any
-  ): Promise<CoinTransaction> {
-    let userCoins = await this.getUserCoins(userId);
-    if (!userCoins) {
-      userCoins = await this.createUserCoins(userId);
-    }
-
-    userCoins.balance += amount;
-    if (amount > 0) {
-      userCoins.lifetimeEarned += amount;
-    }
-    this.userCoins.set(userCoins.id, userCoins);
-
-    const transaction: CoinTransaction = {
-      id: this.currentId++,
-      userId,
-      amount,
-      type,
-      description,
-      metadata,
-      createdAt: new Date(),
-    };
-    this.coinTransactions.set(transaction.id, transaction);
-
-    return transaction;
-  }
-
-  async getCoinProducts(): Promise<CoinProduct[]> {
-    return Array.from(this.coinProducts.values());
-  }
-
-  async getUserAchievements(userId: number): Promise<UserAchievement[]> {
-    return Array.from(this.userAchievements.values())
-      .filter(ua => ua.userId === userId);
-  }
-
-  async updateUserAchievement(
-    userId: number,
-    type: string,
-    progress: number
-  ): Promise<UserAchievement> {
-    let achievement = Array.from(this.userAchievements.values())
-      .find(ua => ua.userId === userId && ua.type === type);
-
-    if (!achievement) {
-      achievement = {
-        id: this.currentId++,
-        userId,
-        type,
-        progress,
-        goal: this.getAchievementGoal(type),
-        rewardAmount: this.getAchievementReward(type).toString(),
-        completedAt: null,
-        createdAt: new Date(),
-      };
-    }
-
-    if (achievement) {
-      achievement.progress = progress;
-      if (progress >= achievement.goal && !achievement.completedAt) {
-        achievement.completedAt = new Date();
-        await this.addCoins(
-          userId,
-          parseInt(achievement.rewardAmount),
-          'achievement',
-          `Completed achievement: ${type}`,
-          { achievementId: achievement.id }
-        );
-      }
-
-      this.userAchievements.set(achievement.id, achievement);
-    }
-
-    return achievement;
-  }
-
-  private getAchievementGoal(type: string): number {
-    const goals: Record<string, number> = {
-      voice_time: 3600,
-      referrals: 5,
-      reactions: 50,
-      messages: 100,
-    };
-    return goals[type] || 100;
-  }
-
-  private getAchievementReward(type: string): number {
-    const rewards: Record<string, number> = {
-      voice_time: 100,
-      referrals: 500,
-      reactions: 50,
-      messages: 100,
-    };
-    return rewards[type] || 50;
-  }
-
-  async claimDailyReward(userId: number): Promise<CoinTransaction> {
-    let userCoins = await this.getUserCoins(userId);
-    if (!userCoins) {
-      userCoins = await this.createUserCoins(userId);
-    }
-
-    const now = new Date();
-    if (userCoins.lastDailyReward) {
-      const lastReward = new Date(userCoins.lastDailyReward);
-      if (
-        lastReward.getDate() === now.getDate() &&
-        lastReward.getMonth() === now.getMonth() &&
-        lastReward.getFullYear() === now.getFullYear()
-      ) {
-        throw new Error("Daily reward already claimed today");
-      }
-    }
-
-    userCoins.lastDailyReward = now;
-    this.userCoins.set(userCoins.id, userCoins);
-
-    return this.addCoins(
-      userId,
-      50,
-      'daily_reward',
-      'Daily login reward',
-      { claimedAt: now }
-    );
-  }
-
-  async getGifts(): Promise<Gift[]> {
-    return Array.from(this.gifts.values());
-  }
-
-  async sendGift(senderId: number, receiverId: number, giftId: number, message?: string): Promise<GiftHistory> {
-    const gift = this.gifts.get(giftId);
-    if (!gift) {
-      throw new Error("Gift not found");
-    }
-
-    const senderCoins = await this.getUserCoins(senderId);
-    if (!senderCoins || senderCoins.balance < gift.price) {
-      throw new Error("Insufficient coins");
-    }
-
-    // Deduct coins from sender
-    await this.addCoins(
-      senderId,
-      -gift.price,
-      'gift_sent',
-      `Sent gift: ${gift.name}`,
-      { giftId, receiverId }
-    );
-
-    // Add experience to receiver
-    await this.addExperience(receiverId, gift.experiencePoints);
-
-    // Record gift history
-    const giftHistory: GiftHistory = {
-      id: this.currentId++,
-      senderId,
-      receiverId,
-      giftId,
-      coinAmount: gift.price,
-      message: message || null,
-      createdAt: new Date(),
-    };
-
-    this.giftHistory.set(giftHistory.id, giftHistory);
-    return giftHistory;
-  }
-
-  async getGiftHistory(userId: number): Promise<GiftHistory[]> {
-    return Array.from(this.giftHistory.values())
-      .filter(gh => gh.senderId === userId || gh.receiverId === userId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  }
-
-  async getUserLevel(userId: number): Promise<UserLevel> {
-    let userLevel = Array.from(this.userLevels.values())
-      .find(ul => ul.userId === userId);
-
-    if (!userLevel) {
-      userLevel = {
-        id: this.currentId++,
-        userId,
-        level: 1,
-        currentExperience: 0,
-        nextLevelExperience: 100,
-        title: this.calculateTitle(1),
-        createdAt: new Date(),
-      };
-      this.userLevels.set(userLevel.id, userLevel);
-    }
-
-    return userLevel;
-  }
-
-  async addExperience(userId: number, amount: number): Promise<UserLevel> {
-    const userLevel = await this.getUserLevel(userId);
-    userLevel.currentExperience += amount;
-
-    // Level up if enough experience
-    while (userLevel.currentExperience >= userLevel.nextLevelExperience) {
-      userLevel.currentExperience -= userLevel.nextLevelExperience;
-      userLevel.level += 1;
-      userLevel.nextLevelExperience = Math.floor(userLevel.nextLevelExperience * 1.5);
-      userLevel.title = this.calculateTitle(userLevel.level);
-
-      // Award coins for leveling up
-      await this.addCoins(
-        userId,
-        userLevel.level * 50,
-        'level_up',
-        `Level up reward: Level ${userLevel.level}`,
-        { level: userLevel.level }
-      );    }
-
-    this.userLevels.set(userLevel.id, userLevel);
-    return userLevel;
-  }
-
-  calculateTitle(level: number): string {
-    const titles = {
-      1: "Yeni Üye",
-      5: "Aktif Üye",
-      10: "Bronz Üye",
-      20: "Gümüş Üye",
-      30: "Altın Üye",
-      50: "Elmas Üye",
-      75: "Veteran Üye",
-      100: "Efsane Üye"
-    };
-
-    const eligibleTitles = Object.entries(titles)
-      .filter(([reqLevel]) => parseInt(reqLevel) <= level)
-      .sort((a, b) => parseInt(b[0]) - parseInt(a[0]));
-
-    return eligibleTitles[0]?.[1] || "Yeni Üye";
-  }
-
-  async getUserSubscription(userId: number): Promise<UserSubscription | undefined> {
-    return Array.from(this.userSubscriptions.values()).find(
-      sub => sub.userId === userId && (!sub.endDate || new Date(sub.endDate) > new Date())
-    );
-  }
-
-  async createUserSubscription(userId: number): Promise<UserSubscription> {
-    const id =this.currentId++;
-    const subscription: UserSubscription = {
-      id,
-      userId,
-      type: 'premium',
-      startDate: new Date(),
-      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 gün
-      features: {
-        privateChannels: true,
-        customEmojis: true,
-        voiceEffects: true,
-        extendedUpload: true,
-      },
-      createdAt: new Date(),
-    };
-    this.userSubscriptions.set(id, subscription);
-    return subscription;
-  }
-
-  async hasActiveSubscription(userId: number): Promise<boolean> {
-    const subscription = await this.getUserSubscription(userId);
-    return !!subscription;
-  }
-
-  async addUserToPrivateChannel(channelId: number, userId: number): Promise<void> {
-    const channel = await this.getChannel(channelId);
-    if (channel && channel.isPrivate) {
-      channel.allowedUsers = [...(channel.allowedUsers || []), userId];
-      this.channels.set(channelId, channel);
-    }
-  }
-
-  async removeUserFromPrivateChannel(channelId: number, userId: number): Promise<void> {
-    const channel = await this.getChannel(channelId);
-    if (channel && channel.isPrivate) {
-      channel.allowedUsers = (channel.allowedUsers || []).filter(id => id !== userId);
-      this.channels.set(channelId, channel);
-    }
-  }
-
-  async canAccessChannel(channelId: number, userId: number): Promise<boolean> {
-    const channel = await this.getChannel(channelId);
-    if (!channel) return false;
-    if (!channel.isPrivate) return true;
-
-    const server = await this.getServer(channel.serverId);
-    if (server?.ownerId === userId) return true;
-
-    return channel.allowedUsers?.includes(userId) || false;
-  }
-
-  async setChannelMedia(channelId: number, media: {
-    type: "music" | "video";
-    url: string;
-    title: string;
-    queuedBy: number;
-  }): Promise<Channel> {
-    const channel = await this.getChannel(channelId);
-    if (!channel) throw new Error("Channel not found");
-
-    channel.currentMedia = {
-      ...media,
-      startedAt: new Date()
-    };
-
-    this.channels.set(channelId, channel);
-    return channel;
-  }
-
-  async addToMediaQueue(channelId: number, media: {
-    type: "music" | "video";
-    url: string;
-    title: string;
-    queuedBy: number;
-  }): Promise<Channel> {
-    const channel = await this.getChannel(channelId);
-    if (!channel) throw new Error("Channel not found");
-
-    channel.mediaQueue = [...(channel.mediaQueue || []), media];
-    this.channels.set(channelId, channel);
-    return channel;
-  }
-
-  async skipCurrentMedia(channelId: number): Promise<Channel> {
-    const channel = await this.getChannel(channelId);
-    if (!channel) throw new Error("Channel not found");
-
-    if (channel.mediaQueue && channel.mediaQueue.length > 0) {
-      const [nextMedia, ...remainingQueue] = channel.mediaQueue;
-      channel.currentMedia = {
-        ...nextMedia,
-        startedAt: new Date()
-      };
-      channel.mediaQueue = remainingQueue;
-    } else {
-      channel.currentMedia = null;
-    }
-
-    this.channels.set(channelId, channel);
-    return channel;
-  }
-
-  async clearMediaQueue(channelId: number): Promise<void> {
-    const channel = await this.getChannel(channelId);
-    if (!channel) throw new Error("Channel not found");
-
-    channel.mediaQueue = [];
-    this.channels.set(channelId, channel);
-  }
-  async deleteChannel(channelId: number): Promise<void> {
-    this.channels.delete(channelId);
-
-    // Kanala ait mesajları temizle
-    const messageIds = Array.from(this.messages.entries())
-      .filter(([_, message]) => message.channelId === channelId)
-      .map(([id]) => id);
-
-    messageIds.forEach(id => this.messages.delete(id));
-
-    // Kanala ait reaksiyonları temizle
-    const reactionIds = Array.from(this.reactions.entries())
-      .filter(([_, reaction]) => messageIds.includes(reaction.messageId))
-      .map(([id]) => id);
-
-    reactionIds.forEach(id => this.reactions.delete(id));
-  }
-  async getFriendship(userId1: number, userId2: number): Promise<Friendship | undefined> {
-    return Array.from(this.friendships.values()).find(
-      f => 
-        (f.senderId === userId1 && f.receiverId === userId2) ||
-        (f.senderId === userId2 && f.receiverId === userId1)
-    );
-  }
-
-  async addFriend(userId1: number, userId2: number): Promise<void> {
-    // Arkadaşlık durumunu güncelle
-    const friendship = await this.getFriendship(userId1, userId2);
-    if (friendship) {
-      friendship.status = 'accepted';
-      this.friendships.set(friendship.id, friendship);
-    }
-  }
-
-  async removeFriend(userId1: number, userId2: number): Promise<void> {
-    const friendship = await this.getFriendship(userId1, userId2);
-    if (friendship) {
-      this.friendships.delete(friendship.id);
-    }
-  }
-  async getFriendshipById(friendshipId: number): Promise<Friendship | undefined> {
-    const friendship = this.friendships.get(friendshipId);
-    if (!friendship) return undefined;
-
-    const sender = await this.getUser(friendship.senderId);
-    return {
-      ...friendship,
-      sender
-    };
-  }
-}
-
-export const storage = new MemStorage();

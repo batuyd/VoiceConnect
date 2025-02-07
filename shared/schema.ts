@@ -1,3 +1,4 @@
+import { relations } from "drizzle-orm";
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, decimal } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -30,9 +31,9 @@ export const users = pgTable("users", {
 
 export const friendships = pgTable("friendships", {
   id: serial("id").primaryKey(),
-  senderId: integer("sender_id").notNull(),
-  receiverId: integer("receiver_id").notNull(),
-  status: text("status").notNull(),
+  senderId: integer("sender_id").notNull().references(() => users.id),
+  receiverId: integer("receiver_id").notNull().references(() => users.id),
+  status: text("status").notNull().default('pending'),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -192,6 +193,24 @@ export const userSubscriptions = pgTable("user_subscriptions", {
   }>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// Define relations
+export const friendshipsRelations = relations(friendships, ({ one }) => ({
+  sender: one(users, {
+    fields: [friendships.senderId],
+    references: [users.id],
+  }),
+  receiver: one(users, {
+    fields: [friendships.receiverId],
+    references: [users.id],
+  }),
+}));
+
+export const usersRelations = relations(users, ({ many }) => ({
+  sentFriendRequests: many(friendships, { relationName: "sender" }),
+  receivedFriendRequests: many(friendships, { relationName: "receiver" }),
+}));
+
 
 const baseUserSchema = createInsertSchema(users);
 
