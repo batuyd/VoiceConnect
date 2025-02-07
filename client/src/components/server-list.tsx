@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLanguage } from "@/hooks/use-language";
 import { Button } from "@/components/ui/button";
 import { Server } from "@shared/schema";
-import { Plus, User, LogOut, Trash2, MoreVertical } from "lucide-react";
+import { Plus, User, LogOut, Trash2, MoreVertical, UserPlus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function ServerList({ 
   onServerSelect, 
@@ -38,9 +39,15 @@ export function ServerList({
   const [, setLocation] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [newServerName, setNewServerName] = useState("");
+  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
+  const [selectedFriendId, setSelectedFriendId] = useState<string>("");
 
   const { data: servers = [] } = useQuery<Server[]>({
     queryKey: ["/api/servers"],
+  });
+
+  const { data: friends = [] } = useQuery({
+    queryKey: ['/api/friends'],
   });
 
   const createServerMutation = useMutation({
@@ -72,6 +79,27 @@ export function ServerList({
     onError: (error: Error) => {
       toast({
         title: t('server.deleteError'),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: async ({ serverId, inviteeId }: { serverId: number; inviteeId: number }) => {
+      const res = await apiRequest("POST", `/api/servers/${serverId}/invite`, { inviteeId });
+      return res.json();
+    },
+    onSuccess: () => {
+      setIsInviteDialogOpen(false);
+      toast({
+        title: t('server.inviteSuccess'),
+        description: t('server.inviteSuccessMessage'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('server.inviteError'),
         description: error.message,
         variant: "destructive",
       });
@@ -133,6 +161,13 @@ export function ServerList({
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuItem
+                  className="flex items-center gap-2"
+                  onClick={() => setIsInviteDialogOpen(true)}
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>{t('server.inviteFriend')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   className="flex items-center gap-2 text-destructive"
                   onClick={() => {
                     if (confirm(t('server.deleteConfirm'))) {
@@ -180,6 +215,52 @@ export function ServerList({
             </div>
             <Button type="submit" disabled={createServerMutation.isPending}>
               {t('server.createServer')}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite Friend Dialog */}
+      <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('server.inviteFriend')}</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (selectedServer && selectedFriendId) {
+                inviteMutation.mutate({
+                  serverId: selectedServer.id,
+                  inviteeId: parseInt(selectedFriendId),
+                });
+              }
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label>{t('server.selectFriend')}</Label>
+              <Select
+                value={selectedFriendId}
+                onValueChange={setSelectedFriendId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t('server.selectFriend')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {friends.map((friend) => (
+                    <SelectItem key={friend.id} value={friend.id.toString()}>
+                      {friend.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              type="submit"
+              disabled={inviteMutation.isPending || !selectedFriendId}
+            >
+              {t('server.sendInvite')}
             </Button>
           </form>
         </DialogContent>
