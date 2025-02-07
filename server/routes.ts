@@ -1,9 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { setupAuth } from "./auth";
 import { storage } from "./storage";
-import NodeMediaServer from 'node-media-server';
-import fetch from 'node-fetch';
+import { WebSocketServer } from 'ws';
 import cors from 'cors';
 
 export function registerRoutes(app: Express): Server {
@@ -16,9 +14,6 @@ export function registerRoutes(app: Express): Server {
     maxAge: 600 // 10 dakika
   }));
 
-  // Auth middleware'i kur
-  const sessionMiddleware = setupAuth(app);
-
   // Auth hatalarını yakala
   app.use((err: any, _req: any, res: any, next: any) => {
     if (err.name === 'UnauthorizedError') {
@@ -28,61 +23,28 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Bot kullanıcısını oluştur
-  app.post("/api/debug/create-bot", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    const botUser = await storage.createUser({
-      username: "TestBot",
-      password: "bot123", // Bu sadece test için
-    });
-
-    if (req.body.serverId) {
-      await storage.addServerMember(req.body.serverId, botUser.id);
-    }
-
-    res.status(201).json(botUser);
-  });
-
-  app.get("/api/servers", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    const servers = await storage.getServers(req.user.id);
+  app.get("/api/servers", async (_req, res) => {
+    const servers = await storage.getServers(1); // Default user ID
     res.json(servers);
   });
 
   app.get("/api/servers/:serverId", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     const server = await storage.getServer(parseInt(req.params.serverId));
     if (!server) return res.sendStatus(404);
     res.json(server);
   });
 
   app.post("/api/servers", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    const server = await storage.createServer(req.body.name, req.user.id);
+    const server = await storage.createServer(req.body.name, 1); // Default user ID
     res.status(201).json(server);
   });
 
   app.get("/api/servers/:serverId/channels", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     const channels = await storage.getChannels(parseInt(req.params.serverId));
     res.json(channels);
   });
 
   app.post("/api/servers/:serverId/channels", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    const server = await storage.getServer(parseInt(req.params.serverId));
-    if (!server || server.ownerId !== req.user.id) {
-      return res.sendStatus(403);
-    }
-    // Premium kullanıcı kontrolü
-    if (req.body.isPrivate) {
-      const hasSubscription = await storage.hasActiveSubscription(req.user.id);
-      if (!hasSubscription) {
-        return res.status(403).json({ error: "Bu özellik sadece premium üyelere açıktır" });
-      }
-    }
-
     const channel = await storage.createChannel(
       req.body.name,
       parseInt(req.params.serverId),
@@ -94,39 +56,28 @@ export function registerRoutes(app: Express): Server {
 
   // Kanal silme endpoint'i
   app.delete("/api/channels/:channelId", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
     try {
       const channel = await storage.getChannel(parseInt(req.params.channelId));
       if (!channel) return res.sendStatus(404);
 
-      const server = await storage.getServer(channel.serverId);
-      if (!server || server.ownerId !== req.user.id) {
-        return res.sendStatus(403);
-      }
-
       await storage.deleteChannel(parseInt(req.params.channelId));
       res.sendStatus(200);
-    } catch (error) {
+    } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-
   app.get("/api/servers/:serverId/members", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     const members = await storage.getServerMembers(parseInt(req.params.serverId));
     res.json(members);
   });
 
   app.post("/api/servers/:serverId/members", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     await storage.addServerMember(parseInt(req.params.serverId), req.body.userId);
     res.sendStatus(201);
   });
 
   app.get("/api/channels/:channelId/members", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     const channel = await storage.getChannel(parseInt(req.params.channelId));
     if (!channel) return res.sendStatus(404);
     const members = await storage.getServerMembers(channel.serverId);
@@ -137,58 +88,36 @@ export function registerRoutes(app: Express): Server {
     res.json(connectedMembers);
   });
 
-  app.patch("/api/user/profile", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    const updatedUser = await storage.updateUserProfile(req.user.id, {
-      bio: req.body.bio,
-      age: req.body.age,
-      avatar: req.body.avatar,
-    });
-
-    res.json(updatedUser);
-  });
-
   // Message routes
   app.get("/api/channels/:channelId/messages", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     const messages = await storage.getMessages(parseInt(req.params.channelId));
     res.json(messages);
   });
 
   app.post("/api/channels/:channelId/messages", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    // Call original handler.  This assumes app.routes.post is available and contains the original handler.  This might require refactoring depending on the express setup.
-    const originalPostMessage = app.routes.post["/api/channels/:channelId/messages"];
-    await originalPostMessage(req, res);
-
-
-    const achievements = await storage.getUserAchievements(req.user.id);
-    const messageAchievement = achievements.find(a => a.type === "messages");
-    if (messageAchievement) {
-      await storage.updateUserAchievement(req.user.id, "messages", messageAchievement.progress + 1);
-    } else {
-      await storage.updateUserAchievement(req.user.id, "messages", 1);
-    }
+    const message = await storage.createMessage(
+      parseInt(req.params.channelId),
+      1, // Default user ID
+      req.body.content
+    );
+    res.status(201).json(message);
   });
+
 
   // Reaction routes
   app.post("/api/messages/:messageId/reactions", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     const reaction = await storage.addReaction(
       parseInt(req.params.messageId),
-      req.user.id,
+      1, // Default user ID
       req.body.emoji
     );
     res.status(201).json(reaction);
   });
 
   app.delete("/api/messages/:messageId/reactions/:emoji", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     await storage.removeReaction(
       parseInt(req.params.messageId),
-      req.user.id,
+      1, // Default user ID
       req.params.emoji
     );
     res.sendStatus(200);
@@ -196,10 +125,9 @@ export function registerRoutes(app: Express): Server {
 
   // Coin related routes
   app.get("/api/coins", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    const userCoins = await storage.getUserCoins(req.user.id);
+    const userCoins = await storage.getUserCoins(1); // Default user ID
     if (!userCoins) {
-      const newUserCoins = await storage.createUserCoins(req.user.id);
+      const newUserCoins = await storage.createUserCoins(1); // Default user ID
       res.json(newUserCoins);
     } else {
       res.json(userCoins);
@@ -207,9 +135,8 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.post("/api/coins/daily-reward", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     try {
-      const transaction = await storage.claimDailyReward(req.user.id);
+      const transaction = await storage.claimDailyReward(1); // Default user ID
       res.json(transaction);
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -217,29 +144,25 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.get("/api/coins/products", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     const products = await storage.getCoinProducts();
     res.json(products);
   });
 
   app.get("/api/achievements", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    const achievements = await storage.getUserAchievements(req.user.id);
+    const achievements = await storage.getUserAchievements(1); // Default user ID
     res.json(achievements);
   });
 
   // Gift related routes
   app.get("/api/gifts", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     const gifts = await storage.getGifts();
     res.json(gifts);
   });
 
   app.post("/api/gifts/send", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
     try {
       const giftHistory = await storage.sendGift(
-        req.user.id,
+        1, // Default user ID
         req.body.receiverId,
         req.body.giftId,
         req.body.message
@@ -251,28 +174,19 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.get("/api/gifts/history", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    const history = await storage.getGiftHistory(req.user.id);
+    const history = await storage.getGiftHistory(1); // Default user ID
     res.json(history);
   });
 
   // Level related routes
   app.get("/api/user/level", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    const userLevel = await storage.getUserLevel(req.user.id);
+    const userLevel = await storage.getUserLevel(1); // Default user ID
     res.json(userLevel);
   });
 
   app.post("/api/channels/:channelId/members", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
     const channel = await storage.getChannel(parseInt(req.params.channelId));
     if (!channel) return res.sendStatus(404);
-
-    const server = await storage.getServer(channel.serverId);
-    if (!server || server.ownerId !== req.user.id) {
-      return res.sendStatus(403);
-    }
 
     await storage.addUserToPrivateChannel(
       parseInt(req.params.channelId),
@@ -282,15 +196,8 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.delete("/api/channels/:channelId/members/:userId", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
     const channel = await storage.getChannel(parseInt(req.params.channelId));
     if (!channel) return res.sendStatus(404);
-
-    const server = await storage.getServer(channel.serverId);
-    if (!server || server.ownerId !== req.user.id) {
-      return res.sendStatus(403);
-    }
 
     await storage.removeUserFromPrivateChannel(
       parseInt(req.params.channelId),
@@ -300,32 +207,21 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.get("/api/channels/:channelId", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
     const channelId = parseInt(req.params.channelId);
-    const canAccess = await storage.canAccessChannel(channelId, req.user.id);
-
-    if (!canAccess) {
-      return res.sendStatus(403);
-    }
-
     const channel = await storage.getChannel(channelId);
     res.json(channel);
   });
 
   // Media related routes
   app.post("/api/channels/:channelId/media", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
     try {
       const { url, type } = req.body;
-      const videoInfo = await ytdl.getInfo(url);
 
       const media = {
         type,
         url,
-        title: videoInfo.videoDetails.title,
-        queuedBy: req.user.id
+        title: "Media Title", // Default title
+        queuedBy: 1 // Default user ID
       };
 
       const channel = await storage.getChannel(parseInt(req.params.channelId));
@@ -336,53 +232,37 @@ export function registerRoutes(app: Express): Server {
         const updatedChannel = await storage.addToMediaQueue(parseInt(req.params.channelId), media);
         res.json(updatedChannel);
       }
-    } catch (error) {
+    } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
   app.post("/api/channels/:channelId/media/skip", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
     try {
       const channel = await storage.getChannel(parseInt(req.params.channelId));
       if (!channel) return res.sendStatus(404);
 
-      const server = await storage.getServer(channel.serverId);
-      if (!server || server.ownerId !== req.user.id) {
-        return res.sendStatus(403);
-      }
-
       const updatedChannel = await storage.skipCurrentMedia(parseInt(req.params.channelId));
       res.json(updatedChannel);
-    } catch (error) {
+    } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
   app.delete("/api/channels/:channelId/media/queue", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
     try {
       const channel = await storage.getChannel(parseInt(req.params.channelId));
       if (!channel) return res.sendStatus(404);
 
-      const server = await storage.getServer(channel.serverId);
-      if (!server || server.ownerId !== req.user.id) {
-        return res.sendStatus(403);
-      }
-
       await storage.clearMediaQueue(parseInt(req.params.channelId));
       res.sendStatus(200);
-    } catch (error) {
+    } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
   // YouTube arama API'si
   app.get("/api/youtube/search", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
     try {
       const query = req.query.q as string;
       const response = await fetch(
@@ -405,24 +285,39 @@ export function registerRoutes(app: Express): Server {
 
   const httpServer = createServer(app);
 
-  // Media server configuration
-  const nms = new NodeMediaServer({
-    rtmp: {
-      port: 1935,
-      chunk_size: 60000,
-      gop_cache: true,
-      ping: 30,
-      ping_timeout: 60
-    },
-    http: {
-      port: 8000,
-      mediaroot: './media',
-      allow_origin: '*'
-    }
+  // WebSocket sunucusunu kur
+  const wss = new WebSocketServer({ 
+    server: httpServer,
+    path: '/ws'
   });
 
-  nms.run();
-  console.log('Media server started with RTMP port:', 1935, 'and HTTP port:', 8000);
+  wss.on('connection', (ws) => {
+    console.log('🔌 Yeni WebSocket bağlantısı');
+
+    ws.on('message', (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        console.log('📨 Mesaj alındı:', data);
+
+        // Mesajı diğer tüm bağlı istemcilere ilet
+        wss.clients.forEach(client => {
+          if (client !== ws && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(data));
+          }
+        });
+      } catch (error) {
+        console.error('WebSocket mesaj işleme hatası:', error);
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('❌ WebSocket bağlantısı kapandı');
+    });
+
+    ws.on('error', (error) => {
+      console.error('WebSocket hatası:', error);
+    });
+  });
 
   return httpServer;
 }
