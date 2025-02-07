@@ -1,5 +1,5 @@
 import { users, servers, channels, serverMembers, friendships, serverInvites } from "@shared/schema";
-import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite, Message, Reaction, MessageWithReactions } from "@shared/schema";
+import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite } from "@shared/schema";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import { nanoid } from "nanoid";
@@ -218,9 +218,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Başlangıç Paketi",
         description: "Yeni başlayanlar için ideal - 100 Ozba Coin",
-        amount: 100,
-        price: 29.99,
-        bonus: 0,
+        amount: "100",
+        price: "29.99",
+        bonus: "0",
         isPopular: false,
         createdAt: new Date(),
       },
@@ -228,9 +228,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Popüler Paket",
         description: "En çok tercih edilen - 500 Ozba Coin + 50 Bonus Coin",
-        amount: 500,
-        price: 149.99,
-        bonus: 50,
+        amount: "500",
+        price: "149.99",
+        bonus: "50",
         isPopular: true,
         createdAt: new Date(),
       },
@@ -238,9 +238,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Premium Paket",
         description: "En iyi fiyat/performans - 1200 Ozba Coin + 200 Bonus Coin + Premium Üyelik",
-        amount: 1200,
-        price: 299.99,
-        bonus: 200,
+        amount: "1200",
+        price: "299.99",
+        bonus: "200",
         isPopular: false,
         createdAt: new Date(),
       },
@@ -406,6 +406,11 @@ export class MemStorage implements IStorage {
 
   async createServerInvite(serverId: number, inviterId: number, inviteeId: number): Promise<ServerInvite> {
     const id = this.currentId++;
+    const server = await this.getServer(serverId);
+    if (!server) {
+      throw new Error("Server not found");
+    }
+
     const invite: ServerInvite = {
       id,
       serverId,
@@ -495,6 +500,7 @@ export class MemStorage implements IStorage {
       serverId,
       isVoice,
       isPrivate,
+      type: "text",
       allowedUsers: [],
       createdAt: new Date(),
       currentMedia: null,
@@ -713,27 +719,30 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         userId,
         type,
-        progress: 0,
+        progress,
         goal: this.getAchievementGoal(type),
-        rewardAmount: this.getAchievementReward(type),
+        rewardAmount: this.getAchievementReward(type).toString(),
         completedAt: null,
         createdAt: new Date(),
       };
     }
 
-    achievement.progress = progress;
-    if (progress >= achievement.goal && !achievement.completedAt) {
-      achievement.completedAt = new Date();
-      await this.addCoins(
-        userId,
-        achievement.rewardAmount,
-        'achievement',
-        `Completed achievement: ${type}`,
-        { achievementId: achievement.id }
-      );
+    if (achievement) {
+      achievement.progress = progress;
+      if (progress >= achievement.goal && !achievement.completedAt) {
+        achievement.completedAt = new Date();
+        await this.addCoins(
+          userId,
+          parseInt(achievement.rewardAmount),
+          'achievement',
+          `Completed achievement: ${type}`,
+          { achievementId: achievement.id }
+        );
+      }
+
+      this.userAchievements.set(achievement.id, achievement);
     }
 
-    this.userAchievements.set(achievement.id, achievement);
     return achievement;
   }
 
@@ -918,7 +927,7 @@ export class MemStorage implements IStorage {
         customEmojis: true,
         voiceEffects: true,
         extendedUpload: true,
-            },
+      },
       createdAt: new Date(),
     };
     this.userSubscriptions.set(id, subscription);

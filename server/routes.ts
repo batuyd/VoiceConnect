@@ -491,7 +491,7 @@ export function registerRoutes(app: Express): Server {
   // Media streaming server configuration
   const mediaServerConfig = {
     rtmp: {
-      port: parseInt(process.env.RTMP_PORT || '1935'),
+      port: 1935,
       chunk_size: 60000,
       gop_cache: true,
       ping: 30,
@@ -499,7 +499,7 @@ export function registerRoutes(app: Express): Server {
       host: '0.0.0.0'
     },
     http: {
-      port: parseInt(process.env.MEDIA_HTTP_PORT || '8000'),
+      port: 8000,
       host: '0.0.0.0',
       mediaroot: './media',
       allow_origin: '*',
@@ -538,100 +538,15 @@ export function registerRoutes(app: Express): Server {
         });
       });
 
-      // Check authentication
-      const sessionData = (req as any).session;
-      if (!sessionData?.passport?.user) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Authentication required'
-        }));
-        ws.close();
-        return;
-      }
-
-      // Get user data
-      const userId = sessionData.passport.user;
-      const user = await storage.getUser(userId);
-      if (!user) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'User not found'
-        }));
-        ws.close();
-        return;
-      }
-
+      // Basic error handling
       ws.on('error', (error) => {
         console.error('WebSocket error:', error);
       });
 
-      ws.on('message', async (message) => {
-        try {
-          const data = JSON.parse(message.toString());
-          console.log('Received message:', data);
-
-          if (data.type === 'join_channel') {
-            const channel = await storage.getChannel(data.channelId);
-            if (!channel) {
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Channel not found'
-              }));
-              return;
-            }
-
-            // Check if user has access to channel
-            const canAccess = await storage.canAccessChannel(data.channelId, userId);
-            if (!canAccess) {
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Access denied'
-              }));
-              return;
-            }
-
-            // Send current media state if exists
-            if (channel?.currentMedia) {
-              ws.send(JSON.stringify({
-                type: 'media_state',
-                channelId: data.channelId,
-                media: channel.currentMedia,
-                queue: channel.mediaQueue || []
-              }));
-            }
-
-            // Notify other clients about member update
-            wss.clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({
-                  type: 'member_update',
-                  channelId: data.channelId,
-                  userId: userId
-                }));
-              }
-            });
-          }
-        } catch (error) {
-          console.error('Error processing WebSocket message:', error);
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Invalid message format'
-          }));
-        }
-      });
-
-      // Add ping-pong mechanism with error handling
+      // Simple ping-pong to keep connection alive
       const pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
-          try {
-            ws.ping();
-          } catch (error) {
-            console.error('Ping error:', error);
-            clearInterval(pingInterval);
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
-          }
+          ws.ping();
         }
       }, 30000);
 

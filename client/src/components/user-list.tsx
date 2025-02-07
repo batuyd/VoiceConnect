@@ -24,6 +24,21 @@ export function UserList({ serverId }: { serverId: number }) {
 
   const { data: invites = [] } = useQuery<ServerInvite[]>({
     queryKey: ["/api/invites"],
+    select: async (invites) => {
+      // Fetch server names for each invite
+      const invitesWithServerNames = await Promise.all(
+        invites.map(async (invite) => {
+          const server = await queryClient.fetchQuery({
+            queryKey: [`/api/servers/${invite.serverId}`],
+          });
+          return {
+            ...invite,
+            serverName: server?.name || `Server ${invite.serverId}`,
+          };
+        })
+      );
+      return invitesWithServerNames;
+    },
   });
 
   const acceptInviteMutation = useMutation({
@@ -86,7 +101,7 @@ export function UserList({ serverId }: { serverId: number }) {
               <div className="space-y-4">
                 {invites.map((invite) => (
                   <div key={invite.id} className="flex items-center justify-between gap-4 p-2 bg-gray-700 rounded">
-                    <span>{t('server.inviteFrom', { server: invite.serverId })}</span>
+                    <span>{t('server.inviteFrom', { serverName: invite.serverName })}</span>
                     <div className="flex gap-2">
                       <Button
                         size="sm"

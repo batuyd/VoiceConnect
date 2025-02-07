@@ -47,6 +47,8 @@ export const serverInvites = pgTable("server_invites", {
   id: serial("id").primaryKey(),
   serverId: integer("server_id").notNull(),
   inviterId: integer("inviter_id").notNull(),
+  inviteeId: integer("invitee_id").notNull(),
+  status: text("status").notNull().default('pending'),
   code: text("code").notNull().unique(),
   expiresAt: timestamp("expires_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -59,7 +61,7 @@ export const channels = pgTable("channels", {
   isVoice: boolean("is_voice").notNull().default(false),
   isPrivate: boolean("is_private").notNull().default(false),
   allowedUsers: integer("allowed_users").array(),
-  type: text("type").default("text"), 
+  type: text("type").default("text"),
   currentMedia: jsonb("current_media").$type<{
     type: "music" | "video";
     url: string;

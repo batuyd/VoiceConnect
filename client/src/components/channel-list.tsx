@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Channel } from "@shared/schema";
+import { Channel, Server, User } from "@shared/schema";
 import { Plus, Hash, Volume2, UserPlus } from "lucide-react";
 import {
   Dialog,
@@ -42,11 +42,11 @@ export function ChannelList({
     queryKey: [`/api/servers/${serverId}/channels`],
   });
 
-  const { data: server } = useQuery({
+  const { data: server } = useQuery<Server>({
     queryKey: [`/api/servers/${serverId}`],
   });
 
-  const { data: friends = [] } = useQuery({
+  const { data: friends = [] } = useQuery<User[]>({
     queryKey: ["/api/friends"],
   });
 
