@@ -64,6 +64,7 @@ export function setupAuth(app: Express) {
           return done(null, false, { message: "Invalid username or password" });
         }
 
+        await storage.updateLastActive(user.id);
         return done(null, user);
       } catch (error) {
         console.error('Authentication error:', error);

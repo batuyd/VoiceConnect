@@ -491,6 +491,7 @@ export function registerRoutes(app: Express): Server {
               return;
             }
 
+            // Send current media state if exists
             if (channel?.currentMedia) {
               ws.send(JSON.stringify({
                 type: 'media_state',

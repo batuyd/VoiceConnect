@@ -47,36 +47,37 @@ export function CoinDisplay() {
   });
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1 md:gap-2">
       {/* Daily Reward Button */}
       <Button
         variant="ghost"
         size="icon"
+        className="h-8 w-8 md:h-10 md:w-10"
         onClick={() => claimDailyRewardMutation.mutate()}
         disabled={claimDailyRewardMutation.isPending}
       >
-        <Gift className="h-4 w-4" />
+        <Gift className="h-4 w-4 md:h-5 md:w-5" />
       </Button>
 
       {/* Achievements Button */}
       <Dialog>
         <DialogTrigger asChild>
-          <Button variant="ghost" size="icon">
-            <Trophy className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10">
+            <Trophy className="h-4 w-4 md:h-5 md:w-5" />
           </Button>
         </DialogTrigger>
-        <DialogContent>
+        <DialogContent className="max-w-[90vw] md:max-w-[500px] h-[80vh] md:h-auto overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('coins.achievements.title')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {achievements?.map((achievement) => (
-              <Card key={achievement.id} className="p-4">
+              <Card key={achievement.id} className="p-3 md:p-4">
                 <div className="flex justify-between items-center mb-2">
-                  <div className="font-semibold">
+                  <div className="font-semibold text-sm md:text-base">
                     {t(`coins.achievements.types.${achievement.type}`)}
                   </div>
-                  <div className="text-sm text-gray-500">
+                  <div className="text-xs md:text-sm text-gray-500">
                     {achievement.completedAt ? (
                       t('coins.achievements.completed')
                     ) : (
@@ -86,7 +87,7 @@ export function CoinDisplay() {
                 </div>
                 <Progress 
                   value={parseFloat(((achievement.progress / achievement.goal) * 100).toFixed(2))} 
-                  className="h-2"
+                  className="h-1.5 md:h-2"
                 />
               </Card>
             ))}
@@ -97,29 +98,29 @@ export function CoinDisplay() {
       {/* Coin Balance and Store */}
       <Dialog>
         <DialogTrigger asChild>
-          <Button variant="ghost" className="flex items-center gap-2">
-            <Coins className="h-4 w-4" />
+          <Button variant="ghost" className="h-8 md:h-10 flex items-center gap-1 md:gap-2 text-sm md:text-base">
+            <Coins className="h-4 w-4 md:h-5 md:w-5" />
             <span>{parseFloat(userCoins?.balance?.toString() || "0").toFixed(0)}</span>
           </Button>
         </DialogTrigger>
-        <DialogContent>
+        <DialogContent className="max-w-[90vw] md:max-w-[500px] h-[80vh] md:h-auto overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('coins.store.title')}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="grid gap-3 md:gap-4 py-4">
             {products?.map((product) => (
-              <Card key={product.id} className="p-4">
-                <div className="flex justify-between items-center">
+              <Card key={product.id} className="p-3 md:p-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
                   <div>
-                    <h4 className="font-semibold">{product.name}</h4>
-                    <p className="text-sm text-gray-500">{product.description}</p>
+                    <h4 className="font-semibold text-sm md:text-base">{product.name}</h4>
+                    <p className="text-xs md:text-sm text-gray-500">{product.description}</p>
                     {product.bonus && parseFloat(product.bonus) > 0 && (
-                      <p className="text-sm text-green-500">
+                      <p className="text-xs md:text-sm text-green-500">
                         +{parseFloat(product.bonus)} {t('coins.store.bonus')}
                       </p>
                     )}
                   </div>
-                  <Button>
+                  <Button size="sm" className="w-full md:w-auto">
                     ₺{parseFloat(product.price.toString()).toFixed(2)}
                   </Button>
                 </div>
