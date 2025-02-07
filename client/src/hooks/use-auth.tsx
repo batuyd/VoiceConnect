@@ -37,10 +37,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 30000, // Cache valid for 30 seconds
   });
 
-  // Oturum durumu değişikliklerinde temizleme işlemleri
+  // Clear media streams when session changes
   useEffect(() => {
-    let cleanup = () => {
-      // Medya akışlarını temizle
+    const cleanup = () => {
       Array.from(document.querySelectorAll('audio, video'))
         .map(media => (media as HTMLMediaElement).srcObject)
         .filter(stream => stream instanceof MediaStream)
@@ -49,12 +48,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    // Oturum durumu değiştiğinde temizlik yap
     if (!user) {
       cleanup();
     }
 
-    // Component unmount olduğunda temizlik yap
     return cleanup;
   }, [user?.id]);
 
@@ -67,12 +64,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return await res.json();
       } catch (error: any) {
+        console.error('Login error:', error);
         throw new Error(error.message || t('auth.errors.loginFailed'));
       }
     },
     onSuccess: (user: SelectUser) => {
       queryClient.setQueryData(["/api/user"], user);
-      // Bağımlı sorguları geçersiz kıl
       queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
       toast({
         description: t('auth.loginSuccess'),
@@ -97,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return await res.json();
       } catch (error: any) {
+        console.error('Registration error:', error);
         throw new Error(error.message || t('auth.errors.registrationFailed'));
       }
     },
@@ -123,7 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!res.ok) {
           throw new Error(t('auth.errors.logoutFailed'));
         }
-        // Medya akışlarını temizle
+        // Clean up media streams
         Array.from(document.querySelectorAll('audio, video'))
           .map(media => (media as HTMLMediaElement).srcObject)
           .filter(stream => stream instanceof MediaStream)
@@ -131,12 +129,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             stream?.getTracks().forEach(track => track.stop());
           });
       } catch (error: any) {
+        console.error('Logout error:', error);
         throw new Error(error.message || t('auth.errors.logoutFailed'));
       }
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);
-      queryClient.clear(); // Tüm önbelleği temizle
+      queryClient.clear(); // Clear all cache
       toast({
         description: t('auth.logoutSuccess'),
       });

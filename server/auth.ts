@@ -32,9 +32,11 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
-  // CORS ayarları - tüm routelardan önce olmalı
+  // CORS ayarlarını güncelle - her zaman session için cookie'lere izin ver
   app.use(cors({
-    origin: true, // Development için tüm originlere izin ver
+    origin: process.env.NODE_ENV === 'production' 
+      ? process.env.FRONTEND_URL 
+      : ['http://localhost:3000', 'http://localhost:5000'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
@@ -50,7 +52,8 @@ export function setupAuth(app: Express) {
       maxAge: 24 * 60 * 60 * 1000, // 24 saat
       httpOnly: true,
       sameSite: app.get("env") === "production" ? 'none' : 'lax',
-      path: '/'
+      path: '/',
+      domain: app.get("env") === "production" ? process.env.COOKIE_DOMAIN : undefined
     },
     name: 'ozba.session'
   };
@@ -73,17 +76,20 @@ export function setupAuth(app: Express) {
         console.log('Login attempt:', username);
         const user = await storage.getUserByUsername(username);
         if (!user) {
+          console.log('Login failed: User not found -', username);
           return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
         }
 
         const isValidPassword = await comparePasswords(password, user.password);
         if (!isValidPassword) {
+          console.log('Login failed: Invalid password -', username);
           return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
         }
 
+        console.log('Login successful:', username);
         const authUser: Express.User = {
           ...user,
-          requiresSecondFactor: user.requiresSecondFactor || undefined
+          requiresSecondFactor: user.twoFactorEnabled
         };
 
         return done(null, authUser);
@@ -107,10 +113,13 @@ export function setupAuth(app: Express) {
         console.log('User not found:', id);
         return done(null, false);
       }
+
       const authUser: Express.User = {
         ...user,
-        requiresSecondFactor: user.requiresSecondFactor || undefined
+        requiresSecondFactor: user.twoFactorEnabled
       };
+
+      console.log('User deserialized successfully:', id);
       done(null, authUser);
     } catch (error) {
       console.error('Deserialization error:', error);
@@ -118,11 +127,13 @@ export function setupAuth(app: Express) {
     }
   });
 
+  // Register endpoint
   app.post("/api/register", async (req, res, next) => {
     try {
       console.log('Register attempt:', req.body.username);
       const existingUser = await storage.getUserByUsername(req.body.username);
       if (existingUser) {
+        console.log('Registration failed: Username exists -', req.body.username);
         return res.status(400).json({ message: "Bu kullanıcı adı zaten kullanılıyor" });
       }
 
@@ -134,11 +145,14 @@ export function setupAuth(app: Express) {
 
       const authUser: Express.User = {
         ...user,
-        requiresSecondFactor: user.requiresSecondFactor || undefined
+        requiresSecondFactor: user.twoFactorEnabled
       };
 
       req.login(authUser, (err) => {
-        if (err) return next(err);
+        if (err) {
+          console.error('Registration login error:', err);
+          return next(err);
+        }
         console.log('User registered and logged in:', authUser.id);
         res.status(201).json(authUser);
       });
@@ -148,6 +162,7 @@ export function setupAuth(app: Express) {
     }
   });
 
+  // Login endpoint
   app.post("/api/login", (req, res, next) => {
     console.log('Login attempt:', req.body.username);
     passport.authenticate("local", (err: Error | null, user: Express.User | false, info: any) => {
@@ -172,15 +187,20 @@ export function setupAuth(app: Express) {
     })(req, res, next);
   });
 
+  // Logout endpoint
   app.post("/api/logout", (req, res, next) => {
     console.log('Logout request for user:', req.user?.id);
     req.logout((err) => {
-      if (err) return next(err);
+      if (err) {
+        console.error('Logout error:', err);
+        return next(err);
+      }
       console.log('User logged out successfully');
       res.sendStatus(200);
     });
   });
 
+  // User info endpoint
   app.get("/api/user", (req, res) => {
     console.log('User request:', req.isAuthenticated(), req.user?.id);
     if (!req.isAuthenticated()) {
