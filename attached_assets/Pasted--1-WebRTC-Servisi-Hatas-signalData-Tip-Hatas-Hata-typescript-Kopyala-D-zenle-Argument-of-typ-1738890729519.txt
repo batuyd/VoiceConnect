@@ -1,0 +1,150 @@
+🚀 1. WebRTC Servisi Hatası: signalData Tip Hatası
+Hata:
+
+typescript
+Kopyala
+Düzenle
+Argument of type 'unknown' is not assignable to parameter of type 'string | SignalData'
+📌 Neden?
+
+signalData değişkeninin tipi belirtilmemiş (unknown) olduğu için SimplePeer API bunu string | SignalData tipine çeviremiyor.
+✅ Çözüm:
+
+signalData değişkenini uygun bir tipe dönüştürmelisin.
+TypeScript’te unknown tipini kullanıyorsan, önce tip kontrolü yapmalısın.
+📌 Örnek Çözüm:
+
+typescript
+Kopyala
+Düzenle
+import SimplePeer, { SignalData } from "simple-peer";
+
+function handleSignalData(signalData: unknown) {
+  if (typeof signalData === "string" || typeof signalData === "object") {
+    const peer = new SimplePeer({ initiator: true });
+    peer.signal(signalData as SignalData); // Güvenli tip dönüşümü
+  } else {
+    console.error("Geçersiz signalData formatı:", signalData);
+  }
+}
+👉 Eğer WebSocket ile çalışıyorsan, gelen veriyi JSON olarak parse etmeyi unutma:
+
+typescript
+Kopyala
+Düzenle
+const ws = new WebSocket("wss://your-signaling-server.com");
+ws.onmessage = (event) => {
+  const signalData: SignalData = JSON.parse(event.data);
+  peer.signal(signalData);
+};
+🚀 2. Voice Channel Hatası: AlertCircle Bileşeninde title Prop Hatası
+Hata:
+
+typescript
+Kopyala
+Düzenle
+Property 'title' does not exist on type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'
+📌 Neden?
+
+Lucide-react ikonları artık title prop’unu desteklemiyor.
+React’te bileşenlere direkt title ekleyemeyebilirsin.
+✅ Çözüm:
+
+title yerine Tooltip bileşeni kullan veya aria-label ekle.
+📌 Örnek Çözüm:
+
+tsx
+Kopyala
+Düzenle
+import { AlertCircle } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+
+function ErrorIcon() {
+  return (
+    <Tooltip>
+      <TooltipTrigger>
+        <AlertCircle aria-label="Hata oluştu" />
+      </TooltipTrigger>
+      <TooltipContent>Bağlantı hatası</TooltipContent>
+    </Tooltip>
+  );
+}
+👉 Alternatif Çözüm: Eğer title kullanmak istiyorsan aria-label ile çalış:
+
+tsx
+Kopyala
+Düzenle
+<AlertCircle aria-label="Hata oluştu" />
+🚀 3. Kullanıcı Yetkilendirme Hataları: 401 Unauthorized
+Hata:
+
+bash
+Kopyala
+Düzenle
+401 unauthorized errors for /api/user endpoints
+📌 Neden?
+
+Kullanıcı token’ı eksik, hatalı veya süresi dolmuş olabilir.
+Authorization başlığı gönderilmiyor olabilir.
+CORS veya güvenlik politikaları istekleri engelliyor olabilir.
+✅ Çözüm:
+
+API çağrılarında Authorization başlığını kontrol et.
+📌 Örnek API İsteği (Axios ile):
+
+typescript
+Kopyala
+Düzenle
+import axios from "axios";
+
+const token = localStorage.getItem("access_token");
+
+axios.get("https://your-api.com/api/user", {
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  },
+})
+  .then(response => console.log(response.data))
+  .catch(error => console.error("Hata:", error.response?.data || error));
+👉 Token süresi dolduysa yenileme yap:
+
+typescript
+Kopyala
+Düzenle
+axios.interceptors.response.use(response => response, async error => {
+  if (error.response.status === 401) {
+    const refreshToken = localStorage.getItem("refresh_token");
+    const newToken = await getNewToken(refreshToken);
+    localStorage.setItem("access_token", newToken);
+
+    error.config.headers["Authorization"] = `Bearer ${newToken}`;
+    return axios(error.config);
+  }
+  return Promise.reject(error);
+});
+📌 Backend JWT Doğrulama Kontrolü (Node.js + Express):
+
+javascript
+Kopyala
+Düzenle
+const jwt = require("jsonwebtoken");
+
+function authenticateToken(req, res, next) {
+  const token = req.header("Authorization")?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Yetkisiz erişim" });
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: "Geçersiz token" });
+    req.user = user;
+    next();
+  });
+}
+
+app.get("/api/user", authenticateToken, (req, res) => {
+  res.json({ message: "Giriş başarılı", user: req.user });
+});
+📌 Özet ve Çözüm Önerim
+WebRTC signalData hatası → unknown tipini SignalData olarak güvenli şekilde dönüştür.
+Voice Channel AlertCircle hatası → title yerine aria-label veya Tooltip kullan.
+401 Unauthorized hataları → Authorization başlığını eklediğinden ve token süresinin dolmadığından emin ol.

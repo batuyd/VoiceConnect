@@ -43,9 +43,9 @@ export default function ProfilePage() {
       nickname: user?.nickname || "",
       status: user?.status || "",
       socialLinks: user?.socialLinks || {},
-      theme: user?.theme || "system",
+      theme: (user?.theme || "system") as "system" | "light" | "dark",
       isPrivateProfile: user?.isPrivateProfile || false,
-      showLastSeen: user?.showLastSeen || true,
+      showLastSeen: user?.showLastSeen || false,
     }
   });
 
@@ -92,7 +92,7 @@ export default function ProfilePage() {
             <div className="flex flex-col items-center space-y-4">
               <Avatar className="w-32 h-32">
                 <AvatarImage src={user?.avatar} />
-                <AvatarFallback>{user?.username[0]}</AvatarFallback>
+                <AvatarFallback>{user?.username?.[0]}</AvatarFallback>
               </Avatar>
               <div className="w-full">
                 <Label htmlFor="avatar">{t('profile.avatarUrl')}</Label>
@@ -207,7 +207,7 @@ export default function ProfilePage() {
             <div className="space-y-6">
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">{t('profile.level.title')}</h3>
-                <UserLevelDisplay userId={user?.id} />
+                <UserLevelDisplay userId={user?.id ?? 0} />
               </div>
 
               <div className="space-y-4">

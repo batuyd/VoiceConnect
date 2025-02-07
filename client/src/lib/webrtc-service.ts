@@ -1,4 +1,4 @@
-import SimplePeer from 'simple-peer';
+import SimplePeer, { SignalData } from "simple-peer";
 
 interface PeerConnection {
   peer: SimplePeer.Instance;
@@ -15,17 +15,30 @@ class WebRTCService {
       const audioDevices = devices.filter(device => device.kind === 'audioinput');
 
       if (audioDevices.length === 0) {
-        throw new Error('Mikrofon cihazı bulunamadı');
+        throw new Error('Mikrofon cihazı bulunamadı. Lütfen bir mikrofon bağlayın.');
       }
 
       // Ses izinlerini kontrol et
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Test stream'i durdur
       stream.getTracks().forEach(track => track.stop());
       return true;
     } catch (error) {
       if (error instanceof Error) {
-        if (error instanceof DOMException && error.name === 'NotAllowedError') {
-          throw new Error('Mikrofon izni reddedildi. Lütfen tarayıcı izinlerini kontrol edin.');
+        if (error instanceof DOMException) {
+          switch (error.name) {
+            case 'NotAllowedError':
+              throw new Error('Mikrofon izni reddedildi. Lütfen tarayıcı izinlerini kontrol edin.');
+            case 'NotFoundError':
+              throw new Error('Mikrofon cihazı bulunamadı. Lütfen bir mikrofon bağlayın.');
+            case 'NotReadableError':
+              throw new Error('Mikrofona erişilemiyor. Başka bir uygulama kullanıyor olabilir.');
+            case 'PermissionDeniedError':
+              throw new Error('Mikrofon izni reddedildi. Lütfen tarayıcı izinlerini kontrol edin.');
+            default:
+              throw new Error(`Ses cihazına erişilemiyor: ${error.message}`);
+          }
         }
         throw error;
       }
@@ -137,8 +150,8 @@ class WebRTCService {
     try {
       const peer = await this.initializePeerConnection(targetUserId, true);
 
-      return new Promise((resolve, reject) => {
-        peer.on('signal', data => {
+      return new Promise<SignalData>((resolve, reject) => {
+        peer.on('signal', (data: SignalData) => {
           resolve(data);
         });
 
@@ -157,11 +170,15 @@ class WebRTCService {
 
   async acceptConnection(targetUserId: number, signalData: unknown) {
     try {
-      const peer = await this.initializePeerConnection(targetUserId, false);
-      peer.signal(signalData);
+      if (typeof signalData !== 'string' && typeof signalData !== 'object') {
+        throw new Error('Geçersiz sinyal verisi formatı');
+      }
 
-      return new Promise((resolve, reject) => {
-        peer.on('signal', data => {
+      const peer = await this.initializePeerConnection(targetUserId, false);
+      peer.signal(signalData as SignalData);
+
+      return new Promise<SignalData>((resolve, reject) => {
+        peer.on('signal', (data: SignalData) => {
           resolve(data);
         });
 
@@ -180,9 +197,13 @@ class WebRTCService {
 
   async handleAnswer(targetUserId: number, signalData: unknown) {
     try {
+      if (typeof signalData !== 'string' && typeof signalData !== 'object') {
+        throw new Error('Geçersiz sinyal verisi formatı');
+      }
+
       const peerConnection = this.peers.get(targetUserId);
       if (peerConnection) {
-        peerConnection.peer.signal(signalData);
+        peerConnection.peer.signal(signalData as SignalData);
       }
     } catch (error) {
       if (error instanceof Error) {

@@ -9,6 +9,12 @@ import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { webRTCService } from "@/lib/webrtc-service";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -219,7 +225,19 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           )}
           <span>{channel.name}</span>
           {hasAudioPermission === false && (
-            <AlertCircle className="h-4 w-4 text-red-400" title={t('voice.errors.permissionDenied')} />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <AlertCircle
+                    className="h-4 w-4 text-red-400"
+                    aria-label={t('voice.errors.permissionDenied')}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{t('voice.errors.permissionDenied')}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
 
@@ -265,7 +283,19 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                   {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
                   {member.isSpeaking && <Volume2 className="h-3 w-3 text-green-400" />}
                   {activeConnections.has(member.id) && (
-                    <div className="w-2 h-2 rounded-full bg-green-400" title={t('voice.connected')} />
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <div
+                            className="w-2 h-2 rounded-full bg-green-400"
+                            aria-label={t('voice.connected')}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{t('voice.connected')}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
                 </div>
               ))}
