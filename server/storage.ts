@@ -12,9 +12,9 @@ interface Gift {
   id: number;
   name: string;
   description: string;
-  price: string;
+  price: number;
   icon: string;
-  experiencePoints: string;
+  experiencePoints: number;
   createdAt: Date;
 }
 
@@ -159,7 +159,6 @@ export interface IStorage {
 }
 
 export class MemStorage implements IStorage {
-  private static instance: MemStorage;
   private users: Map<number, User>;
   private servers: Map<number, Server>;
   private channels: Map<number, Channel>;
@@ -179,7 +178,7 @@ export class MemStorage implements IStorage {
   private giftHistory: Map<number, GiftHistory>;
   private userSubscriptions: Map<number, UserSubscription>;
 
-  private constructor() {
+  constructor() {
     this.users = new Map();
     this.servers = new Map();
     this.channels = new Map();
@@ -205,11 +204,84 @@ export class MemStorage implements IStorage {
     this.initializeGifts();
   }
 
-  public static getInstance(): MemStorage {
-    if (!MemStorage.instance) {
-      MemStorage.instance = new MemStorage();
-    }
-    return MemStorage.instance;
+  private initializeCoinProducts() {
+    const products = [
+      {
+        id: this.currentId++,
+        name: "Başlangıç Paketi",
+        description: "Yeni başlayanlar için ideal - 100 Ozba Coin",
+        amount: 100,
+        price: 29.99,
+        bonus: 0,
+        isPopular: false,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Popüler Paket",
+        description: "En çok tercih edilen - 500 Ozba Coin + 50 Bonus Coin",
+        amount: 500,
+        price: 149.99,
+        bonus: 50,
+        isPopular: true,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Premium Paket",
+        description: "En iyi fiyat/performans - 1200 Ozba Coin + 200 Bonus Coin + Premium Üyelik",
+        amount: 1200,
+        price: 299.99,
+        bonus: 200,
+        isPopular: false,
+        createdAt: new Date(),
+      },
+    ];
+
+    products.forEach(product => this.coinProducts.set(product.id, product));
+  }
+
+  private initializeGifts() {
+    const gifts = [
+      {
+        id: this.currentId++,
+        name: "Çiçek",
+        description: "Güzel bir çiçek buketi",
+        price: 50,
+        icon: "🌸",
+        experiencePoints: 10,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Kalp",
+        description: "Sevgi dolu bir kalp",
+        price: 100,
+        icon: "❤️",
+        experiencePoints: 20,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Yıldız",
+        description: "Parlak bir yıldız",
+        price: 200,
+        icon: "⭐",
+        experiencePoints: 40,
+        createdAt: new Date(),
+      },
+      {
+        id: this.currentId++,
+        name: "Taç",
+        description: "Gösterişli bir taç",
+        price: 500,
+        icon: "👑",
+        experiencePoints: 100,
+        createdAt: new Date(),
+      },
+    ];
+
+    gifts.forEach(gift => this.gifts.set(gift.id, gift));
   }
 
   async getUser(id: number): Promise<User | undefined> {
@@ -252,15 +324,6 @@ export class MemStorage implements IStorage {
       email: insertUser.email || `user${id}@placeholder.com`,
       phone: insertUser.phone || `+${Math.floor(Math.random() * 100000000000)}`,
       avatar: insertUser.avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)],
-      nickname: null,
-      bio: null,
-      status: null,
-      age: null,
-      lastActive: new Date(),
-      socialLinks: null,
-      theme: null,
-      isPrivateProfile: false,
-      showLastSeen: true,
       twoFactorEnabled: false,
       twoFactorSecret: null,
       createdAt: new Date(),
@@ -384,7 +447,6 @@ export class MemStorage implements IStorage {
       id,
       name,
       serverId,
-      type: isVoice ? 'voice' : 'text',
       isVoice,
       isPrivate,
       allowedUsers: [],
@@ -690,21 +752,21 @@ export class MemStorage implements IStorage {
     }
 
     const senderCoins = await this.getUserCoins(senderId);
-    if (!senderCoins || parseInt(senderCoins.balance.toString()) < parseInt(gift.price)) {
+    if (!senderCoins || senderCoins.balance < gift.price) {
       throw new Error("Insufficient coins");
     }
 
     // Deduct coins from sender
     await this.addCoins(
       senderId,
-      -parseInt(gift.price),
+      -gift.price,
       'gift_sent',
       `Sent gift: ${gift.name}`,
       { giftId, receiverId }
     );
 
     // Add experience to receiver
-    await this.addExperience(receiverId, parseInt(gift.experiencePoints));
+    await this.addExperience(receiverId, gift.experiencePoints);
 
     // Record gift history
     const giftHistory: GiftHistory = {
@@ -712,7 +774,7 @@ export class MemStorage implements IStorage {
       senderId,
       receiverId,
       giftId,
-      coinAmount: parseInt(gift.price),
+      coinAmount: gift.price,
       message: message || null,
       createdAt: new Date(),
     };
@@ -873,7 +935,7 @@ export class MemStorage implements IStorage {
     title: string;
     queuedBy: number;
   }): Promise<Channel> {
-    const channel = await this.getChannel(channelId);
+    const channel =await this.getChannel(channelId);
     if (!channel) throw new Error("Channel not found");
 
     channel.mediaQueue = [...(channel.mediaQueue || []), media];
@@ -922,88 +984,8 @@ export class MemStorage implements IStorage {
       .filter(([_, reaction]) => messageIds.includes(reaction.messageId))
       .map(([id]) => id);
 
-    reactionIds.forEach(id=> id);
-  }
-  private initializeCoinProducts() {
-    const products = [
-      {
-        id: this.currentId++,
-        name: "Başlangıç Paketi",
-        description: "Yeni başlayanlar için ideal - 100 Ozba Coin",
-        amount: "100",
-        price: "29.99",
-        bonus: "0",
-        isPopular: false,
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Popüler Paket",
-        description: "En çok tercih edilen - 500 Ozba Coin + 50 Bonus Coin",
-        amount: "500",
-        price: "149.99",
-        bonus: "50",
-        isPopular: true,
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Premium Paket",
-        description: "En iyi fiyat/performans - 1200 Ozba Coin + 200 Bonus Coin + Premium Üyelik",
-        amount: "1200",
-        price: "299.99",
-        bonus: "200",
-        isPopular: false,
-        createdAt: new Date(),
-      },
-    ];
-
-    products.forEach(product => this.coinProducts.set(product.id, product));
-  }
-
-  private initializeGifts() {
-    const gifts = [
-      {
-        id: this.currentId++,
-        name: "Çiçek",
-        description: "Güzel bir çiçek buketi",
-        price: "50",
-        icon: "🌸",
-        experiencePoints: "10",
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Kalp",
-        description: "Sevgi dolu bir kalp",
-        price: "100",
-        icon: "❤️",
-        experiencePoints: "20",
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Yıldız",
-        description: "Parlak bir yıldız",
-        price: "200",
-        icon: "⭐",
-        experiencePoints: "40",
-        createdAt: new Date(),
-      },
-      {
-        id: this.currentId++,
-        name: "Taç",
-        description: "Gösterişli bir taç",
-        price: "500",
-        icon: "👑",
-        experiencePoints: "100",
-        createdAt: new Date(),
-      },
-    ];
-
-    gifts.forEach(gift => this.gifts.set(gift.id, gift));
+    reactionIds.forEach(id => this.reactions.delete(id));
   }
 }
 
-// Export a singleton instance
-export const storage = MemStorage.getInstance();
+export const storage = new MemStorage();

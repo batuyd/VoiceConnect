@@ -34,7 +34,6 @@ export function setupAuth(app: Express) {
     resave: true,
     saveUninitialized: true,
     store: storage.sessionStore,
-    name: 'ozba.session',
     cookie: {
       secure: app.get("env") === "production",
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
@@ -42,6 +41,11 @@ export function setupAuth(app: Express) {
       sameSite: 'lax'
     }
   };
+
+  if (app.get("env") === "production") {
+    app.set("trust proxy", 1);
+    sessionSettings.cookie!.secure = true;
+  }
 
   app.use(session(sessionSettings));
   app.use(passport.initialize());
@@ -52,38 +56,35 @@ export function setupAuth(app: Express) {
       try {
         const user = await storage.getUserByUsername(username);
         if (!user) {
-          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         const isValidPassword = await comparePasswords(password, user.password);
         if (!isValidPassword) {
-          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         return done(null, user);
       } catch (error) {
-        console.error('Kimlik doğrulama hatası:', error);
+        console.error('Authentication error:', error);
         return done(error);
       }
     }),
   );
 
   passport.serializeUser((user, done) => {
-    console.log('Serialize user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
-      console.log('Deserialize user:', id);
       const user = await storage.getUser(id);
       if (!user) {
-        console.log('User not found:', id);
         return done(null, false);
       }
       done(null, user);
     } catch (error) {
-      console.error('Oturum hatası:', error);
+      console.error('Session deserialization error:', error);
       done(error);
     }
   });
@@ -94,14 +95,14 @@ export function setupAuth(app: Express) {
 
       if (!username || !password) {
         return res.status(400).json({ 
-          message: "Kullanıcı adı ve şifre gereklidir" 
+          message: "Username and password are required" 
         });
       }
 
       const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
         return res.status(400).json({ 
-          message: "Bu kullanıcı adı zaten kullanılıyor" 
+          message: "Username already exists" 
         });
       }
 
@@ -115,13 +116,13 @@ export function setupAuth(app: Express) {
 
       req.login(user, (err) => {
         if (err) {
-          console.error('Kayıt sonrası giriş hatası:', err);
+          console.error('Login error after registration:', err);
           return next(err);
         }
         res.status(201).json(user);
       });
     } catch (error) {
-      console.error('Kayıt hatası:', error);
+      console.error('Registration error:', error);
       next(error);
     }
   });
@@ -129,46 +130,37 @@ export function setupAuth(app: Express) {
   app.post("/api/login", (req, res, next) => {
     passport.authenticate("local", (err: any, user: SelectUser | false, info: any) => {
       if (err) {
-        console.error('Giriş hatası:', err);
+        console.error('Login error:', err);
         return next(err);
       }
 
       if (!user) {
         return res.status(401).json({ 
-          message: info?.message || "Kimlik doğrulama başarısız" 
+          message: info?.message || "Authentication failed" 
         });
       }
 
       req.login(user, (err) => {
         if (err) {
-          console.error('Oturum oluşturma hatası:', err);
+          console.error('Session creation error:', err);
           return next(err);
         }
-        console.log('Login successful:', user.id);
         res.json(user);
       });
     })(req, res, next);
   });
 
   app.post("/api/logout", (req, res, next) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Oturum açık değil" });
-    }
-
-    const userId = req.user.id;
-    console.log('Logout request for user:', userId);
-
     req.logout((err) => {
       if (err) {
-        console.error('Çıkış hatası:', err);
+        console.error('Logout error:', err);
         return next(err);
       }
       req.session.destroy((err) => {
         if (err) {
-          console.error('Oturum silme hatası:', err);
+          console.error('Session destruction error:', err);
           return next(err);
         }
-        console.log('Logout successful:', userId);
         res.sendStatus(200);
       });
     });
@@ -176,12 +168,10 @@ export function setupAuth(app: Express) {
 
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) {
-      console.log('Unauthorized access attempt to /api/user');
       return res.status(401).json({ 
-        message: "Oturum açılmamış" 
+        message: "Not authenticated" 
       });
     }
-    console.log('User info requested:', req.user.id);
     res.json(req.user);
   });
 }
