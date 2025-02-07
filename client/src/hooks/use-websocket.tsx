@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { useLanguage } from '@/hooks/use-language';
 
 type WebSocketMessage = {
   type: string;
@@ -8,84 +9,142 @@ type WebSocketMessage = {
 
 export function useWebSocket() {
   const { toast } = useToast();
+  const { t } = useLanguage();
   const [isConnected, setIsConnected] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const pingIntervalRef = useRef<NodeJS.Timeout>();
 
-  useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-    
-    const socket = new WebSocket(wsUrl);
-    socketRef.current = socket;
+  const connectWebSocket = useCallback(() => {
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      console.log('Attempting WebSocket connection to:', wsUrl);
 
-    socket.onopen = () => {
-      console.log('WebSocket connected');
-      setIsConnected(true);
-    };
+      const socket = new WebSocket(wsUrl);
+      socketRef.current = socket;
 
-    socket.onclose = () => {
-      console.log('WebSocket disconnected');
-      setIsConnected(false);
-      // Try to reconnect after 5 seconds
-      setTimeout(() => {
-        if (socketRef.current?.readyState === WebSocket.CLOSED) {
-          socketRef.current = new WebSocket(wsUrl);
+      socket.onopen = () => {
+        console.log('WebSocket connected successfully');
+        setIsConnected(true);
+        setRetryCount(0);
+
+        // Start sending ping messages
+        pingIntervalRef.current = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
+      };
+
+      socket.onclose = (event) => {
+        console.log('WebSocket disconnected:', event);
+        setIsConnected(false);
+        clearInterval(pingIntervalRef.current);
+
+        // Exponential backoff for reconnection attempts
+        const timeout = Math.min(1000 * Math.pow(2, retryCount), 30000);
+        console.log(`Attempting to reconnect in ${timeout}ms`);
+
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (socketRef.current?.readyState === WebSocket.CLOSED) {
+            setRetryCount(prev => prev + 1);
+            connectWebSocket();
+          }
+        }, timeout);
+      };
+
+      socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as WebSocketMessage;
+          console.log('Received WebSocket message:', data);
+
+          switch (data.type) {
+            case 'error':
+              toast({
+                title: t('errors.error'),
+                description: data.message,
+                variant: 'destructive',
+              });
+              break;
+
+            case 'connection_established':
+              toast({
+                description: t('success.connected'),
+              });
+              break;
+
+            case 'friend_request':
+              toast({
+                title: t('friends.newRequest'),
+                description: t('friends.requestFrom', { username: data.from.username }),
+              });
+              break;
+
+            case 'friend_request_accepted':
+              toast({
+                description: t('friends.requestAccepted', { username: data.by.username }),
+              });
+              break;
+
+            case 'pong':
+              // Received pong from server, connection is alive
+              break;
+
+            default:
+              console.log('Unhandled message type:', data.type);
+          }
+        } catch (error) {
+          console.error('Error processing WebSocket message:', error);
         }
-      }, 5000);
-    };
-
-    socket.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      };
+    } catch (error) {
+      console.error('Error creating WebSocket connection:', error);
       toast({
-        title: 'Bağlantı hatası',
-        description: 'Sunucu ile bağlantı kurulamadı. Tekrar deneniyor...',
-        variant: 'destructive',
-      });
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as WebSocketMessage;
-        console.log('Received message:', data);
-
-        switch (data.type) {
-          case 'error':
-            toast({
-              title: 'Hata',
-              description: data.message,
-              variant: 'destructive',
-            });
-            break;
-          case 'connection_established':
-            toast({
-              title: 'Bağlantı kuruldu',
-              description: 'Sunucu ile bağlantı başarıyla kuruldu.',
-            });
-            break;
-        }
-      } catch (error) {
-        console.error('Error processing message:', error);
-      }
-    };
-
-    return () => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.close();
-      }
-    };
-  }, [toast]);
-
-  const sendMessage = (message: WebSocketMessage) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify(message));
-    } else {
-      toast({
-        title: 'Bağlantı hatası',
-        description: 'Mesaj gönderilemedi. Bağlantı kapalı.',
+        title: t('errors.connectionError'),
+        description: t('errors.connectionErrorDesc'),
         variant: 'destructive',
       });
     }
-  };
+  }, [toast, t, retryCount]);
+
+  useEffect(() => {
+    connectWebSocket();
+
+    return () => {
+      clearTimeout(reconnectTimeoutRef.current);
+      clearInterval(pingIntervalRef.current);
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.close();
+      }
+    };
+  }, [connectWebSocket]);
+
+  const sendMessage = useCallback((message: WebSocketMessage) => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        socketRef.current.send(JSON.stringify(message));
+      } catch (error) {
+        console.error('Error sending WebSocket message:', error);
+        toast({
+          title: t('errors.error'),
+          description: t('errors.messageNotSent'),
+          variant: 'destructive',
+        });
+      }
+    } else {
+      toast({
+        title: t('errors.connectionError'),
+        description: t('errors.messageNotSent'),
+        variant: 'destructive',
+      });
+    }
+  }, [toast, t]);
 
   return {
     isConnected,
