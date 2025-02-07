@@ -43,9 +43,9 @@ export default function ProfilePage() {
       nickname: user?.nickname || "",
       status: user?.status || "",
       socialLinks: user?.socialLinks || {},
-      theme: user?.theme || "system",
+      theme: (user?.theme || "system") as "light" | "dark" | "system",
       isPrivateProfile: user?.isPrivateProfile || false,
-      showLastSeen: user?.showLastSeen || true,
+      showLastSeen: user?.showLastSeen || false,
     }
   });
 
@@ -197,7 +197,7 @@ export default function ProfilePage() {
                 <Switch
                   id="showLastSeen"
                   checked={profileForm.watch("showLastSeen")}
-                  onCheckedChange={(checked) => 
+                  onCheckedChange={(checked: boolean) => 
                     profileForm.setValue("showLastSeen", checked)
                   }
                 />

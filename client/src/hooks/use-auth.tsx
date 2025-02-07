@@ -16,7 +16,7 @@ type AuthContextType = {
   loginMutation: UseMutationResult<SelectUser, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
   registerMutation: UseMutationResult<SelectUser, Error, InsertUser>;
-  friendRequests: any[];
+  friendRequests: SelectUser[];
   friendRequestsLoading: boolean;
   acceptFriendRequestMutation: UseMutationResult<void, Error, number>;
   rejectFriendRequestMutation: UseMutationResult<void, Error, number>;
@@ -34,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     data: user,
     error,
     isLoading,
-  } = useQuery<SelectUser | null, Error>({
+  } = useQuery<SelectUser | null>({
     queryKey: ["/api/user"],
     queryFn: () => getQueryFn({ on401: "returnNull" })("/api/user"),
     retry: false,
@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const {
     data: friendRequests = [],
     isLoading: friendRequestsLoading,
-  } = useQuery({
+  } = useQuery<SelectUser[]>({
     queryKey: ["/api/friends/requests"],
     queryFn: () => getQueryFn()("/api/friends/requests"),
     enabled: !!user,
@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    if (!user) {
+    if (!user?.id) {
       cleanup();
     }
 
@@ -187,9 +187,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        user: user ?? null,
+        user,
         isLoading,
-        error: error ?? null,
+        error,
         loginMutation,
         logoutMutation,
         registerMutation,

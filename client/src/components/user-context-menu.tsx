@@ -4,7 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { UserPlus, UserMinus, Ban, UserCheck } from "lucide-react";
+import { UserPlus, UserMinus, Ban } from "lucide-react";
 import type { User } from "@shared/schema";
 
 interface Props {
@@ -32,7 +32,7 @@ export function UserContextMenu({ targetUser, children }: Props) {
       queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
       toast({
         title: t('friends.addSuccess'),
-        description: t('friends.addSuccessDescription', { username: targetUser.username }),
+        description: t('friends.addSuccessDescription', { username: targetUser.username } as any),
       });
     },
     onError: (error: Error) => {
@@ -53,7 +53,7 @@ export function UserContextMenu({ targetUser, children }: Props) {
       queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
       toast({
         title: t('friends.removeSuccess'),
-        description: t('friends.removeSuccessDescription', { username: targetUser.username }),
+        description: t('friends.removeSuccessDescription', { username: targetUser.username } as any),
       });
     },
     onError: (error: Error) => {
@@ -74,7 +74,7 @@ export function UserContextMenu({ targetUser, children }: Props) {
       queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
       toast({
         title: t('blocks.addSuccess'),
-        description: t('blocks.addSuccessDescription', { username: targetUser.username }),
+        description: t('blocks.addSuccessDescription', { username: targetUser.username } as any),
       });
     },
     onError: (error: Error) => {
