@@ -12,9 +12,9 @@ interface Gift {
   id: number;
   name: string;
   description: string;
-  price: number;
+  price: string;
   icon: string;
-  experiencePoints: number;
+  experiencePoints: string;
   createdAt: Date;
 }
 
@@ -210,9 +210,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Başlangıç Paketi",
         description: "Yeni başlayanlar için ideal - 100 Ozba Coin",
-        amount: 100,
-        price: 29.99,
-        bonus: 0,
+        amount: "100",
+        price: "29.99",
+        bonus: "0",
         isPopular: false,
         createdAt: new Date(),
       },
@@ -220,9 +220,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Popüler Paket",
         description: "En çok tercih edilen - 500 Ozba Coin + 50 Bonus Coin",
-        amount: 500,
-        price: 149.99,
-        bonus: 50,
+        amount: "500",
+        price: "149.99",
+        bonus: "50",
         isPopular: true,
         createdAt: new Date(),
       },
@@ -230,9 +230,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Premium Paket",
         description: "En iyi fiyat/performans - 1200 Ozba Coin + 200 Bonus Coin + Premium Üyelik",
-        amount: 1200,
-        price: 299.99,
-        bonus: 200,
+        amount: "1200",
+        price: "299.99",
+        bonus: "200",
         isPopular: false,
         createdAt: new Date(),
       },
@@ -247,36 +247,36 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Çiçek",
         description: "Güzel bir çiçek buketi",
-        price: 50,
+        price: "50",
         icon: "🌸",
-        experiencePoints: 10,
+        experiencePoints: "10",
         createdAt: new Date(),
       },
       {
         id: this.currentId++,
         name: "Kalp",
         description: "Sevgi dolu bir kalp",
-        price: 100,
+        price: "100",
         icon: "❤️",
-        experiencePoints: 20,
+        experiencePoints: "20",
         createdAt: new Date(),
       },
       {
         id: this.currentId++,
         name: "Yıldız",
         description: "Parlak bir yıldız",
-        price: 200,
+        price: "200",
         icon: "⭐",
-        experiencePoints: 40,
+        experiencePoints: "40",
         createdAt: new Date(),
       },
       {
         id: this.currentId++,
         name: "Taç",
         description: "Gösterişli bir taç",
-        price: 500,
+        price: "500",
         icon: "👑",
-        experiencePoints: 100,
+        experiencePoints: "100",
         createdAt: new Date(),
       },
     ];
@@ -324,6 +324,15 @@ export class MemStorage implements IStorage {
       email: insertUser.email || `user${id}@placeholder.com`,
       phone: insertUser.phone || `+${Math.floor(Math.random() * 100000000000)}`,
       avatar: insertUser.avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)],
+      nickname: null,
+      bio: null,
+      status: null,
+      age: null,
+      lastActive: new Date(),
+      socialLinks: null,
+      theme: null,
+      isPrivateProfile: false,
+      showLastSeen: true,
       twoFactorEnabled: false,
       twoFactorSecret: null,
       createdAt: new Date(),
@@ -447,6 +456,7 @@ export class MemStorage implements IStorage {
       id,
       name,
       serverId,
+      type: isVoice ? 'voice' : 'text',
       isVoice,
       isPrivate,
       allowedUsers: [],
@@ -752,21 +762,21 @@ export class MemStorage implements IStorage {
     }
 
     const senderCoins = await this.getUserCoins(senderId);
-    if (!senderCoins || senderCoins.balance < gift.price) {
+    if (!senderCoins || parseInt(senderCoins.balance.toString()) < parseInt(gift.price)) {
       throw new Error("Insufficient coins");
     }
 
     // Deduct coins from sender
     await this.addCoins(
       senderId,
-      -gift.price,
+      -parseInt(gift.price),
       'gift_sent',
       `Sent gift: ${gift.name}`,
       { giftId, receiverId }
     );
 
     // Add experience to receiver
-    await this.addExperience(receiverId, gift.experiencePoints);
+    await this.addExperience(receiverId, parseInt(gift.experiencePoints));
 
     // Record gift history
     const giftHistory: GiftHistory = {
@@ -774,7 +784,7 @@ export class MemStorage implements IStorage {
       senderId,
       receiverId,
       giftId,
-      coinAmount: gift.price,
+      coinAmount: parseInt(gift.price),
       message: message || null,
       createdAt: new Date(),
     };
@@ -923,7 +933,7 @@ export class MemStorage implements IStorage {
     channel.currentMedia = {
       ...media,
       startedAt: new Date()
-    };
+        };
 
     this.channels.set(channelId, channel);
     return channel;

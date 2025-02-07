@@ -46,6 +46,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const setupAudioDevices = async () => {
     try {
       if (!selectedInputDevice) {
+        toast({
+          description: t('voice.noInputDevice'),
+          variant: "destructive",
+        });
         return null;
       }
 
@@ -72,6 +76,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       return stream;
 
     } catch (error) {
+      toast({
+        description: t('voice.deviceAccessError'),
+        variant: "destructive",
+      });
       return null;
     }
   };
@@ -97,10 +105,19 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       ws.onclose = () => {
         setWsConnected(false);
         wsRef.current = null;
+        setIsJoined(false);
+        toast({
+          description: t('voice.connectionClosed'),
+          variant: "destructive",
+        });
       };
 
       ws.onerror = () => {
         wsRef.current = null;
+        toast({
+          description: t('voice.connectionError'),
+          variant: "destructive",
+        });
       };
 
       ws.onmessage = (event) => {
@@ -108,21 +125,32 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           const data = JSON.parse(event.data);
           if (data.type === 'member_update') {
             refetchMembers();
+          } else if (data.type === 'error') {
+            toast({
+              description: data.message,
+              variant: "destructive",
+            });
+            if (data.code === 'AUTH_REQUIRED') {
+              ws.close();
+            }
           }
         } catch (error) {
-          // Sessizce devam et
+          // Hata durumunda sessizce devam et
         }
       };
 
       wsRef.current = ws;
     } catch (error) {
-      // Sessizce devam et
+      toast({
+        description: t('voice.connectionFailed'),
+        variant: "destructive",
+      });
     }
   };
 
   const handleJoinLeave = async () => {
     if (isJoined) {
-      // Leave channel
+      // Kanaldan ayrıl
       if (stream.current) {
         stream.current.getTracks().forEach(track => track.stop());
         stream.current = null;
@@ -131,10 +159,16 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         wsRef.current.close();
         wsRef.current = null;
       }
+      if (audioContext.current?.state !== 'closed') {
+        await audioContext.current?.close();
+      }
       setIsJoined(false);
       setWsConnected(false);
+      toast({
+        description: t('voice.leftChannel'),
+      });
     } else {
-      // Join channel
+      // Kanala katıl
       setIsConnecting(true);
       try {
         const audioStream = await setupAudioDevices();
@@ -142,9 +176,15 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           stream.current = audioStream;
           await connectWebSocket();
           setIsJoined(true);
+          toast({
+            description: t('voice.joinedChannel'),
+          });
         }
       } catch (error) {
-        // Sessizce devam et
+        toast({
+          description: t('voice.joinError'),
+          variant: "destructive",
+        });
       } finally {
         setIsConnecting(false);
       }
@@ -157,8 +197,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     setIsMuted(!isMuted);
     if (isMuted) {
       gainNode.current.connect(audioContext.current.destination);
+      toast({
+        description: t('voice.unmuted'),
+      });
     } else {
       gainNode.current.disconnect();
+      toast({
+        description: t('voice.muted'),
+      });
     }
   };
 
@@ -175,6 +221,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       }
     };
   }, []);
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="space-y-2">
