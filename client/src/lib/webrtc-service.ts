@@ -9,129 +9,112 @@ class WebRTCService {
   private peers: Map<number, PeerConnection> = new Map();
   private localStream: MediaStream | null = null;
   private mediaDevicesSupported: boolean;
+  private audioContext: AudioContext | null = null;
+  private retryAttempts: number = 0;
+  private readonly MAX_RETRY_ATTEMPTS = 3;
 
   constructor() {
-    // Browser desteğini kontrol et
-    this.mediaDevicesSupported = typeof window !== 'undefined' && 
+    this.mediaDevicesSupported = typeof window !== 'undefined' &&
       !!navigator.mediaDevices &&
       !!navigator.mediaDevices.getUserMedia;
+    this.audioContext = null;
+    this.retryAttempts = 0;
   }
 
   private async initializeAudioContext(): Promise<AudioContext> {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
-    }
-
-    return audioContext;
-  }
-
-  private async checkBrowserSupport(): Promise<void> {
-    if (!window || !navigator) {
-      throw new Error('Bu özellik sadece web tarayıcısında kullanılabilir.');
-    }
-
-    if (!this.mediaDevicesSupported) {
-      throw new Error('Tarayıcınız WebRTC desteklemiyor. Lütfen modern bir tarayıcı kullanın.');
-    }
-
-    // WebRTC API'lerinin varlığını kontrol et
-    if (!window.RTCPeerConnection) {
-      throw new Error('Tarayıcınız RTCPeerConnection desteklemiyor.');
-    }
-
     try {
-      await this.initializeAudioContext();
-    } catch (error) {
-      throw new Error('Ses sistemi başlatılamadı: ' + error.message);
-    }
-  }
-
-  private async checkAudioPermissions(): Promise<boolean> {
-    try {
-      await this.checkBrowserSupport();
-
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const audioDevices = devices.filter(device => device.kind === 'audioinput');
-
-      if (audioDevices.length === 0) {
-        throw new Error('Mikrofon cihazı bulunamadı. Lütfen bir mikrofon bağlayın.');
-      }
-
-      // Test stream oluştur
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        } 
-      });
-
-      // Test stream'i durdur
-      stream.getTracks().forEach(track => track.stop());
-      console.log('✅ Mikrofon izinleri kontrol edildi');
-      return true;
-    } catch (error) {
-      console.error('❌ Ses izinleri kontrol hatası:', error);
-
-      if (error instanceof DOMException) {
-        switch (error.name) {
-          case 'NotAllowedError':
-            throw new Error('Mikrofon izni reddedildi. Lütfen tarayıcı izinlerini kontrol edin.');
-          case 'NotFoundError':
-            throw new Error('Mikrofon cihazı bulunamadı. Lütfen bir mikrofon bağlayın.');
-          case 'NotReadableError':
-            throw new Error('Mikrofona erişilemiyor. Başka bir uygulama kullanıyor olabilir.');
-          default:
-            throw new Error(`Ses cihazına erişilemiyor: ${error.message}`);
+      if (!this.audioContext) {
+        const AudioContextClass = window.AudioContext || ((window as any).webkitAudioContext);
+        if (!AudioContextClass) {
+          throw new Error('Ses sistemi (AudioContext) tarayıcınız tarafından desteklenmiyor.');
         }
+        this.audioContext = new AudioContextClass();
       }
 
-      throw new Error('Ses izinleri kontrol edilirken beklenmeyen bir hata oluştu');
+      if (this.audioContext.state === 'suspended') {
+        console.log('🔈 Ses sistemi askıya alınmış, devam ettiriliyor...');
+        await this.audioContext.resume();
+      }
+
+      return this.audioContext;
+    } catch (error) {
+      console.error('❌ Ses sistemi başlatma hatası:', error);
+      throw new Error('Ses sistemi başlatılamadı. Tarayıcı ayarlarınızı kontrol edin ve sayfayı yenileyin.');
     }
+  }
+
+  private async requestPermissionsWithRetry(): Promise<MediaStream> {
+    for (let attempt = 0; attempt <= this.MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
+        this.retryAttempts = 0;
+        return stream;
+      } catch (error: any) {
+        console.error(`Mikrofon erişim denemesi ${attempt + 1}/${this.MAX_RETRY_ATTEMPTS + 1} başarısız:`, error);
+
+        if (attempt === this.MAX_RETRY_ATTEMPTS) {
+          throw this.createUserFriendlyError(error);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+      }
+    }
+
+    throw new Error('Mikrofon erişimi sağlanamadı.');
+  }
+
+  private createUserFriendlyError(error: any): Error {
+    if (error instanceof DOMException) {
+      switch (error.name) {
+        case 'NotAllowedError':
+          return new Error('Mikrofon izni reddedildi. Lütfen tarayıcı ayarlarından mikrofon iznini kontrol edin.');
+        case 'NotFoundError':
+          return new Error('Mikrofon cihazı bulunamadı. Lütfen bir mikrofon bağlayın ve sayfayı yenileyin.');
+        case 'NotReadableError':
+          return new Error('Mikrofonunuza erişilemiyor. Başka bir uygulama kullanıyor olabilir.');
+        case 'OverconstrainedError':
+          return new Error('Mikrofon ayarları uyumsuz. Lütfen farklı bir mikrofon deneyin.');
+        case 'SecurityError':
+          return new Error('Güvenlik hatası: HTTPS bağlantısı gerekiyor.');
+        default:
+          return new Error(`Beklenmeyen bir hata oluştu: ${error.message}`);
+      }
+    }
+    return error;
   }
 
   async startLocalStream(audioConstraints: MediaTrackConstraints = {}): Promise<MediaStream> {
     try {
-      // Browser desteğini ve izinleri kontrol et
       await this.checkBrowserSupport();
-      await this.checkAudioPermissions();
 
-      // Eğer zaten bir stream varsa onu durdur
       if (this.localStream) {
         this.stopLocalStream();
       }
 
-      // Ses ayarlarını yapılandır
-      const constraints = {
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          ...audioConstraints
-        }
-      };
+      this.localStream = await this.requestPermissionsWithRetry();
 
-      // Stream'i başlat
-      this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-      // Stream'in aktif olduğunu kontrol et
       if (!this.localStream.active) {
-        throw new Error('Ses akışı başlatılamadı');
+        throw new Error('Ses akışı başlatılamadı.');
       }
 
-      // Ses seviyesini kontrol et
       const audioContext = await this.initializeAudioContext();
       const source = audioContext.createMediaStreamSource(this.localStream);
       const analyzer = audioContext.createAnalyser();
       source.connect(analyzer);
 
-      console.log('🎤 Ses akışı başarıyla başlatıldı');
+      console.log('✅ Ses akışı başarıyla başlatıldı');
       return this.localStream;
     } catch (error) {
-      console.error('❌ Ses cihazına erişilemedi:', error);
-      throw error;
+      const friendlyError = this.createUserFriendlyError(error);
+      console.error('❌ Ses cihazı hatası:', friendlyError.message);
+      throw friendlyError;
     }
   }
 
@@ -176,19 +159,17 @@ class WebRTCService {
 
       this.peers.set(targetUserId, peerConnection);
 
-      // Handle incoming stream
       peer.on('stream', (remoteStream: MediaStream) => {
         try {
           console.log('📡 Uzak ses akışı alındı');
           const audio = new Audio();
           audio.srcObject = remoteStream;
+          audio.autoplay = true;
 
-          // Ses oynatmayı başlat
           const playPromise = audio.play();
           if (playPromise !== undefined) {
             playPromise.catch(e => {
               console.error('Ses oynatma hatası:', e);
-              // Kullanıcı etkileşimi gerekiyorsa bildir
               if (e.name === 'NotAllowedError') {
                 console.log('Ses oynatmak için kullanıcı etkileşimi gerekiyor');
               }
@@ -199,7 +180,6 @@ class WebRTCService {
         }
       });
 
-      // Handle error
       peer.on('error', (err: Error) => {
         console.error('Peer bağlantı hatası:', err);
         this.removePeer(targetUserId);
@@ -229,29 +209,6 @@ class WebRTCService {
       });
     } catch (error) {
       console.error('Peer\'e bağlanılamadı:', error);
-      throw error;
-    }
-  }
-
-  async acceptConnection(targetUserId: number, signalData: SignalData): Promise<SignalData> {
-    try {
-      const peer = await this.initializePeerConnection(targetUserId, false);
-      console.log('📥 Sinyal alındı:', signalData.type);
-      peer.signal(signalData);
-
-      return new Promise<SignalData>((resolve, reject) => {
-        peer.on('signal', (data: SignalData) => {
-          console.log('📤 Yanıt sinyali gönderiliyor:', data.type);
-          resolve(data);
-        });
-
-        peer.on('error', (err: Error) => {
-          console.error('Bağlantı kabul hatası:', err);
-          reject(err);
-        });
-      });
-    } catch (error) {
-      console.error('Bağlantı kabul edilemedi:', error);
       throw error;
     }
   }
