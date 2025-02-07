@@ -7,13 +7,26 @@ import fetch from 'node-fetch';
 import cors from 'cors';
 
 export function registerRoutes(app: Express): Server {
-  // Enable CORS
+  // CORS ayarlarını güncelle
   app.use(cors({
     origin: true,
-    credentials: true
+    credentials: true,
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    maxAge: 600 // 10 dakika
   }));
 
+  // Auth middleware'i kur
   const sessionMiddleware = setupAuth(app);
+
+  // Auth hatalarını yakala
+  app.use((err: any, _req: any, res: any, next: any) => {
+    if (err.name === 'UnauthorizedError') {
+      res.status(401).json({ error: 'Yetkisiz erişim' });
+    } else {
+      next(err);
+    }
+  });
 
   // Bot kullanıcısını oluştur
   app.post("/api/debug/create-bot", async (req, res) => {
@@ -392,7 +405,7 @@ export function registerRoutes(app: Express): Server {
 
   const httpServer = createServer(app);
 
-  // Media streaming server configuration
+  // Media server configuration
   const nms = new NodeMediaServer({
     rtmp: {
       port: 1935,
@@ -408,7 +421,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Start media server
   nms.run();
   console.log('Media server started with RTMP port:', 1935, 'and HTTP port:', 8000);
 

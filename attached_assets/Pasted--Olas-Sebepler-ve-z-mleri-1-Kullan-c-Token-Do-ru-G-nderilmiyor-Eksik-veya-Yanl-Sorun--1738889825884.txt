@@ -1,0 +1,93 @@
+ Olası Sebepler ve Çözümleri
+1. Kullanıcı Token’ı Doğru Gönderilmiyor (Eksik veya Yanlış)
+📌 Sorun: API isteklerinde Authorization başlığı eksik olabilir veya yanlış bir token gönderiliyor olabilir.
+
+✅ Çözüm: API isteklerini kontrol et ve Authorization başlığının doğru ayarlandığını doğrula.
+
+📌 Örnek: Bearer Token ile istek atma (JavaScript - Fetch API)
+
+javascript
+Kopyala
+Düzenle
+fetch('https://your-api.com/api/user', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+    'Content-Type': 'application/json'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data))
+.catch(error => console.error('Error:', error));
+👉 Token’ın localStorage veya sessionStorage içinde tutulduğundan emin ol.
+👉 Backend tarafında, token doğrulama kodunu gözden geçir.
+
+2. Token Süresi Dolmuş (Expired)
+📌 Sorun: Kullanıcı giriş yaptı ama token süresi doldu, bu yüzden API artık kabul etmiyor.
+
+✅ Çözüm: Token süresini kontrol et ve yenileme mekanizması (refresh token) kullan.
+
+📌 Örnek: Token süresi dolduğunda yenileme (Axios - React/Node.js)
+
+javascript
+Kopyala
+Düzenle
+axios.interceptors.response.use(response => response, async error => {
+  if (error.response.status === 401) {
+    const refreshToken = localStorage.getItem('refresh_token');
+    const newToken = await getNewToken(refreshToken);
+    localStorage.setItem('access_token', newToken);
+    
+    // Yenilenen token ile isteği tekrar gönder
+    error.config.headers['Authorization'] = `Bearer ${newToken}`;
+    return axios(error.config);
+  }
+  return Promise.reject(error);
+});
+👉 Backend tarafında refresh token desteğin olduğundan emin ol!
+
+3. CORS veya Güvenlik Politikaları Token’ı Engelliyor
+📌 Sorun: Tarayıcı, güvenlik nedeniyle cross-origin isteklerde Authorization başlığını engelliyor olabilir.
+
+✅ Çözüm: API sunucunda Access-Control-Allow-Headers ayarlarını kontrol et.
+
+📌 Örnek: Express.js CORS Ayarları (Node.js)
+
+javascript
+Kopyala
+Düzenle
+const cors = require('cors');
+app.use(cors({
+  origin: 'https://your-client-app.com',
+  allowedHeaders: ['Authorization', 'Content-Type']
+}));
+👉 Tarayıcı konsolunda CORS hatası olup olmadığını kontrol et.
+
+4. Backend Yetkilendirme Kontrolü Hatalı
+📌 Sorun: Backend, gelen token’ı doğru doğrulamıyor olabilir.
+
+✅ Çözüm: Backend tarafında JWT doğrulama kodunu kontrol et.
+
+📌 Örnek: Express.js JWT doğrulama (Node.js + Express + JWT)
+
+javascript
+Kopyala
+Düzenle
+const jwt = require('jsonwebtoken');
+
+function authenticateToken(req, res, next) {
+  const token = req.header('Authorization')?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Yetkisiz erişim' });
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Geçersiz token' });
+    req.user = user;
+    next();
+  });
+}
+
+// Örnek API endpoint:
+app.get('/api/user', authenticateToken, (req, res) => {
+  res.json({ message: 'Giriş başarılı', user: req.user });
+});
+👉 Backend’in token’ı gerçekten doğruladığını test et.
