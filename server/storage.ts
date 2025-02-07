@@ -156,6 +156,8 @@ export interface IStorage {
   skipCurrentMedia(channelId: number): Promise<Channel>;
   clearMediaQueue(channelId: number): Promise<void>;
   deleteChannel(channelId: number): Promise<void>;
+  set2FACode(userId: number, code: string): Promise<void>;
+  verify2FACode(userId: number, code: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -177,6 +179,7 @@ export class MemStorage implements IStorage {
   private userLevels: Map<number, UserLevel>;
   private giftHistory: Map<number, GiftHistory>;
   private userSubscriptions: Map<number, UserSubscription>;
+  private twoFactorCodes: Map<number, { code: string; expiresAt: Date }>;
 
   constructor() {
     this.users = new Map();
@@ -199,6 +202,7 @@ export class MemStorage implements IStorage {
     this.userLevels = new Map();
     this.giftHistory = new Map();
     this.userSubscriptions = new Map();
+    this.twoFactorCodes = new Map();
 
     this.initializeCoinProducts();
     this.initializeGifts();
@@ -210,9 +214,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Başlangıç Paketi",
         description: "Yeni başlayanlar için ideal - 100 Ozba Coin",
-        amount: 100,
-        price: 29.99,
-        bonus: 0,
+        amount: "100",
+        price: "29.99",
+        bonus: "0",
         isPopular: false,
         createdAt: new Date(),
       },
@@ -220,9 +224,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Popüler Paket",
         description: "En çok tercih edilen - 500 Ozba Coin + 50 Bonus Coin",
-        amount: 500,
-        price: 149.99,
-        bonus: 50,
+        amount: "500",
+        price: "149.99",
+        bonus: "50",
         isPopular: true,
         createdAt: new Date(),
       },
@@ -230,9 +234,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Premium Paket",
         description: "En iyi fiyat/performans - 1200 Ozba Coin + 200 Bonus Coin + Premium Üyelik",
-        amount: 1200,
-        price: 299.99,
-        bonus: 200,
+        amount: "1200",
+        price: "299.99",
+        bonus: "200",
         isPopular: false,
         createdAt: new Date(),
       },
@@ -604,8 +608,8 @@ export class MemStorage implements IStorage {
     const userCoins: UserCoins = {
       id,
       userId,
-      balance: 0,
-      lifetimeEarned: 0,
+      balance: "0",
+      lifetimeEarned: "0",
       lastDailyReward: null,
       createdAt: new Date(),
     };
@@ -667,27 +671,30 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         userId,
         type,
-        progress: 0,
+        progress,
         goal: this.getAchievementGoal(type),
-        rewardAmount: this.getAchievementReward(type),
+        rewardAmount: this.getAchievementReward(type).toString(),
         completedAt: null,
         createdAt: new Date(),
       };
     }
 
-    achievement.progress = progress;
-    if (progress >= achievement.goal && !achievement.completedAt) {
-      achievement.completedAt = new Date();
-      await this.addCoins(
-        userId,
-        achievement.rewardAmount,
-        'achievement',
-        `Completed achievement: ${type}`,
-        { achievementId: achievement.id }
-      );
+    if (achievement) {
+      achievement.progress = progress;
+      if (progress >= achievement.goal && !achievement.completedAt) {
+        achievement.completedAt = new Date();
+        await this.addCoins(
+          userId,
+          parseInt(achievement.rewardAmount),
+          'achievement',
+          `Completed achievement: ${type}`,
+          { achievementId: achievement.id }
+        );
+      }
+
+      this.userAchievements.set(achievement.id, achievement);
     }
 
-    this.userAchievements.set(achievement.id, achievement);
     return achievement;
   }
 
@@ -926,7 +933,7 @@ export class MemStorage implements IStorage {
     };
 
     this.channels.set(channelId, channel);
-    return channel;
+        return channel;
   }
 
   async addToMediaQueue(channelId: number, media: {
@@ -985,6 +992,30 @@ export class MemStorage implements IStorage {
       .map(([id]) => id);
 
     reactionIds.forEach(id => this.reactions.delete(id));
+  }
+  async set2FACode(userId: number, code: string): Promise<void> {
+    // Kod 5 dakika geçerli olacak
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    this.twoFactorCodes.set(userId, { code, expiresAt });
+  }
+
+  async verify2FACode(userId: number, code: string): Promise<boolean> {
+    const storedData = this.twoFactorCodes.get(userId);
+    if (!storedData) return false;
+
+    const { code: storedCode, expiresAt } = storedData;
+    const now = new Date();
+
+    // Kodun geçerliliğini ve süresini kontrol et
+    if (now > expiresAt || code !== storedCode) {
+      // Süresi geçmiş kodu temizle
+      this.twoFactorCodes.delete(userId);
+      return false;
+    }
+
+    // Kullanılan kodu sil
+    this.twoFactorCodes.delete(userId);
+    return true;
   }
 }
 

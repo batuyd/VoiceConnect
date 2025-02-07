@@ -1,0 +1,102 @@
+Sorunlarını tek tek ele alalım:  
+
+---
+
+### **1️⃣ Audio Device Erişim Hatası (WebRTC Ses Cihazı)**
+**Hata:**  
+- Tarayıcı ses cihazına erişemiyor.  
+- **webRTC-service.ts** dosyasında ses cihazı başlatma hatası var.  
+
+**Olası Çözümler:**  
+1. **Tarayıcı izinlerini kontrol et:**  
+   - Tarayıcının mikrofon erişimine izin verdiğinden emin ol.  
+   - **Chrome:**  
+     - Adres çubuğuna `chrome://settings/content/microphone` yaz ve uygulamanın mikrofon erişimine sahip olup olmadığını kontrol et.  
+
+2. **Tarayıcı Konsolunda Hata Mesajlarını Kontrol Et:**  
+   - `navigator.mediaDevices.getUserMedia({ audio: true })` çağrısı hata veriyor mu?  
+   - `DOMException: Permission denied` gibi bir hata alıyor musun?  
+
+3. **Kodunda `getUserMedia` Kullanımı Şu Şekilde Olmalı:**  
+```typescript
+navigator.mediaDevices.getUserMedia({ audio: true })
+  .then((stream) => {
+      console.log("🎤 Mikrofon erişimi başarılı!");
+      // WebRTC için stream'i kullan
+  })
+  .catch((error) => {
+      console.error("🚨 Mikrofon erişim hatası:", error);
+  });
+```
+4. **HTTPS Kullan:**  
+   - Eğer uygulaman `localhost` dışında bir sunucuda çalışıyorsa, **HTTPS bağlantısı** zorunludur.  
+
+---
+
+### **2️⃣ 401 Unauthorized Hataları (Yetkilendirme Sorunu)**
+**Hata:**  
+- `/api/user` gibi API çağrılarında **401 Unauthorized** hataları alıyorsun.  
+- Kullanıcı oturumu düzgün yönetilmiyor olabilir.  
+
+**Olası Çözümler:**  
+
+1. **Token'ın Header'a Eklendiğinden Emin Ol**  
+   API çağrılarını yaparken token'ın doğru şekilde gönderildiğinden emin olmalısın:  
+   ```typescript
+   fetch('/api/user', {
+       method: 'GET',
+       headers: {
+           'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 
+           'Content-Type': 'application/json'
+       }
+   })
+   ```
+   🔹 **Eğer access_token localStorage'da yoksa, kullanıcı yeniden giriş yapmalı.**  
+
+2. **CORS Politikalarını Kontrol Et**  
+   Eğer backend ve frontend farklı domainlerde çalışıyorsa, backend'in CORS ayarlarını güncellemen gerekebilir.  
+
+3. **Sunucu Loglarını Kontrol Et**  
+   - API'nin loglarında neden 401 verdiğini görmelisin.  
+   - Token doğrulama hatası mı, yoksa kullanıcı oturumu mu süresi doldu?  
+
+---
+
+### **3️⃣ Tip Hataları (TypeScript Sorunları)**
+**Hata:**  
+- `storage.ts` içinde bazı değerler `string` olması gerekirken `number` olarak tanımlanmış.  
+- **Auth sisteminde `User` tipi ile ilgili uyuşmazlıklar var.**  
+
+**Çözüm:**  
+- `storage.ts` içinde verilerin JSON olarak saklanıp saklanmadığını kontrol et:  
+  ```typescript
+  const userId = localStorage.getItem("user_id");
+  console.log(typeof userId); // string olmalı
+  ```
+- Eğer sayı olarak saklamak istiyorsan, **parse etmen gerekiyor:**  
+  ```typescript
+  const userId = Number(localStorage.getItem("user_id"));
+  ```
+
+- **User Tipini Düzgün Tanımla:**  
+  ```typescript
+  interface User {
+      id: string;
+      username: string;
+      email: string;
+  }
+  ```
+
+- Eğer `User` tipi uyuşmazlığı varsa, bir `as` ifadesi kullanabilirsin:  
+  ```typescript
+  const user = JSON.parse(localStorage.getItem("user") || '{}') as User;
+  ```
+
+---
+
+### **🔍 Özetle:**  
+✅ **Ses cihazı erişim hatası için:** Tarayıcı izinlerini ve HTTPS kullanımını kontrol et.  
+✅ **401 Unauthorized hatası için:** API çağrılarında token’ın düzgün gönderildiğini doğrula.  
+✅ **TypeScript tip hataları için:** `localStorage` verilerini `string | number` olarak doğru şekilde parse et.  
+
+🔥 **Bunları denedikten sonra hâlâ sorun yaşarsan, logları paylaş, birlikte çözelim! 🚀**

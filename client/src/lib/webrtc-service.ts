@@ -19,7 +19,13 @@ class WebRTCService {
       }
 
       // Ses izinlerini kontrol et
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
 
       // Test stream'i durdur
       stream.getTracks().forEach(track => track.stop());
@@ -46,7 +52,7 @@ class WebRTCService {
     }
   }
 
-  async startLocalStream(audioConstraints: MediaTrackConstraints = {}) {
+  async startLocalStream(audioConstraints: MediaTrackConstraints = {}): Promise<MediaStream> {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Tarayıcınız WebRTC desteklemiyor');
@@ -57,7 +63,7 @@ class WebRTCService {
 
       // Eğer zaten bir stream varsa onu durduralım
       if (this.localStream) {
-        await this.stopLocalStream();
+        this.stopLocalStream();
       }
 
       const constraints = {
@@ -90,7 +96,7 @@ class WebRTCService {
     }
   }
 
-  async initializePeerConnection(targetUserId: number, isInitiator: boolean = false) {
+  async initializePeerConnection(targetUserId: number, isInitiator: boolean = false): Promise<SimplePeer.Instance> {
     try {
       if (!this.localStream) {
         await this.startLocalStream();
@@ -121,13 +127,17 @@ class WebRTCService {
 
       // Handle incoming stream
       peer.on('stream', (remoteStream: MediaStream) => {
-        const audio = new Audio();
-        audio.srcObject = remoteStream;
-        audio.play().catch(e => {
-          if (e instanceof Error) {
-            console.error('Ses oynatma hatası:', e.message);
-          }
-        });
+        try {
+          const audio = new Audio();
+          audio.srcObject = remoteStream;
+          audio.play().catch(e => {
+            if (e instanceof Error) {
+              console.error('Ses oynatma hatası:', e.message);
+            }
+          });
+        } catch (error) {
+          console.error('Uzak ses akışı başlatılırken hata:', error);
+        }
       });
 
       // Handle error
@@ -146,7 +156,7 @@ class WebRTCService {
     }
   }
 
-  async connectToPeer(targetUserId: number) {
+  async connectToPeer(targetUserId: number): Promise<SignalData> {
     try {
       const peer = await this.initializePeerConnection(targetUserId, true);
 
@@ -168,7 +178,7 @@ class WebRTCService {
     }
   }
 
-  async acceptConnection(targetUserId: number, signalData: unknown) {
+  async acceptConnection(targetUserId: number, signalData: unknown): Promise<SignalData> {
     try {
       if (typeof signalData !== 'string' && typeof signalData !== 'object') {
         throw new Error('Geçersiz sinyal verisi formatı');
@@ -195,16 +205,18 @@ class WebRTCService {
     }
   }
 
-  async handleAnswer(targetUserId: number, signalData: unknown) {
+  async handleAnswer(targetUserId: number, signalData: unknown): Promise<void> {
     try {
       if (typeof signalData !== 'string' && typeof signalData !== 'object') {
         throw new Error('Geçersiz sinyal verisi formatı');
       }
 
       const peerConnection = this.peers.get(targetUserId);
-      if (peerConnection) {
-        peerConnection.peer.signal(signalData as SignalData);
+      if (!peerConnection) {
+        throw new Error('Peer bağlantısı bulunamadı');
       }
+
+      peerConnection.peer.signal(signalData as SignalData);
     } catch (error) {
       if (error instanceof Error) {
         console.error('Yanıt işlenemedi:', error.message);
