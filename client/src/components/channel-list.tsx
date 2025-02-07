@@ -18,6 +18,7 @@ import { useState } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { VoiceChannel } from "./voice-channel";
 import { TextChannel } from "./text-channel";
+import { useToast } from "@/hooks/use-toast";
 
 export function ChannelList({ 
   serverId,
@@ -30,6 +31,7 @@ export function ChannelList({
 }) {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [newChannel, setNewChannel] = useState({ name: "", isVoice: false });
 
@@ -45,6 +47,9 @@ export function ChannelList({
 
   const createChannelMutation = useMutation({
     mutationFn: async (data: typeof newChannel) => {
+      if (!data.name.trim()) {
+        throw new Error(t('server.channelNameRequired'));
+      }
       const res = await apiRequest("POST", `/api/servers/${serverId}/channels`, data);
       return res.json();
     },
@@ -52,6 +57,15 @@ export function ChannelList({
       queryClient.invalidateQueries({ queryKey: [`/api/servers/${serverId}/channels`] });
       setIsOpen(false);
       setNewChannel({ name: "", isVoice: false });
+      toast({
+        description: t('server.channelCreated'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -65,8 +79,9 @@ export function ChannelList({
         {isOwner && (
           <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="outline" size="sm" className="flex items-center gap-2">
                 <Plus className="h-4 w-4" />
+                {t('server.createChannel')}
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -78,14 +93,16 @@ export function ChannelList({
                   e.preventDefault();
                   createChannelMutation.mutate(newChannel);
                 }}
-                className="space-y-4"
+                className="space-y-4 mt-4"
               >
-                <div>
+                <div className="space-y-2">
                   <Label htmlFor="channelName">{t('server.channelName')}</Label>
                   <Input
                     id="channelName"
                     value={newChannel.name}
                     onChange={(e) => setNewChannel(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder={t('server.channelNamePlaceholder')}
+                    className="bg-gray-700 border-gray-600"
                   />
                 </div>
                 <div className="flex items-center space-x-2">
@@ -98,8 +115,12 @@ export function ChannelList({
                   />
                   <Label htmlFor="isVoice">{t('server.voiceChannel')}</Label>
                 </div>
-                <Button type="submit" disabled={createChannelMutation.isPending}>
-                  {t('server.createChannel')}
+                <Button 
+                  type="submit" 
+                  disabled={createChannelMutation.isPending || !newChannel.name.trim()}
+                  className="w-full"
+                >
+                  {createChannelMutation.isPending ? t('common.creating') : t('server.createChannel')}
                 </Button>
               </form>
             </DialogContent>
@@ -110,7 +131,7 @@ export function ChannelList({
       <div className="space-y-4">
         {textChannels.length > 0 && (
           <div>
-            <h3 className="text-xs text-gray-400 mb-2">{t('server.textChannels')}</h3>
+            <h3 className="text-xs uppercase font-semibold text-gray-400 mb-2">{t('server.textChannels')}</h3>
             <div className="space-y-1">
               {textChannels.map((channel) => (
                 <TextChannel
@@ -127,14 +148,16 @@ export function ChannelList({
 
         {voiceChannels.length > 0 && (
           <div>
-            <h3 className="text-xs text-gray-400 mb-2">{t('server.voiceChannels')}</h3>
-            {voiceChannels.map((channel) => (
-              <VoiceChannel 
-                key={channel.id} 
-                channel={channel} 
-                isOwner={isOwner}
-              />
-            ))}
+            <h3 className="text-xs uppercase font-semibold text-gray-400 mb-2">{t('server.voiceChannels')}</h3>
+            <div className="space-y-1">
+              {voiceChannels.map((channel) => (
+                <VoiceChannel 
+                  key={channel.id} 
+                  channel={channel} 
+                  isOwner={isOwner}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

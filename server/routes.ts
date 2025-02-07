@@ -12,6 +12,43 @@ export function registerRoutes(app: Express): Server {
   setupAuth(app);
   const httpServer = createServer(app);
 
+  // Server management routes
+  app.post("/api/servers", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Oturum açmanız gerekiyor" });
+      }
+
+      const { name } = req.body;
+      if (!name) {
+        return res.status(400).json({ message: "Sunucu adı gereklidir" });
+      }
+
+      const server = await storage.createServer(name, req.user.id);
+      const defaultChannel = await storage.createChannel("genel", server.id, false);
+      const voiceChannel = await storage.createChannel("ses-kanalı", server.id, true);
+
+      res.status(201).json(server);
+    } catch (error) {
+      console.error('Sunucu oluşturma hatası:', error);
+      res.status(500).json({ message: "Sunucu oluşturulurken bir hata oluştu" });
+    }
+  });
+
+  app.get("/api/servers", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Oturum açmanız gerekiyor" });
+      }
+
+      const servers = await storage.getServers(req.user.id);
+      res.json(servers);
+    } catch (error) {
+      console.error('Sunucu listesi hatası:', error);
+      res.status(500).json({ message: "Sunucular listelenirken bir hata oluştu" });
+    }
+  });
+
   // WebSocket server configuration
   const wss = new WebSocketServer({
     server: httpServer,

@@ -34,6 +34,7 @@ export function setupAuth(app: Express) {
     resave: true,
     saveUninitialized: true,
     store: storage.sessionStore,
+    name: 'ozba.session',
     cookie: {
       secure: app.get("env") === "production",
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
@@ -41,11 +42,6 @@ export function setupAuth(app: Express) {
       sameSite: 'lax'
     }
   };
-
-  if (app.get("env") === "production") {
-    app.set("trust proxy", 1);
-    sessionSettings.cookie!.secure = true;
-  }
 
   app.use(session(sessionSettings));
   app.use(passport.initialize());
@@ -73,13 +69,16 @@ export function setupAuth(app: Express) {
   );
 
   passport.serializeUser((user, done) => {
+    console.log('Serialize user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
+      console.log('Deserialize user:', id);
       const user = await storage.getUser(id);
       if (!user) {
+        console.log('User not found:', id);
         return done(null, false);
       }
       done(null, user);
@@ -145,12 +144,20 @@ export function setupAuth(app: Express) {
           console.error('Oturum oluşturma hatası:', err);
           return next(err);
         }
+        console.log('Login successful:', user.id);
         res.json(user);
       });
     })(req, res, next);
   });
 
   app.post("/api/logout", (req, res, next) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Oturum açık değil" });
+    }
+
+    const userId = req.user.id;
+    console.log('Logout request for user:', userId);
+
     req.logout((err) => {
       if (err) {
         console.error('Çıkış hatası:', err);
@@ -161,6 +168,7 @@ export function setupAuth(app: Express) {
           console.error('Oturum silme hatası:', err);
           return next(err);
         }
+        console.log('Logout successful:', userId);
         res.sendStatus(200);
       });
     });
@@ -168,10 +176,12 @@ export function setupAuth(app: Express) {
 
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) {
+      console.log('Unauthorized access attempt to /api/user');
       return res.status(401).json({ 
         message: "Oturum açılmamış" 
       });
     }
+    console.log('User info requested:', req.user.id);
     res.json(req.user);
   });
 }
