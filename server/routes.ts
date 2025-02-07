@@ -7,6 +7,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import NodeMediaServer from 'node-media-server';
 import fetch from 'node-fetch';
 import session from 'express-session';
+import {User} from "./storage";
+
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
@@ -521,6 +523,14 @@ export function registerRoutes(app: Express): Server {
     perMessageDeflate: false
   });
 
+  // Track connected users
+  const connectedUsers = new Map<number, {
+    ws: WebSocket;
+    user: User;
+    lastPing: number;
+    currentChannel?: number;
+  }>();
+
   wss.on('connection', async (ws, req) => {
     console.log('New WebSocket connection established');
 
@@ -538,21 +548,123 @@ export function registerRoutes(app: Express): Server {
         });
       });
 
-      // Basic error handling
-      ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+      // Check authentication
+      const sessionData = (req as any).session;
+      if (!sessionData?.passport?.user) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Authentication required'
+        }));
+        ws.close();
+        return;
+      }
+
+      // Get user data
+      const userId = sessionData.passport.user;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'User not found'
+        }));
+        ws.close();
+        return;
+      }
+
+      // Add user to connected users
+      connectedUsers.set(userId, {
+        ws,
+        user,
+        lastPing: Date.now()
       });
 
-      // Simple ping-pong to keep connection alive
+      // Send initial connection success message
+      ws.send(JSON.stringify({
+        type: 'connection_established',
+        userId: user.id,
+        username: user.username
+      }));
+
+      // Broadcast user connected event
+      wss.clients.forEach(client => {
+        if (client !== ws && client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({
+            type: 'user_connected',
+            userId: user.id,
+            username: user.username
+          }));
+        }
+      });
+
+      // Handle incoming messages
+      ws.on('message', async (message) => {
+        try {
+          const data = JSON.parse(message.toString());
+          console.log('Received message:', data);
+
+          // Handle different message types
+          switch (data.type) {
+            case 'ping':
+              ws.send(JSON.stringify({ type: 'pong' }));
+              break;
+            case 'update_status':
+              try {
+                await storage.updateUserProfile(userId, {
+                  status: data.status
+                });
+                // Broadcast status update
+                wss.clients.forEach(client => {
+                  if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({
+                      type: 'user_status_updated',
+                      userId,
+                      status: data.status
+                    }));
+                  }
+                });
+              } catch (error) {
+                console.error('Error updating status:', error);
+              }
+              break;
+            default:
+              console.log('Unknown message type:', data.type);
+          }
+        } catch (error) {
+          console.error('Error processing message:', error);
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid message format'
+          }));
+        }
+      });
+
+      // Keep connection alive with ping/pong
       const pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.ping();
+          const userConnection = connectedUsers.get(userId);
+          if (userConnection) {
+            userConnection.lastPing = Date.now();
+          }
         }
       }, 30000);
 
+      // Cleanup on connection close
       ws.on('close', () => {
-        console.log('WebSocket connection closed');
+        console.log('WebSocket connection closed for user:', userId);
+        connectedUsers.delete(userId);
         clearInterval(pingInterval);
+
+        // Broadcast user disconnected event
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'user_disconnected',
+              userId: user.id,
+              username: user.username
+            }));
+          }
+        });
       });
 
     } catch (error) {
@@ -560,6 +672,31 @@ export function registerRoutes(app: Express): Server {
       ws.close();
     }
   });
+
+  // Cleanup inactive connections periodically
+  setInterval(() => {
+    const now = Date.now();
+    connectedUsers.forEach((data, userId) => {
+      if (now - data.lastPing > 60000) { // 1 minute timeout
+        console.log('Cleaning up inactive connection for user:', userId);
+        if (data.ws.readyState === WebSocket.OPEN) {
+          data.ws.close();
+        }
+        connectedUsers.delete(userId);
+
+        // Broadcast user disconnected event
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'user_disconnected',
+              userId,
+              username: data.user.username
+            }));
+          }
+        });
+      }
+    });
+  }, 30000); // Check every 30 seconds
 
   // Start media server
   try {
