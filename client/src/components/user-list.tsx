@@ -3,6 +3,7 @@ import { useLanguage } from "@/hooks/use-language";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { User } from "@shared/schema";
 import { Volume2, VolumeX } from "lucide-react";
+import { UserContextMenu } from "./user-context-menu";
 
 export function UserList({ serverId }: { serverId: number }) {
   const { t } = useLanguage();
@@ -25,34 +26,33 @@ export function UserList({ serverId }: { serverId: number }) {
         {users.map((user) => {
           const status = mockStatus(user.id);
           return (
-            <div
-              key={user.id}
-              className="flex items-center space-x-3 p-2 rounded hover:bg-gray-700"
-            >
-              <div className="relative">
-                <Avatar>
-                  <AvatarImage src={user.avatar} alt={user.username} />
-                  <AvatarFallback>{user.username[0]}</AvatarFallback>
-                </Avatar>
-                <div
-                  className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-gray-800 ${
-                    status.online ? "bg-green-500" : "bg-gray-500"
-                  }`}
-                />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <span>{user.username}</span>
-                  {status.inVoice && (
-                    status.muted ? (
-                      <VolumeX className="h-4 w-4 text-gray-400" />
-                    ) : (
-                      <Volume2 className="h-4 w-4 text-green-400" />
-                    )
-                  )}
+            <UserContextMenu key={user.id} targetUser={user}>
+              <div className="flex items-center space-x-3 p-2 rounded hover:bg-gray-700 cursor-pointer">
+                <div className="relative">
+                  <Avatar>
+                    <AvatarImage src={user.avatar} alt={user.username} />
+                    <AvatarFallback>{user.username[0]}</AvatarFallback>
+                  </Avatar>
+                  <div
+                    className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-gray-800 ${
+                      status.online ? "bg-green-500" : "bg-gray-500"
+                    }`}
+                  />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span>{user.username}</span>
+                    {status.inVoice && (
+                      status.muted ? (
+                        <VolumeX className="h-4 w-4 text-gray-400" />
+                      ) : (
+                        <Volume2 className="h-4 w-4 text-green-400" />
+                      )
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            </UserContextMenu>
           );
         })}
       </div>

@@ -24,10 +24,14 @@ function Layout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-gray-900">
       {children}
       {user && (
-        <div className="fixed bottom-4 right-4 flex flex-col gap-4 z-50">
-          <CoinDisplay />
-          <SettingsDialog />
-        </div>
+        <>
+          <div className="fixed top-4 right-4 z-50">
+            <CoinDisplay />
+          </div>
+          <div className="fixed bottom-4 right-4 z-50">
+            <SettingsDialog />
+          </div>
+        </>
       )}
     </div>
   );

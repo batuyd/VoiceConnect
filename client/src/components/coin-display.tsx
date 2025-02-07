@@ -85,7 +85,7 @@ export function CoinDisplay() {
                   </div>
                 </div>
                 <Progress 
-                  value={(achievement.progress / achievement.goal) * 100} 
+                  value={parseFloat(((achievement.progress / achievement.goal) * 100).toFixed(2))} 
                   className="h-2"
                 />
               </Card>
@@ -99,7 +99,7 @@ export function CoinDisplay() {
         <DialogTrigger asChild>
           <Button variant="ghost" className="flex items-center gap-2">
             <Coins className="h-4 w-4" />
-            <span>{userCoins?.balance ?? 0}</span>
+            <span>{parseFloat(userCoins?.balance?.toString() || "0").toFixed(0)}</span>
           </Button>
         </DialogTrigger>
         <DialogContent>
@@ -113,14 +113,14 @@ export function CoinDisplay() {
                   <div>
                     <h4 className="font-semibold">{product.name}</h4>
                     <p className="text-sm text-gray-500">{product.description}</p>
-                    {product.bonus > 0 && (
+                    {product.bonus && parseFloat(product.bonus) > 0 && (
                       <p className="text-sm text-green-500">
-                        +{product.bonus} {t('coins.store.bonus')}
+                        +{parseFloat(product.bonus)} {t('coins.store.bonus')}
                       </p>
                     )}
                   </div>
                   <Button>
-                    ₺{product.price}
+                    ₺{parseFloat(product.price.toString()).toFixed(2)}
                   </Button>
                 </div>
                 {product.isPopular && (
