@@ -208,8 +208,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getServers(userId: number): Promise<Server[]> {
-    const serverIds = (await db.select({ serverId: servers.id }).from(serverMembers).where(eq(serverMembers.userId, userId))).map(item => item.serverId);
-    return db.select().from(servers).where(or(...serverIds.map(id => eq(servers.id, id))));
+    const serverMembers = await db
+      .select({
+        serverId: serverMembers.serverId
+      })
+      .from(serverMembers)
+      .where(eq(serverMembers.userId, userId));
+
+    if (serverMembers.length === 0) {
+      return [];
+    }
+
+    const serverIds = serverMembers.map(member => member.serverId);
+    return db
+      .select()
+      .from(servers)
+      .where(
+        or(...serverIds.map(id => eq(servers.id, id)))
+      );
   }
 
   async getServer(serverId: number): Promise<Server | undefined> {
