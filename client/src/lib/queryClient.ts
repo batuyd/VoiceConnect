@@ -7,42 +7,20 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-const getAuthToken = () => localStorage.getItem('auth_token');
-
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-    'X-Requested-With': 'XMLHttpRequest'
-  };
+  const res = await fetch(url, {
+    method,
+    headers: data ? { "Content-Type": "application/json" } : {},
+    body: data ? JSON.stringify(data) : undefined,
+    credentials: "include",
+  });
 
-  const token = getAuthToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  if (data) {
-    headers['Content-Type'] = 'application/json';
-  }
-
-  try {
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: data ? JSON.stringify(data) : undefined,
-      credentials: "include",
-      mode: 'cors'
-    });
-
-    await throwIfResNotOk(res);
-    return res;
-  } catch (error) {
-    console.error('API request error:', error);
-    throw error;
-  }
+  await throwIfResNotOk(res);
+  return res;
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -51,38 +29,16 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    try {
-      console.log('Making query request:', queryKey[0]);
-      const headers: Record<string, string> = {
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      };
+    const res = await fetch(queryKey[0] as string, {
+      credentials: "include",
+    });
 
-      const token = getAuthToken();
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const res = await fetch(queryKey[0] as string, {
-        credentials: "include",
-        headers,
-        mode: 'cors'
-      });
-
-      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-        console.log('Returning null for 401 response');
-        localStorage.removeItem('auth_token');
-        return null;
-      }
-
-      await throwIfResNotOk(res);
-      const data = await res.json();
-      console.log('Query response:', data);
-      return data;
-    } catch (error) {
-      console.error('Query error:', error);
-      throw error;
+    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      return null;
     }
+
+    await throwIfResNotOk(res);
+    return await res.json();
   };
 
 export const queryClient = new QueryClient({

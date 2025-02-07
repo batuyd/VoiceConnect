@@ -1,8 +1,12 @@
 import { users, servers, channels, serverMembers, friendships, serverInvites } from "@shared/schema";
 import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite, Message, Reaction, MessageWithReactions } from "@shared/schema";
+import session from "express-session";
+import createMemoryStore from "memorystore";
 import { nanoid } from "nanoid";
 import { userCoins, coinTransactions, coinProducts, userAchievements } from "@shared/schema";
 import type { UserCoins, CoinTransaction, CoinProduct, UserAchievement } from "@shared/schema";
+
+const MemoryStore = createMemoryStore(session);
 
 interface Gift {
   id: number;
@@ -78,6 +82,8 @@ export interface IStorage {
   getServerMembers(serverId: number): Promise<User[]>;
   addServerMember(serverId: number, userId: number): Promise<void>;
   getChannel(channelId: number): Promise<Channel | undefined>;
+
+  sessionStore: session.Store;
   updateUserProfile(
     userId: number,
     data: {
@@ -150,8 +156,6 @@ export interface IStorage {
   skipCurrentMedia(channelId: number): Promise<Channel>;
   clearMediaQueue(channelId: number): Promise<void>;
   deleteChannel(channelId: number): Promise<void>;
-  set2FACode(userId: number, code: string): Promise<void>;
-  verify2FACode(userId: number, code: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -163,6 +167,7 @@ export class MemStorage implements IStorage {
   private serverInvites: Map<string, ServerInvite>;
   private messages: Map<number, Message>;
   private reactions: Map<number, Reaction>;
+  sessionStore: session.Store;
   currentId: number;
   private userCoins: Map<number, UserCoins>;
   private coinTransactions: Map<number, CoinTransaction>;
@@ -172,7 +177,6 @@ export class MemStorage implements IStorage {
   private userLevels: Map<number, UserLevel>;
   private giftHistory: Map<number, GiftHistory>;
   private userSubscriptions: Map<number, UserSubscription>;
-  private twoFactorCodes: Map<number, { code: string; expiresAt: Date }>;
 
   constructor() {
     this.users = new Map();
@@ -184,6 +188,9 @@ export class MemStorage implements IStorage {
     this.messages = new Map();
     this.reactions = new Map();
     this.currentId = 1;
+    this.sessionStore = new MemoryStore({
+      checkPeriod: 86400000,
+    });
     this.userCoins = new Map();
     this.coinTransactions = new Map();
     this.coinProducts = new Map();
@@ -192,7 +199,6 @@ export class MemStorage implements IStorage {
     this.userLevels = new Map();
     this.giftHistory = new Map();
     this.userSubscriptions = new Map();
-    this.twoFactorCodes = new Map();
 
     this.initializeCoinProducts();
     this.initializeGifts();
@@ -204,9 +210,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Başlangıç Paketi",
         description: "Yeni başlayanlar için ideal - 100 Ozba Coin",
-        amount: "100",
-        price: "29.99",
-        bonus: "0",
+        amount: 100,
+        price: 29.99,
+        bonus: 0,
         isPopular: false,
         createdAt: new Date(),
       },
@@ -214,9 +220,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Popüler Paket",
         description: "En çok tercih edilen - 500 Ozba Coin + 50 Bonus Coin",
-        amount: "500",
-        price: "149.99",
-        bonus: "50",
+        amount: 500,
+        price: 149.99,
+        bonus: 50,
         isPopular: true,
         createdAt: new Date(),
       },
@@ -224,9 +230,9 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         name: "Premium Paket",
         description: "En iyi fiyat/performans - 1200 Ozba Coin + 200 Bonus Coin + Premium Üyelik",
-        amount: "1200",
-        price: "299.99",
-        bonus: "200",
+        amount: 1200,
+        price: 299.99,
+        bonus: 200,
         isPopular: false,
         createdAt: new Date(),
       },
@@ -314,22 +320,12 @@ export class MemStorage implements IStorage {
     const user: User = {
       id,
       username: insertUser.username,
-      nickname: insertUser.nickname || null,
       password: insertUser.password,
       email: insertUser.email || `user${id}@placeholder.com`,
       phone: insertUser.phone || `+${Math.floor(Math.random() * 100000000000)}`,
       avatar: insertUser.avatar || defaultAvatars[Math.floor(Math.random() * defaultAvatars.length)],
-      bio: insertUser.bio || null,
-      status: insertUser.status || null,
-      age: insertUser.age || null,
-      lastActive: new Date(),
-      socialLinks: insertUser.socialLinks || null,
-      theme: insertUser.theme || "system",
-      isPrivateProfile: insertUser.isPrivateProfile || false,
-      showLastSeen: insertUser.showLastSeen || true,
       twoFactorEnabled: false,
       twoFactorSecret: null,
-      requiresSecondFactor: false,
       createdAt: new Date(),
     };
 
@@ -608,8 +604,8 @@ export class MemStorage implements IStorage {
     const userCoins: UserCoins = {
       id,
       userId,
-      balance: "0",
-      lifetimeEarned: "0",
+      balance: 0,
+      lifetimeEarned: 0,
       lastDailyReward: null,
       createdAt: new Date(),
     };
@@ -671,30 +667,27 @@ export class MemStorage implements IStorage {
         id: this.currentId++,
         userId,
         type,
-        progress,
+        progress: 0,
         goal: this.getAchievementGoal(type),
-        rewardAmount: this.getAchievementReward(type).toString(),
+        rewardAmount: this.getAchievementReward(type),
         completedAt: null,
         createdAt: new Date(),
       };
     }
 
-    if (achievement) {
-      achievement.progress = progress;
-      if (progress >= achievement.goal && !achievement.completedAt) {
-        achievement.completedAt = new Date();
-        await this.addCoins(
-          userId,
-          parseInt(achievement.rewardAmount),
-          'achievement',
-          `Completed achievement: ${type}`,
-          { achievementId: achievement.id }
-        );
-      }
-
-      this.userAchievements.set(achievement.id, achievement);
+    achievement.progress = progress;
+    if (progress >= achievement.goal && !achievement.completedAt) {
+      achievement.completedAt = new Date();
+      await this.addCoins(
+        userId,
+        achievement.rewardAmount,
+        'achievement',
+        `Completed achievement: ${type}`,
+        { achievementId: achievement.id }
+      );
     }
 
+    this.userAchievements.set(achievement.id, achievement);
     return achievement;
   }
 
@@ -925,7 +918,7 @@ export class MemStorage implements IStorage {
     queuedBy: number;
   }): Promise<Channel> {
     const channel = await this.getChannel(channelId);
-    if (!channel) throw new Error(""Channel not found");
+    if (!channel) throw new Error("Channel not found");
 
     channel.currentMedia = {
       ...media,
@@ -992,30 +985,6 @@ export class MemStorage implements IStorage {
       .map(([id]) => id);
 
     reactionIds.forEach(id => this.reactions.delete(id));
-  }
-  async set2FACode(userId: number, code: string): Promise<void> {
-    // Kod 5 dakika geçerli olacak
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-    this.twoFactorCodes.set(userId, { code, expiresAt });
-  }
-
-  async verify2FACode(userId: number, code: string): Promise<boolean> {
-    const storedData = this.twoFactorCodes.get(userId);
-    if (!storedData) return false;
-
-    const { code: storedCode, expiresAt } = storedData;
-    const now = new Date();
-
-    // Kodun geçerliliğini ve süresini kontrol et
-    if (now > expiresAt || code !== storedCode) {
-      // Süresi geçmiş kodu temizle
-      this.twoFactorCodes.delete(userId);
-      return false;
-    }
-
-    // Kullanılan kodu sil
-    this.twoFactorCodes.delete(userId);
-    return true;
   }
 }
 

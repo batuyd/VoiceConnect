@@ -1,20 +1,14 @@
-import { Volume2, VolumeX, Mic, MicOff, AlertCircle } from "lucide-react";
+import { Volume2, VolumeX } from "lucide-react";
 import { Channel } from "@shared/schema";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { webRTCService } from "@/lib/webrtc-service";
-import { apiRequest } from "@/lib/queryClient";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { MediaControls } from "./media-controls";
+import { useAudioSettings } from "@/hooks/use-audio-settings";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -33,181 +27,234 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { selectedInputDevice, getAudioStream, stopAudioStream } = useAudioSettings();
 
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [activeConnections, setActiveConnections] = useState<Set<number>>(new Set());
-  const [hasAudioPermission, setHasAudioPermission] = useState<boolean | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [members, setMembers] = useState<ChannelMember[]>([]);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const retryTimeoutRef = useRef<NodeJS.Timeout>();
+  const maxRetries = 3;
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
-    enabled: isJoined,
+    enabled: isJoined
   });
-
-  const joinChannelMutation = useMutation({
-    mutationFn: async (memberId: number) => {
-      return await apiRequest('POST', `/api/channels/${channel.id}/members/${memberId}/join`);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t('voice.errors.joinFailed'),
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  });
-
-  const leaveChannelMutation = useMutation({
-    mutationFn: async (memberId: number) => {
-      return await apiRequest('POST', `/api/channels/${channel.id}/members/${memberId}/leave`);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t('voice.errors.leaveFailed'),
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  });
-
-  const handlePeerConnection = useCallback(async (memberId: number) => {
-    if (!user?.id || activeConnections.has(memberId)) return;
-
-    try {
-      const offer = await webRTCService.connectToPeer(memberId);
-      await joinChannelMutation.mutateAsync(memberId);
-      setActiveConnections(prev => {
-        const newConnections = new Set(Array.from(prev));
-        newConnections.add(memberId);
-        return newConnections;
-      });
-    } catch (error) {
-      if (error instanceof Error) {
-        toast({
-          title: t('voice.errors.connectionFailed'),
-          description: error.message,
-          variant: "destructive",
-        });
-      }
-    }
-  }, [user?.id, activeConnections, joinChannelMutation, toast, t]);
-
-  const checkAudioPermissions = useCallback(async () => {
-    try {
-      await webRTCService.startLocalStream();
-      setHasAudioPermission(true);
-      return true;
-    } catch (error) {
-      if (error instanceof Error) {
-        setHasAudioPermission(false);
-        toast({
-          title: t('voice.errors.permissionDenied'),
-          description: error.message,
-          variant: "destructive",
-        });
-      }
-      return false;
-    }
-  }, [toast, t]);
 
   useEffect(() => {
     let mounted = true;
 
-    const setupVoiceChat = async () => {
-      if (!isJoined || !user?.id) return;
+    const connectWebSocket = () => {
+      if (!isJoined || !user?.id || wsRef.current?.readyState === WebSocket.OPEN || retryCount >= maxRetries) {
+        return;
+      }
+
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
 
       try {
-        setIsConnecting(true);
-        const hasPermission = await checkAudioPermissions();
-        if (!hasPermission) {
-          setIsJoined(false);
-          return;
-        }
+        const ws = new WebSocket(wsUrl);
 
-        // Connect to existing members
-        for (const member of channelMembers) {
-          if (member.id !== user.id) {
-            await handlePeerConnection(member.id);
+        ws.onopen = () => {
+          if (!mounted) return;
+          console.log('WebSocket connected');
+          setWsConnected(true);
+          setRetryCount(0);
+
+          // Kanala katıldığımızı bildiriyoruz
+          ws.send(JSON.stringify({
+            type: 'join_channel',
+            channelId: channel.id
+          }));
+        };
+
+        ws.onmessage = async (event) => {
+          if (!mounted) return;
+          try {
+            const data = JSON.parse(event.data);
+
+            switch(data.type) {
+              case 'user_joined':
+                await refetchMembers();
+                toast({
+                  description: t('voice.userJoined', { username: data.username }),
+                });
+                break;
+
+              case 'user_left':
+                await refetchMembers();
+                toast({
+                  description: t('voice.userLeft', { username: data.username }),
+                });
+                break;
+
+              case 'voice_state_update':
+                setMembers(prev => prev.map(member => 
+                  member.id === data.userId 
+                    ? { ...member, isMuted: data.isMuted, isSpeaking: data.isSpeaking }
+                    : member
+                ));
+                break;
+
+              case 'error':
+                toast({
+                  description: data.message,
+                  variant: "destructive",
+                });
+                break;
+            }
+          } catch (error) {
+            console.error('Failed to parse WebSocket message:', error);
           }
-        }
-      } catch (error) {
-        if (!mounted) return;
+        };
 
-        if (error instanceof Error) {
+        ws.onclose = () => {
+          if (!mounted) return;
+          console.log('WebSocket disconnected');
+          setWsConnected(false);
+          wsRef.current = null;
+
+          if (isJoined && retryCount < maxRetries) {
+            const timeout = Math.min(1000 * Math.pow(2, retryCount), 5000);
+            retryTimeoutRef.current = setTimeout(() => {
+              if (mounted) {
+                setRetryCount(prev => prev + 1);
+              }
+            }, timeout);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          if (mounted) {
+            toast({
+              description: t('voice.connectionError'),
+              variant: "destructive",
+            });
+          }
+        };
+
+        wsRef.current = ws;
+      } catch (error) {
+        console.error('Failed to create WebSocket connection:', error);
+        if (mounted) {
           toast({
-            title: t('voice.errors.setupFailed'),
-            description: error.message,
+            description: t('voice.connectionFailed'),
             variant: "destructive",
           });
         }
-        setIsJoined(false);
-      } finally {
-        if (mounted) {
-          setIsConnecting(false);
+      }
+    };
+
+    // Ses akışını başlat
+    const setupAudio = async () => {
+      if (isJoined && !isMuted) {
+        try {
+          const stream = await getAudioStream();
+          if (!stream) {
+            toast({
+              description: t('voice.microphoneAccessError'),
+              variant: "destructive",
+            });
+            return;
+          }
+
+          // Ses durumunu WebSocket üzerinden bildir
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+              type: 'voice_state',
+              channelId: channel.id,
+              isMuted: false,
+              isSpeaking: true
+            }));
+          }
+        } catch (error) {
+          console.error('Audio setup error:', error);
+          toast({
+            description: t('voice.deviceAccessError'),
+            variant: "destructive",
+          });
         }
       }
     };
 
     if (isJoined && user?.id) {
-      setupVoiceChat();
+      connectWebSocket();
+      setupAudio();
     }
 
     return () => {
       mounted = false;
-      if (isJoined) {
-        webRTCService.leaveRoom();
-        setActiveConnections(new Set());
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
       }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      stopAudioStream();
     };
-  }, [isJoined, channel.id, user?.id, channelMembers, toast, t, handlePeerConnection, checkAudioPermissions]);
+  }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers, isMuted, getAudioStream, stopAudioStream]);
 
   const handleJoinLeave = async () => {
-    if (!user?.id) return;
-
-    try {
-      if (isJoined) {
-        await leaveChannelMutation.mutateAsync(user.id);
-        webRTCService.leaveRoom();
-        setIsJoined(false);
-        setIsMuted(false);
-        setActiveConnections(new Set());
-      } else {
-        if (await checkAudioPermissions()) {
-          setIsJoined(true);
-          await refetchMembers();
-        }
+    if (isJoined) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'leave_channel',
+          channelId: channel.id
+        }));
+        wsRef.current.close();
       }
-    } catch (error) {
-      if (error instanceof Error) {
-        toast({
-          title: t('voice.errors.actionFailed'),
-          description: error.message,
-          variant: "destructive",
-        });
-      }
+      stopAudioStream();
+      setIsJoined(false);
+      setWsConnected(false);
+      setRetryCount(0);
+      setMembers([]);
+    } else {
+      setIsJoined(true);
     }
   };
 
   const handleMuteToggle = async () => {
     if (!isJoined) return;
 
-    try {
-      if (!isMuted) {
-        await webRTCService.stopLocalStream();
-      } else {
-        await webRTCService.startLocalStream();
+    if (!isMuted) {
+      stopAudioStream();
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'voice_state',
+          channelId: channel.id,
+          isMuted: true,
+          isSpeaking: false
+        }));
       }
-      setIsMuted(!isMuted);
-    } catch (error) {
-      if (error instanceof Error) {
+    } else {
+      const stream = await getAudioStream();
+      if (!stream) {
         toast({
-          title: t('voice.errors.muteToggleFailed'),
-          description: error.message,
+          description: t('voice.microphoneAccessError'),
           variant: "destructive",
         });
+        return;
+      }
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'voice_state',
+          channelId: channel.id,
+          isMuted: false,
+          isSpeaking: true
+        }));
       }
     }
+    setIsMuted(!isMuted);
   };
 
   return (
@@ -224,31 +271,16 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             <Volume2 className="h-4 w-4 text-gray-400" />
           )}
           <span>{channel.name}</span>
-          {hasAudioPermission === false && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <AlertCircle
-                    className="h-4 w-4 text-red-400"
-                    aria-label={t('voice.errors.permissionDenied')}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{t('voice.errors.permissionDenied')}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+          {wsConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
         </div>
 
         <Button
           variant={isJoined ? "destructive" : "default"}
           size="sm"
           onClick={handleJoinLeave}
-          className="w-24"
-          disabled={isConnecting}
+          className="w-20"
         >
-          {isConnecting ? t('voice.connecting') : (isJoined ? t('server.leave') : t('server.join'))}
+          {isJoined ? t('server.leave') : t('server.join')}
         </Button>
       </div>
 
@@ -260,13 +292,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               size="sm"
               onClick={handleMuteToggle}
               className={isMuted ? "text-red-400" : "text-green-400"}
-              disabled={isConnecting}
             >
-              {isMuted ? (
-                <MicOff className="h-4 w-4 mr-2" />
-              ) : (
-                <Mic className="h-4 w-4 mr-2" />
-              )}
               {isMuted ? t('voice.unmute') : t('voice.mute')}
             </Button>
           </div>
@@ -282,21 +308,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                   <span className="text-sm">{member.username}</span>
                   {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
                   {member.isSpeaking && <Volume2 className="h-3 w-3 text-green-400" />}
-                  {activeConnections.has(member.id) && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <div
-                            className="w-2 h-2 rounded-full bg-green-400"
-                            aria-label={t('voice.connected')}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{t('voice.connected')}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
                 </div>
               ))}
             </div>

@@ -25,7 +25,6 @@ export const users = pgTable("users", {
   showLastSeen: boolean("show_last_seen").default(true),
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   twoFactorSecret: text("two_factor_secret"),
-  requiresSecondFactor: boolean("requires_second_factor").default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

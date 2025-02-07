@@ -1,25 +1,19 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
-import { Express, Request, Response, NextFunction } from "express";
+import { Express } from "express";
+import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
-import { sendEmail } from "./mail-service";
-import cors from 'cors';
-import jwt from 'jsonwebtoken';
 
 declare global {
   namespace Express {
-    interface User extends SelectUser {
-      requiresSecondFactor?: boolean;
-    }
+    interface User extends SelectUser {}
   }
 }
 
 const scryptAsync = promisify(scrypt);
-const JWT_SECRET = process.env.JWT_SECRET || process.env.REPL_ID!;
-const TOKEN_EXPIRY = '24h';
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -34,194 +28,170 @@ async function comparePasswords(supplied: string, stored: string) {
   return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
-async function generate2FACode(): Promise<string> {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-async function send2FACode(email: string, code: string): Promise<boolean> {
-  return await sendEmail({
-    to: email,
-    subject: "Doğrulama Kodu",
-    html: `
-      <h1>Doğrulama Kodunuz</h1>
-      <p>İki faktörlü doğrulama kodunuz: <strong>${code}</strong></p>
-      <p>Bu kod 5 dakika süreyle geçerlidir.</p>
-    `
-  });
-}
-
-function generateToken(user: SelectUser) {
-  return jwt.sign(
-    { 
-      id: user.id, 
-      username: user.username,
-      requiresSecondFactor: user.twoFactorEnabled 
-    },
-    JWT_SECRET,
-    { expiresIn: TOKEN_EXPIRY }
-  );
-}
-
-function verifyToken(token: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
-      if (err) return reject(err);
-      resolve(decoded);
-    });
-  });
-}
-
-async function authenticateToken(req: Request, res: Response, next: NextFunction) {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.split(' ')[1];
-
-    if (!token) {
-      return res.status(401).json({ message: "Token gerekli" });
-    }
-
-    const decoded = await verifyToken(token);
-    const user = await storage.getUser(decoded.id);
-
-    if (!user) {
-      return res.status(401).json({ message: "Geçersiz token" });
-    }
-
-    req.user = user;
-    next();
-  } catch (error) {
-    return res.status(401).json({ message: "Geçersiz token" });
-  }
-}
-
 export function setupAuth(app: Express) {
-  app.use(cors({
-    origin: process.env.NODE_ENV === 'production' ? 'https://your-domain.com' : 'http://localhost:3000',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  }));
+  const sessionSettings: session.SessionOptions = {
+    secret: process.env.SESSION_SECRET || process.env.REPL_ID!,
+    resave: false,
+    saveUninitialized: false,
+    store: storage.sessionStore,
+    cookie: {
+      secure: app.get("env") === "production",
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      httpOnly: true,
+      sameSite: 'lax'
+    },
+    name: 'ozba.session'
+  };
+
+  if (app.get("env") === "production") {
+    app.set("trust proxy", 1);
+    sessionSettings.cookie!.secure = true;
+  }
+
+  const sessionMiddleware = session(sessionSettings);
+  app.use(sessionMiddleware);
+
+  // Export session middleware for WebSocket
+  (app as any).sessionMiddleware = sessionMiddleware;
 
   app.use(passport.initialize());
+  app.use(passport.session());
 
   passport.use(
-    new LocalStrategy(async (username, password, done) => {
+    new LocalStrategy(async (username: string, password: string, done) => {
       try {
         const user = await storage.getUserByUsername(username);
         if (!user) {
-          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         const isValidPassword = await comparePasswords(password, user.password);
         if (!isValidPassword) {
-          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
-        }
-
-        if (user.twoFactorEnabled && user.email) {
-          const code = await generate2FACode();
-          await storage.set2FACode(user.id, code);
-          const emailSent = await send2FACode(user.email, code);
-
-          if (!emailSent) {
-            return done(new Error("2FA kodu gönderilemedi"));
-          }
-
-          return done(null, { ...user, requiresSecondFactor: true });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         return done(null, user);
       } catch (error) {
-        console.error('Kimlik doğrulama hatası:', error);
+        console.error('Authentication error:', error);
         return done(error);
       }
     }),
   );
 
+  passport.serializeUser((user, done) => {
+    done(null, user.id);
+  });
 
-  app.post("/api/register", async (req, res) => {
+  passport.deserializeUser(async (id: number, done) => {
     try {
-      const existingUser = await storage.getUserByUsername(req.body.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Bu kullanıcı adı zaten kullanılıyor" });
+      const user = await storage.getUser(id);
+      if (!user) {
+        return done(null, false);
+      }
+      done(null, user);
+    } catch (error) {
+      console.error('Session deserialization error:', error);
+      done(error);
+    }
+  });
+
+  // Add error handling middleware
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('Auth error:', err);
+    if (err.name === 'UnauthorizedError') {
+      res.status(401).json({ message: 'Invalid token' });
+    } else {
+      next(err);
+    }
+  });
+
+  app.post("/api/register", async (req, res, next) => {
+    try {
+      const { username, password, email, phone } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ 
+          message: "Username and password are required" 
+        });
       }
 
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(400).json({ 
+          message: "Username already exists" 
+        });
+      }
+
+      const hashedPassword = await hashPassword(password);
       const user = await storage.createUser({
-        ...req.body,
-        password: await hashPassword(req.body.password),
+        username,
+        password: hashedPassword,
+        email,
+        phone
       });
 
-      const token = generateToken(user);
-      res.status(201).json({ user, token });
+      req.login(user, (err) => {
+        if (err) {
+          console.error('Login error after registration:', err);
+          return next(err);
+        }
+        res.status(201).json(user);
+      });
     } catch (error) {
-      console.error('Kayıt hatası:', error);
-      res.status(500).json({ message: "Kayıt işlemi başarısız" });
+      console.error('Registration error:', error);
+      next(error);
     }
   });
 
   app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err, user, info) => {
+    passport.authenticate("local", (err: any, user: SelectUser | false, info: any) => {
       if (err) {
         console.error('Login error:', err);
-        return res.status(500).json({ message: "Giriş hatası" });
+        return next(err);
       }
 
       if (!user) {
-        return res.status(401).json({ message: info?.message || "Kimlik doğrulama başarısız" });
-      }
-
-      if (user.requiresSecondFactor) {
-        return res.status(202).json({ 
-          message: "2FA kodu gerekli", 
-          requiresSecondFactor: true,
-          tempToken: generateToken({ ...user, twoFactorEnabled: true })
+        return res.status(401).json({ 
+          message: info?.message || "Authentication failed" 
         });
       }
 
-      const token = generateToken(user);
-      res.status(200).json({ user, token });
+      req.login(user, (err) => {
+        if (err) {
+          console.error('Session creation error:', err);
+          return next(err);
+        }
+        res.json(user);
+      });
     })(req, res, next);
   });
 
-  app.post("/api/verify-2fa", async (req, res) => {
-    const authHeader = req.headers.authorization;
-    const tempToken = authHeader?.split(' ')[1];
-
-    if (!tempToken) {
-      return res.status(401).json({ message: "Token gerekli" });
+  app.post("/api/logout", (req, res, next) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
     }
 
-    try {
-      const decoded = await verifyToken(tempToken);
-      if (!decoded.requiresSecondFactor) {
-        return res.status(400).json({ message: "2FA doğrulaması gerekli değil" });
+    req.logout((err) => {
+      if (err) {
+        console.error('Logout error:', err);
+        return next(err);
       }
-
-      const { code } = req.body;
-      if (!code) {
-        return res.status(400).json({ message: "Doğrulama kodu gerekli" });
-      }
-
-      const isValid = await storage.verify2FACode(decoded.id, code);
-      if (!isValid) {
-        return res.status(400).json({ message: "Geçersiz veya süresi dolmuş kod" });
-      }
-
-      const user = await storage.getUser(decoded.id);
-      if (!user) {
-        return res.status(404).json({ message: "Kullanıcı bulunamadı" });
-      }
-
-      const token = generateToken(user);
-      res.status(200).json({ user, token });
-    } catch (error) {
-      console.error('2FA doğrulama hatası:', error);
-      res.status(500).json({ message: "2FA doğrulama işlemi başarısız" });
-    }
+      req.session.destroy((err) => {
+        if (err) {
+          console.error('Session destruction error:', err);
+          return next(err);
+        }
+        res.sendStatus(200);
+      });
+    });
   });
 
-  app.get("/api/user", authenticateToken, (req, res) => {
+  app.get("/api/user", (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ 
+        message: "Not authenticated" 
+      });
+    }
     res.json(req.user);
   });
-
-  return app;
 }
