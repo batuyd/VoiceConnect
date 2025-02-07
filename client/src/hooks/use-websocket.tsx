@@ -18,19 +18,25 @@ export function useWebSocket() {
 
   const connectWebSocket = useCallback(() => {
     try {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-      console.log('Attempting WebSocket connection to:', wsUrl);
+      // Doğrudan port numarası ile WebSocket URL'i
+      const wsUrl = `ws://${window.location.hostname}:5000/ws`;
+      console.log('WebSocket bağlantısı deneniyor:', wsUrl);
+
+      // Varolan bağlantıyı temizle
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        console.log('Mevcut WebSocket bağlantısı kapatılıyor');
+        socketRef.current.close();
+      }
 
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
       socket.onopen = () => {
-        console.log('WebSocket connected successfully');
+        console.log('WebSocket bağlantısı başarılı');
         setIsConnected(true);
         setRetryCount(0);
 
-        // Start sending ping messages
+        // Ping mesajlarını göndermeye başla
         pingIntervalRef.current = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: 'ping' }));
@@ -39,16 +45,16 @@ export function useWebSocket() {
       };
 
       socket.onclose = (event) => {
-        console.log('WebSocket disconnected:', event);
+        console.log('WebSocket bağlantısı kapandı, kod:', event.code, 'neden:', event.reason);
         setIsConnected(false);
         clearInterval(pingIntervalRef.current);
 
-        // Exponential backoff for reconnection attempts
+        // Üstel geri çekilme ile yeniden bağlanma
         const timeout = Math.min(1000 * Math.pow(2, retryCount), 30000);
-        console.log(`Attempting to reconnect in ${timeout}ms`);
+        console.log(`${timeout}ms sonra yeniden bağlanmayı deneyecek`);
 
         reconnectTimeoutRef.current = setTimeout(() => {
-          if (socketRef.current?.readyState === WebSocket.CLOSED) {
+          if (!socketRef.current || socketRef.current.readyState === WebSocket.CLOSED) {
             setRetryCount(prev => prev + 1);
             connectWebSocket();
           }
@@ -56,13 +62,21 @@ export function useWebSocket() {
       };
 
       socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error('WebSocket hatası:', error);
+        // Sadece bağlantı tamamen koptuğunda kullanıcıya bildir
+        if (!isConnected) {
+          toast({
+            title: t('errors.connectionError'),
+            description: t('errors.connectionErrorDesc'),
+            variant: 'destructive',
+          });
+        }
       };
 
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as WebSocketMessage;
-          console.log('Received WebSocket message:', data);
+          console.log('WebSocket mesajı alındı:', data);
 
           switch (data.type) {
             case 'error':
@@ -93,53 +107,57 @@ export function useWebSocket() {
               break;
 
             case 'pong':
-              // Received pong from server, connection is alive
+              console.log('Pong yanıtı alındı - bağlantı aktif');
               break;
 
             default:
-              console.log('Unhandled message type:', data.type);
+              console.log('Bilinmeyen mesaj türü:', data.type);
           }
         } catch (error) {
-          console.error('Error processing WebSocket message:', error);
+          console.error('WebSocket mesajı işlenirken hata:', error);
         }
       };
     } catch (error) {
-      console.error('Error creating WebSocket connection:', error);
+      console.error('WebSocket bağlantısı oluşturulurken hata:', error);
       toast({
         title: t('errors.connectionError'),
         description: t('errors.connectionErrorDesc'),
         variant: 'destructive',
       });
     }
-  }, [toast, t, retryCount]);
+  }, [toast, t, retryCount, isConnected]);
 
   useEffect(() => {
     connectWebSocket();
 
     return () => {
+      // Temizlik işlemleri
       clearTimeout(reconnectTimeoutRef.current);
       clearInterval(pingIntervalRef.current);
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
+      if (socketRef.current) {
         socketRef.current.close();
+        socketRef.current = null;
       }
     };
   }, [connectWebSocket]);
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      try {
-        socketRef.current.send(JSON.stringify(message));
-      } catch (error) {
-        console.error('Error sending WebSocket message:', error);
-        toast({
-          title: t('errors.error'),
-          description: t('errors.messageNotSent'),
-          variant: 'destructive',
-        });
-      }
-    } else {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket bağlantısı kapalı, mesaj gönderilemiyor');
       toast({
         title: t('errors.connectionError'),
+        description: t('errors.messageNotSent'),
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      socketRef.current.send(JSON.stringify(message));
+    } catch (error) {
+      console.error('Mesaj gönderilirken hata:', error);
+      toast({
+        title: t('errors.error'),
         description: t('errors.messageNotSent'),
         variant: 'destructive',
       });

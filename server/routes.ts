@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { setupAuth } from "./auth";
+import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from 'ws';
 import session from 'express-session';
@@ -593,19 +593,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // WebSocket session middleware setup
-  const sessionParser = session({
-    secret: process.env.REPL_ID!,
-    resave: false,
-    saveUninitialized: false,
-    store: storage.sessionStore,
-    cookie: {
-      secure: app.get("env") === "production",
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: 'lax',
-      httpOnly: true,
-    },
-    name: 'sid'
-  });
+  const sessionParser = session(sessionSettings);
 
   // WebSocket connection handler
   wss.on('connection', async (ws, req) => {
