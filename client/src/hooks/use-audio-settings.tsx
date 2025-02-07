@@ -18,154 +18,128 @@ const AudioSettingsContext = createContext<AudioSettingsContextType | null>(null
 export function AudioSettingsProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const { t } = useLanguage();
-  const [volume, setVolume] = useState<number[]>(() => {
-    try {
-      const savedVolume = localStorage.getItem('volume');
-      return savedVolume ? JSON.parse(savedVolume) : [50];
-    } catch {
-      return [50];
-    }
-  });
 
+  // State management
+  const [volume, setVolume] = useState<number[]>([50]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedInputDevice, setSelectedInputDevice] = useState<string>(() => {
-    try {
-      return localStorage.getItem('inputDevice') || "";
-    } catch {
-      return "";
-    }
-  });
+  const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
+  const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>("");
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>(() => {
-    try {
-      return localStorage.getItem('outputDevice') || "";
-    } catch {
-      return "";
-    }
-  });
-
+  // Initialize audio devices
   useEffect(() => {
     let mounted = true;
 
     const initializeAudioDevices = async () => {
+      if (!mounted) return;
+
       try {
-        // İlk olarak izinleri kontrol et
+        // Step 1: Request permissions
+        console.log('Requesting audio permissions...');
         const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
+          audio: { echoCancellation: true, noiseSuppression: true }
         });
 
-        // İzin alındıktan sonra stream'i kapat
+        // Cleanup test stream
         stream.getTracks().forEach(track => track.stop());
 
-        // Cihaz listesini al
+        // Step 2: Get device list
+        console.log('Getting audio devices...');
         const devices = await navigator.mediaDevices.enumerateDevices();
+
         if (!mounted) return;
 
+        // Step 3: Filter and set audio devices
         const audioDevices = devices.filter(device => 
           (device.kind === 'audioinput' || device.kind === 'audiooutput') && 
-          device.deviceId !== ''
+          device.deviceId
         );
 
-        if (audioDevices.length === 0) {
-          throw new Error(t('audio.noDevices'));
-        }
-
+        console.log(`Found ${audioDevices.length} audio devices`);
         setAudioDevices(audioDevices);
 
-        // Varsayılan giriş cihazını ayarla
-        if (!selectedInputDevice) {
-          const defaultInput = audioDevices.find(device => 
-            device.kind === 'audioinput' && device.deviceId !== 'default'
-          );
-          if (defaultInput) {
-            setSelectedInputDevice(defaultInput.deviceId);
-            localStorage.setItem('inputDevice', defaultInput.deviceId);
-          }
+        // Step 4: Set default devices if needed
+        const defaultInput = audioDevices.find(d => d.kind === 'audioinput');
+        const defaultOutput = audioDevices.find(d => d.kind === 'audiooutput');
+
+        if (defaultInput && !selectedInputDevice) {
+          console.log('Setting default input device:', defaultInput.label);
+          setSelectedInputDevice(defaultInput.deviceId);
         }
 
-        // Varsayılan çıkış cihazını ayarla
-        if (!selectedOutputDevice) {
-          const defaultOutput = audioDevices.find(device => 
-            device.kind === 'audiooutput' && device.deviceId !== 'default'
-          );
-          if (defaultOutput) {
-            setSelectedOutputDevice(defaultOutput.deviceId);
-            localStorage.setItem('outputDevice', defaultOutput.deviceId);
-          }
+        if (defaultOutput && !selectedOutputDevice) {
+          console.log('Setting default output device:', defaultOutput.label);
+          setSelectedOutputDevice(defaultOutput.deviceId);
         }
+
+        setIsInitialized(true);
 
       } catch (error: any) {
-        console.error('Failed to initialize audio devices:', error);
-        if (mounted) {
-          toast({
-            description: error.name === 'NotAllowedError' 
-              ? t('audio.permissionDenied')
-              : t('audio.deviceAccessError'),
-            variant: "destructive",
-          });
+        console.error('Audio initialization error:', {
+          name: error.name,
+          message: error.message
+        });
+
+        let errorMessage = t('audio.deviceAccessError');
+
+        if (error.name === 'NotAllowedError') {
+          errorMessage = t('audio.permissionDenied');
+        } else if (error.name === 'NotFoundError') {
+          errorMessage = t('audio.noDevicesFound');
         }
+
+        toast({
+          description: errorMessage,
+          variant: "destructive",
+        });
       }
     };
 
-    // Cihaz değişikliklerini dinle
-    const handleDeviceChange = async () => {
-      if (document.visibilityState === 'visible') {
-        await initializeAudioDevices();
-      }
-    };
-
+    // Initial setup
     initializeAudioDevices();
 
+    // Device change handler
+    const handleDeviceChange = () => {
+      console.log('Audio devices changed, reinitializing...');
+      initializeAudioDevices();
+    };
+
     navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
-    document.addEventListener('visibilitychange', handleDeviceChange);
 
     return () => {
       mounted = false;
       navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
-      document.removeEventListener('visibilitychange', handleDeviceChange);
     };
   }, [toast, t]);
 
-  // Ses ayarlarını localStorage'a kaydet
-  useEffect(() => {
-    localStorage.setItem('volume', JSON.stringify(volume));
-  }, [volume]);
-
+  // Simple test sound function
   const playTestSound = async () => {
+    if (!isInitialized) {
+      console.log('Audio not initialized, cannot play test sound');
+      return;
+    }
+
     try {
+      console.log('Playing test sound...');
       const audioContext = new AudioContext();
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
 
-      gainNode.gain.value = volume[0] / 100;
-      oscillator.connect(gainNode);
-
-      if (selectedOutputDevice && 'setSinkId' in HTMLAudioElement.prototype) {
-        const audioElement = new Audio();
-        await (audioElement as any).setSinkId(selectedOutputDevice);
-        const mediaStreamDestination = audioContext.createMediaStreamDestination();
-        gainNode.connect(mediaStreamDestination);
-        audioElement.srcObject = mediaStreamDestination.stream;
-        await audioElement.play();
-      } else {
-        gainNode.connect(audioContext.destination);
-      }
-
-      oscillator.frequency.value = 440;
       oscillator.type = 'sine';
-      oscillator.start();
+      oscillator.frequency.value = 440;
+      gainNode.gain.value = volume[0] / 100;
 
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.start();
       setTimeout(() => {
         oscillator.stop();
         audioContext.close();
-      }, 1000);
+      }, 500);
 
     } catch (error) {
-      console.error('Failed to play test sound:', error);
+      console.error('Test sound error:', error);
       toast({
         description: t('audio.testSoundError'),
         variant: "destructive",
@@ -180,15 +154,9 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         setVolume,
         audioDevices,
         selectedInputDevice,
-        setSelectedInputDevice: (deviceId: string) => {
-          setSelectedInputDevice(deviceId);
-          localStorage.setItem('inputDevice', deviceId);
-        },
+        setSelectedInputDevice,
         selectedOutputDevice,
-        setSelectedOutputDevice: (deviceId: string) => {
-          setSelectedOutputDevice(deviceId);
-          localStorage.setItem('outputDevice', deviceId);
-        },
+        setSelectedOutputDevice,
         playTestSound,
       }}
     >

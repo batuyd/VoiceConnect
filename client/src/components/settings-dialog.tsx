@@ -10,10 +10,12 @@ import { useTheme } from "@/hooks/use-theme";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { useToast } from "@/hooks/use-toast";
 
 export function SettingsDialog() {
   const { language, setLanguage } = useLanguage();
   const { theme, setTheme } = useTheme();
+  const { toast } = useToast();
   const {
     volume,
     setVolume,
@@ -24,7 +26,21 @@ export function SettingsDialog() {
     setSelectedOutputDevice,
     playTestSound,
   } = useAudioSettings();
+
   const [open, setOpen] = useState(false);
+
+  const handleTestSound = async () => {
+    try {
+      await playTestSound();
+    } catch (error) {
+      console.error('Test sound failed:', error);
+      toast({
+        title: 'Ses Testi Başarısız',
+        description: 'Ses testi çalınamadı. Lütfen ses ayarlarınızı kontrol edin.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -158,7 +174,7 @@ export function SettingsDialog() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => playTestSound()}
+                    onClick={handleTestSound}
                   >
                     <PlayCircle className="h-4 w-4" />
                   </Button>
