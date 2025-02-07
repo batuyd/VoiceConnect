@@ -5,7 +5,6 @@ import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from 'ws';
 import session from 'express-session';
 import type { User } from "@shared/schema";
-import ytdl from 'ytdl-core';
 
 // Track connected users globally
 const connectedUsers = new Map<number, {
@@ -595,16 +594,25 @@ export function registerRoutes(app: Express): Server {
   // WebSocket session middleware setup
   const sessionParser = session(sessionSettings);
 
-  // WebSocket connection handler
+  // WebSocket connection handler with improved logging
   wss.on('connection', async (ws, req) => {
-    console.log('New WebSocket connection attempt');
+    console.log('New WebSocket connection attempt', {
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      url: req.url,
+      remoteAddress: req.socket.remoteAddress
+    });
 
     try {
       // Parse session synchronously to ensure proper authentication
       await new Promise<void>((resolve, reject) => {
         sessionParser(req as any, {} as any, (err) => {
           if (err) {
-            console.error('Session parsing error:', err);
+            console.error('Session parsing error:', {
+              error: err,
+              timestamp: new Date().toISOString(),
+              stack: err.stack
+            });
             reject(err);
           } else {
             resolve();
@@ -615,10 +623,13 @@ export function registerRoutes(app: Express): Server {
       // Check authentication
       const session = (req as any).session;
       if (!session?.passport?.user) {
-        console.log('WebSocket authentication failed - no session');
-        ws.send(JSON.stringify({ 
-          type: 'error', 
-          message: 'Authentication required' 
+        console.log('WebSocket authentication failed - no session', {
+          timestamp: new Date().toISOString(),
+          sessionData: session
+        });
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Authentication required'
         }));
         ws.close();
         return;
@@ -629,16 +640,23 @@ export function registerRoutes(app: Express): Server {
       const user = await storage.getUser(userId);
 
       if (!user) {
-        console.log('WebSocket authentication failed - user not found');
-        ws.send(JSON.stringify({ 
-          type: 'error', 
-          message: 'User not found' 
+        console.log('WebSocket authentication failed - user not found', {
+          timestamp: new Date().toISOString(),
+          userId
+        });
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'User not found'
         }));
         ws.close();
         return;
       }
 
-      console.log(`User ${userId} authenticated and connected via WebSocket`);
+      console.log('WebSocket connection authenticated', {
+        timestamp: new Date().toISOString(),
+        userId: user.id,
+        username: user.username
+      });
 
       // Add user to connected users
       connectedUsers.set(userId, {
@@ -658,23 +676,40 @@ export function registerRoutes(app: Express): Server {
       ws.on('message', async (message) => {
         try {
           const data = JSON.parse(message.toString());
-          console.log(`Received message from user ${userId}:`, data);
+          console.log('WebSocket message received', {
+            timestamp: new Date().toISOString(),
+            userId,
+            messageType: data.type,
+            data
+          });
 
           switch (data.type) {
             case 'ping':
               const userConnection = connectedUsers.get(userId);
               if (userConnection) {
                 userConnection.lastPing = Date.now();
+                console.log('Ping received, sending pong', {
+                  timestamp: new Date().toISOString(),
+                  userId
+                });
                 ws.send(JSON.stringify({ type: 'pong' }));
               }
               break;
 
             default:
-              console.log('Unknown message type:', data.type);
+              console.log('Unknown message type', {
+                timestamp: new Date().toISOString(),
+                userId,
+                type: data.type
+              });
           }
         } catch (error) {
-          const err = handleError(error);
-          console.error('Error processing message:', err);
+          console.error('Error processing message', {
+            timestamp: new Date().toISOString(),
+            userId,
+            error,
+            rawMessage: message.toString()
+          });
           ws.send(JSON.stringify({
             type: 'error',
             message: 'Invalid message format'
@@ -684,28 +719,40 @@ export function registerRoutes(app: Express): Server {
 
       // Handle connection close
       ws.on('close', () => {
-        console.log(`WebSocket connection closed for user ${userId}`);
+        console.log('WebSocket connection closed', {
+          timestamp: new Date().toISOString(),
+          userId,
+          username: user.username
+        });
         connectedUsers.delete(userId);
       });
 
       // Handle errors
       ws.on('error', (error) => {
-        const err = handleError(error);
-        console.error(`WebSocket error for user ${userId}:`, err);
+        console.error('WebSocket connection error', {
+          timestamp: new Date().toISOString(),
+          userId,
+          error: error.message,
+          stack: error.stack
+        });
         connectedUsers.delete(userId);
       });
 
     } catch (error) {
-      const err = handleError(error);
-      console.error('WebSocket connection error:', err);
+      console.error('WebSocket connection setup error', {
+        timestamp: new Date().toISOString(),
+        error: error.message,
+        stack: error.stack
+      });
       ws.close();
     }
   });
 
-  // Cleanup inactive connections
+  // Cleanup inactive connections every 30 seconds
   setInterval(() => {
     const now = Date.now();
     for (const [userId, connection] of connectedUsers) {
+      // Close connection if no ping received in last 60 seconds
       if (now - connection.lastPing > 60000) {
         console.log(`Cleaning up inactive connection for user ${userId}`);
         if (connection.ws.readyState === WebSocket.OPEN) {
