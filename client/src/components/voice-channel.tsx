@@ -1,6 +1,6 @@
-import { Volume2, VolumeX, Mic, MicOff } from "lucide-react";
+import { Volume2, VolumeX, Mic, MicOff, AlertCircle } from "lucide-react";
 import { Channel } from "@shared/schema";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,23 +31,79 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [activeConnections, setActiveConnections] = useState<Set<number>>(new Set());
+  const [hasAudioPermission, setHasAudioPermission] = useState<boolean | null>(null);
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
-    enabled: isJoined
+    enabled: isJoined,
   });
 
   const joinChannelMutation = useMutation({
     mutationFn: async (memberId: number) => {
       return await apiRequest('POST', `/api/channels/${channel.id}/members/${memberId}/join`);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('voice.errors.joinFailed'),
+        description: error.message,
+        variant: "destructive",
+      });
     }
   });
 
   const leaveChannelMutation = useMutation({
     mutationFn: async (memberId: number) => {
       return await apiRequest('POST', `/api/channels/${channel.id}/members/${memberId}/leave`);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('voice.errors.leaveFailed'),
+        description: error.message,
+        variant: "destructive",
+      });
     }
   });
+
+  const handlePeerConnection = useCallback(async (memberId: number) => {
+    if (!user?.id || activeConnections.has(memberId)) return;
+
+    try {
+      const offer = await webRTCService.connectToPeer(memberId);
+      await joinChannelMutation.mutateAsync(memberId);
+      setActiveConnections(prev => {
+        const newConnections = new Set(Array.from(prev));
+        newConnections.add(memberId);
+        return newConnections;
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        toast({
+          title: t('voice.errors.connectionFailed'),
+          description: error.message,
+          variant: "destructive",
+        });
+      }
+    }
+  }, [user?.id, activeConnections, joinChannelMutation, toast, t]);
+
+  const checkAudioPermissions = useCallback(async () => {
+    try {
+      await webRTCService.startLocalStream();
+      setHasAudioPermission(true);
+      return true;
+    } catch (error) {
+      if (error instanceof Error) {
+        setHasAudioPermission(false);
+        toast({
+          title: t('voice.errors.permissionDenied'),
+          description: error.message,
+          variant: "destructive",
+        });
+      }
+      return false;
+    }
+  }, [toast, t]);
 
   useEffect(() => {
     let mounted = true;
@@ -57,30 +113,29 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
       try {
         setIsConnecting(true);
-        // Start local stream
-        await webRTCService.startLocalStream();
+        const hasPermission = await checkAudioPermissions();
+        if (!hasPermission) {
+          setIsJoined(false);
+          return;
+        }
 
         // Connect to existing members
         for (const member of channelMembers) {
           if (member.id !== user.id) {
-            const offer = await webRTCService.connectToPeer(member.id);
-            await joinChannelMutation.mutateAsync(member.id);
+            await handlePeerConnection(member.id);
           }
         }
       } catch (error) {
-        console.error('Ses sohbeti başlatılamadı:', error);
-        if (mounted) {
-          let errorMessage = t('voice.setupError');
-          if (error instanceof Error) {
-            errorMessage = error.message;
-          }
+        if (!mounted) return;
+
+        if (error instanceof Error) {
           toast({
-            description: errorMessage,
+            title: t('voice.errors.setupFailed'),
+            description: error.message,
             variant: "destructive",
           });
-          // Hata durumunda kanaldan çık
-          setIsJoined(false);
         }
+        setIsJoined(false);
       } finally {
         if (mounted) {
           setIsConnecting(false);
@@ -96,21 +151,35 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       mounted = false;
       if (isJoined) {
         webRTCService.leaveRoom();
+        setActiveConnections(new Set());
       }
     };
-  }, [isJoined, channel.id, user?.id, channelMembers, toast, t, joinChannelMutation]);
+  }, [isJoined, channel.id, user?.id, channelMembers, toast, t, handlePeerConnection, checkAudioPermissions]);
 
   const handleJoinLeave = async () => {
     if (!user?.id) return;
 
-    if (isJoined) {
-      await leaveChannelMutation.mutateAsync(user.id);
-      webRTCService.leaveRoom();
-      setIsJoined(false);
-      setIsMuted(false);
-    } else {
-      setIsJoined(true);
-      refetchMembers();
+    try {
+      if (isJoined) {
+        await leaveChannelMutation.mutateAsync(user.id);
+        webRTCService.leaveRoom();
+        setIsJoined(false);
+        setIsMuted(false);
+        setActiveConnections(new Set());
+      } else {
+        if (await checkAudioPermissions()) {
+          setIsJoined(true);
+          await refetchMembers();
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        toast({
+          title: t('voice.errors.actionFailed'),
+          description: error.message,
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -125,15 +194,13 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       }
       setIsMuted(!isMuted);
     } catch (error) {
-      console.error('Ses durumu değiştirilemedi:', error);
-      let errorMessage = t('voice.deviceAccessError');
       if (error instanceof Error) {
-        errorMessage = error.message;
+        toast({
+          title: t('voice.errors.muteToggleFailed'),
+          description: error.message,
+          variant: "destructive",
+        });
       }
-      toast({
-        description: errorMessage,
-        variant: "destructive",
-      });
     }
   };
 
@@ -151,6 +218,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             <Volume2 className="h-4 w-4 text-gray-400" />
           )}
           <span>{channel.name}</span>
+          {hasAudioPermission === false && (
+            <AlertCircle className="h-4 w-4 text-red-400" title={t('voice.errors.permissionDenied')} />
+          )}
         </div>
 
         <Button
@@ -194,6 +264,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                   <span className="text-sm">{member.username}</span>
                   {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
                   {member.isSpeaking && <Volume2 className="h-3 w-3 text-green-400" />}
+                  {activeConnections.has(member.id) && (
+                    <div className="w-2 h-2 rounded-full bg-green-400" title={t('voice.connected')} />
+                  )}
                 </div>
               ))}
             </div>

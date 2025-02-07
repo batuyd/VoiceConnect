@@ -9,11 +9,38 @@ class WebRTCService {
   private peers: Map<number, PeerConnection> = new Map();
   private localStream: MediaStream | null = null;
 
+  private async checkAudioPermissions(): Promise<boolean> {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioDevices = devices.filter(device => device.kind === 'audioinput');
+
+      if (audioDevices.length === 0) {
+        throw new Error('Mikrofon cihazı bulunamadı');
+      }
+
+      // Ses izinlerini kontrol et
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error instanceof DOMException && error.name === 'NotAllowedError') {
+          throw new Error('Mikrofon izni reddedildi. Lütfen tarayıcı izinlerini kontrol edin.');
+        }
+        throw error;
+      }
+      throw new Error('Ses izinleri kontrol edilirken beklenmeyen bir hata oluştu');
+    }
+  }
+
   async startLocalStream(audioConstraints: MediaTrackConstraints = {}) {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('tarayıcınız WebRTC desteklemiyor');
+        throw new Error('Tarayıcınız WebRTC desteklemiyor');
       }
+
+      // İzinleri kontrol et
+      await this.checkAudioPermissions();
 
       // Eğer zaten bir stream varsa onu durduralım
       if (this.localStream) {
@@ -33,15 +60,11 @@ class WebRTCService {
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
       return this.localStream;
     } catch (error) {
-      console.error('Ses cihazına erişilemedi:', error);
-      if (error instanceof DOMException) {
-        if (error.name === 'NotAllowedError') {
-          throw new Error('Mikrofon izni reddedildi. Lütfen tarayıcı izinlerini kontrol edin.');
-        } else if (error.name === 'NotFoundError') {
-          throw new Error('Mikrofon cihazı bulunamadı. Lütfen bir mikrofon bağlayın.');
-        }
+      if (error instanceof Error) {
+        console.error('Ses cihazına erişilemedi:', error.message);
+        throw error;
       }
-      throw new Error('Ses cihazına bağlanırken bir hata oluştu: ' + error.message);
+      throw new Error('Beklenmeyen bir hata oluştu');
     }
   }
 
@@ -87,19 +110,26 @@ class WebRTCService {
       peer.on('stream', (remoteStream: MediaStream) => {
         const audio = new Audio();
         audio.srcObject = remoteStream;
-        audio.play().catch(console.error);
+        audio.play().catch(e => {
+          if (e instanceof Error) {
+            console.error('Ses oynatma hatası:', e.message);
+          }
+        });
       });
 
       // Handle error
-      peer.on('error', (err) => {
-        console.error('Peer bağlantı hatası:', err);
+      peer.on('error', (err: Error) => {
+        console.error('Peer bağlantı hatası:', err.message);
         this.removePeer(targetUserId);
       });
 
       return peer;
     } catch (error) {
-      console.error('Peer bağlantısı başlatılamadı:', error);
-      throw error;
+      if (error instanceof Error) {
+        console.error('Peer bağlantısı başlatılamadı:', error.message);
+        throw error;
+      }
+      throw new Error('Peer bağlantısı kurulurken beklenmeyen bir hata oluştu');
     }
   }
 
@@ -112,15 +142,20 @@ class WebRTCService {
           resolve(data);
         });
 
-        peer.on('error', reject);
+        peer.on('error', (err: Error) => {
+          reject(new Error('Peer bağlantı hatası: ' + err.message));
+        });
       });
     } catch (error) {
-      console.error('Peer\'e bağlanılamadı:', error);
-      throw error;
+      if (error instanceof Error) {
+        console.error('Peer\'e bağlanılamadı:', error.message);
+        throw error;
+      }
+      throw new Error('Bağlantı kurulurken beklenmeyen bir hata oluştu');
     }
   }
 
-  async acceptConnection(targetUserId: number, signalData: any) {
+  async acceptConnection(targetUserId: number, signalData: unknown) {
     try {
       const peer = await this.initializePeerConnection(targetUserId, false);
       peer.signal(signalData);
@@ -130,23 +165,31 @@ class WebRTCService {
           resolve(data);
         });
 
-        peer.on('error', reject);
+        peer.on('error', (err: Error) => {
+          reject(new Error('Bağlantı kabul hatası: ' + err.message));
+        });
       });
     } catch (error) {
-      console.error('Bağlantı kabul edilemedi:', error);
-      throw error;
+      if (error instanceof Error) {
+        console.error('Bağlantı kabul edilemedi:', error.message);
+        throw error;
+      }
+      throw new Error('Bağlantı kabul edilirken beklenmeyen bir hata oluştu');
     }
   }
 
-  async handleAnswer(targetUserId: number, signalData: any) {
+  async handleAnswer(targetUserId: number, signalData: unknown) {
     try {
       const peerConnection = this.peers.get(targetUserId);
       if (peerConnection) {
         peerConnection.peer.signal(signalData);
       }
     } catch (error) {
-      console.error('Yanıt işlenemedi:', error);
-      throw error;
+      if (error instanceof Error) {
+        console.error('Yanıt işlenemedi:', error.message);
+        throw error;
+      }
+      throw new Error('Yanıt işlenirken beklenmeyen bir hata oluştu');
     }
   }
 
