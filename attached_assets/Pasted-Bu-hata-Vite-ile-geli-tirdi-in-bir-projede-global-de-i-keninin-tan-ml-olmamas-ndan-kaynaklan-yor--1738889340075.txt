@@ -1,0 +1,74 @@
+Bu hata, Vite ile geliştirdiğin bir projede global değişkeninin tanımlı olmamasından kaynaklanıyor. Vite, modern tarayıcılar için optimize edildiğinden, Node.js’in "global" nesnesini varsayılan olarak desteklemez.
+
+Çözüm Yolları
+1. "global" Nesnesini Tanımla (En Kolay Çözüm)
+Kodunun başına şu satırı ekleyerek global değişkenini tarayıcı ortamında tanımlayabilirsin:
+
+javascript
+Kopyala
+Düzenle
+window.global = window;
+Bu, tarayıcı ortamında "global" değişkeninin kullanılmasını sağlar.
+
+2. package.json İçinde "global" Polyfill Ekle
+Eğer eski kütüphanelerden biri "global" değişkenini kullanıyorsa, node-polyfill paketini yükleyerek çözebilirsin:
+
+bash
+Kopyala
+Düzenle
+npm install --save-dev @esbuild-plugins/node-globals-polyfill
+Sonrasında vite.config.js dosyanı düzenle:
+
+javascript
+Kopyala
+Düzenle
+import { defineConfig } from 'vite';
+import inject from '@esbuild-plugins/node-globals-polyfill';
+
+export default defineConfig({
+  plugins: [],
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        global: 'window', // global değişkenini tanımla
+      },
+      plugins: [inject({ process: true, global: true })],
+    },
+  },
+});
+3. Vite için "server.hmr.overlay" Ayarını Kapat
+Eğer sadece hata mesajını görmek istemiyorsan, vite.config.js dosyanın içine şu satırı ekleyebilirsin:
+
+javascript
+Kopyala
+Düzenle
+export default defineConfig({
+  server: {
+    hmr: {
+      overlay: false, // Hata mesajı gösterme
+    },
+  },
+});
+Ancak bu sadece hatayı gizler, çözmez.
+
+4. Node.js Modüllerinin Tarayıcıda Çalışmasını Sağla
+Eğer global değişkeni gerektiren bir Node.js modülü kullanıyorsan, vite-plugin-node-polyfills gibi bir polyfill ekleyebilirsin:
+
+bash
+Kopyala
+Düzenle
+npm install vite-plugin-node-polyfills
+Sonrasında vite.config.js dosyana ekle:
+
+javascript
+Kopyala
+Düzenle
+import nodePolyfills from 'vite-plugin-node-polyfills';
+
+export default defineConfig({
+  plugins: [nodePolyfills()],
+});
+Sonuç ve Önerim
+Eğer direkt global nesnesi gerekiyorsa: window.global = window; ekleyerek çözebilirsin.
+Eğer Node.js modülleri ile ilgili bir hata varsa: vite-plugin-node-polyfills veya @esbuild-plugins/node-globals-polyfill yükleyebilirsin.
+Eğer sadece hata mesajını görmek istemiyorsan: server.hmr.overlay: false ayarını kapatabilirsin.

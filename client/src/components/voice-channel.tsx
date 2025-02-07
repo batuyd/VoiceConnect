@@ -1,4 +1,4 @@
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX, Mic, MicOff } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -30,6 +30,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
@@ -55,6 +56,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       if (!isJoined || !user?.id) return;
 
       try {
+        setIsConnecting(true);
         // Start local stream
         await webRTCService.startLocalStream();
 
@@ -66,12 +68,22 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           }
         }
       } catch (error) {
-        console.error('Failed to setup voice chat:', error);
+        console.error('Ses sohbeti başlatılamadı:', error);
         if (mounted) {
+          let errorMessage = t('voice.setupError');
+          if (error instanceof Error) {
+            errorMessage = error.message;
+          }
           toast({
-            description: t('voice.setupError'),
+            description: errorMessage,
             variant: "destructive",
           });
+          // Hata durumunda kanaldan çık
+          setIsJoined(false);
+        }
+      } finally {
+        if (mounted) {
+          setIsConnecting(false);
         }
       }
     };
@@ -86,7 +98,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         webRTCService.leaveRoom();
       }
     };
-  }, [isJoined, channel.id, user?.id, channelMembers, toast, t, joinChannelMutation, leaveChannelMutation]);
+  }, [isJoined, channel.id, user?.id, channelMembers, toast, t, joinChannelMutation]);
 
   const handleJoinLeave = async () => {
     if (!user?.id) return;
@@ -113,9 +125,13 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       }
       setIsMuted(!isMuted);
     } catch (error) {
-      console.error('Failed to toggle mute:', error);
+      console.error('Ses durumu değiştirilemedi:', error);
+      let errorMessage = t('voice.deviceAccessError');
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
       toast({
-        description: t('voice.deviceAccessError'),
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -141,9 +157,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           variant={isJoined ? "destructive" : "default"}
           size="sm"
           onClick={handleJoinLeave}
-          className="w-20"
+          className="w-24"
+          disabled={isConnecting}
         >
-          {isJoined ? t('server.leave') : t('server.join')}
+          {isConnecting ? t('voice.connecting') : (isJoined ? t('server.leave') : t('server.join'))}
         </Button>
       </div>
 
@@ -155,7 +172,13 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               size="sm"
               onClick={handleMuteToggle}
               className={isMuted ? "text-red-400" : "text-green-400"}
+              disabled={isConnecting}
             >
+              {isMuted ? (
+                <MicOff className="h-4 w-4 mr-2" />
+              ) : (
+                <Mic className="h-4 w-4 mr-2" />
+              )}
               {isMuted ? t('voice.unmute') : t('voice.mute')}
             </Button>
           </div>
