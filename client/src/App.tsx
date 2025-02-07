@@ -13,6 +13,7 @@ import HomePage from "@/pages/home-page";
 import ProfilePage from "@/pages/profile-page";
 import SettingsPage from "@/pages/settings-page";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { CoinDisplay } from "@/components/coin-display";
 import { useAuth } from "@/hooks/use-auth";
 import React from "react";
 
@@ -22,7 +23,12 @@ function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-900">
       {children}
-      {user && <SettingsDialog />}
+      {user && (
+        <div className="fixed bottom-4 right-4 flex flex-col gap-4 z-50">
+          <CoinDisplay />
+          <SettingsDialog />
+        </div>
+      )}
     </div>
   );
 }
