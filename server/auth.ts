@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { sendEmail } from "./mail-service";
+import cors from 'cors';
 
 declare global {
   namespace Express {
@@ -48,31 +49,39 @@ async function send2FACode(email: string, code: string): Promise<boolean> {
 }
 
 export function setupAuth(app: Express) {
+  // CORS ayarlarını güncelledim
+  app.use(cors({
+    origin: process.env.NODE_ENV === 'production' ? 'https://your-domain.com' : 'http://localhost:3000',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Set-Cookie'],
+  }));
+
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || process.env.REPL_ID!,
+    name: 'ozba.session',
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
+    proxy: true, // Trust the reverse proxy
     cookie: {
       secure: app.get("env") === "production",
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
       httpOnly: true,
-      sameSite: 'lax'
-    },
-    name: 'ozba.session'
+      maxAge: 24 * 60 * 60 * 1000, // 24 saat
+      sameSite: app.get("env") === "production" ? 'none' : 'lax',
+      path: '/',
+      domain: app.get("env") === "production" ? '.your-domain.com' : undefined
+    }
   };
 
   if (app.get("env") === "production") {
     app.set("trust proxy", 1);
   }
 
-  const sessionMiddleware = session(sessionSettings);
-  app.use(sessionMiddleware);
+  app.use(session(sessionSettings));
   app.use(passport.initialize());
   app.use(passport.session());
-
-  // Explicitly attach session middleware to app for WebSocket use
-  (app as any).sessionMiddleware = sessionMiddleware;
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
@@ -108,13 +117,16 @@ export function setupAuth(app: Express) {
   );
 
   passport.serializeUser((user, done) => {
+    console.log('Serializing user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
+      console.log('Deserializing user:', id);
       const user = await storage.getUser(id);
       if (!user) {
+        console.log('User not found during deserialization');
         return done(null, false);
       }
       done(null, user);
@@ -148,6 +160,7 @@ export function setupAuth(app: Express) {
   app.post("/api/login", (req, res, next) => {
     passport.authenticate("local", (err, user, info) => {
       if (err) {
+        console.error('Login error:', err);
         return next(err);
       }
 
@@ -157,6 +170,7 @@ export function setupAuth(app: Express) {
 
       req.login(user, (loginErr) => {
         if (loginErr) {
+          console.error('Login error:', loginErr);
           return next(loginErr);
         }
 
@@ -164,6 +178,7 @@ export function setupAuth(app: Express) {
           return res.status(202).json({ message: "2FA kodu gerekli", requiresSecondFactor: true });
         }
 
+        console.log('Login successful:', user.id);
         res.status(200).json(user);
       });
     })(req, res, next);
@@ -196,6 +211,7 @@ export function setupAuth(app: Express) {
         if (err) {
           return res.status(500).json({ message: "Oturum başlatılamadı" });
         }
+        console.log('2FA verification successful:', user.id);
         res.status(200).json(user);
       });
     } catch (error) {
@@ -205,6 +221,8 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/logout", (req, res, next) => {
+    const userId = req.user?.id;
+    console.log('Logging out user:', userId);
     req.logout((err) => {
       if (err) return next(err);
       res.sendStatus(200);
@@ -212,11 +230,13 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
+    console.log('User request - authenticated:', req.isAuthenticated());
+    console.log('User request - session:', req.session);
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Yetkilendirme gerekli" });
     }
     res.json(req.user);
   });
 
-  return sessionMiddleware;
+  return app;
 }
