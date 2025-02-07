@@ -34,44 +34,110 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     data: user,
     error,
     isLoading,
-  } = useQuery<SelectUser | undefined, Error>({
+  } = useQuery<SelectUser | null, Error>({
     queryKey: ["/api/user"],
-    queryFn: getQueryFn({ on401: "returnNull" }),
+    queryFn: () => getQueryFn({ on401: "returnNull" })("/api/user"),
     retry: false,
-    staleTime: 30000, // Cache valid for 30 seconds
+    staleTime: 30000,
   });
 
-  // Friend requests query
   const {
     data: friendRequests = [],
     isLoading: friendRequestsLoading,
   } = useQuery({
     queryKey: ["/api/friends/requests"],
-    queryFn: getQueryFn(),
+    queryFn: () => getQueryFn()("/api/friends/requests"),
     enabled: !!user,
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   });
 
-  // Oturum durumu değişikliklerinde temizleme işlemleri
+  // Cleanup media streams when session changes
   useEffect(() => {
-    let cleanup = () => {
-      // Medya akışlarını temizle
+    const cleanup = () => {
       Array.from(document.querySelectorAll('audio, video'))
         .map(media => (media as HTMLMediaElement).srcObject)
-        .filter(stream => stream instanceof MediaStream)
+        .filter((stream): stream is MediaStream => stream instanceof MediaStream)
         .forEach(stream => {
-          stream?.getTracks().forEach(track => track.stop());
+          stream.getTracks().forEach(track => track.stop());
         });
     };
 
-    // Oturum durumu değiştiğinde temizlik yap
     if (!user) {
       cleanup();
     }
 
-    // Component unmount olduğunda temizlik yap
     return cleanup;
   }, [user?.id]);
+
+  const loginMutation = useMutation({
+    mutationFn: async (credentials: LoginData) => {
+      const res = await apiRequest("POST", "/api/login", credentials);
+      if (!res.ok) {
+        throw new Error(t('auth.errors.invalidCredentials'));
+      }
+      return res.json();
+    },
+    onSuccess: (user: SelectUser) => {
+      queryClient.setQueryData(["/api/user"], user);
+      toast({
+        description: t('auth.loginSuccess'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('auth.errors.loginFailed'),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async (credentials: InsertUser) => {
+      const res = await apiRequest("POST", "/api/register", credentials);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || t('auth.errors.registrationFailed'));
+      }
+      return res.json();
+    },
+    onSuccess: (user: SelectUser) => {
+      queryClient.setQueryData(["/api/user"], user);
+      toast({
+        description: t('auth.registrationSuccess'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('auth.errors.registrationFailed'),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/logout");
+      if (!res.ok) {
+        throw new Error(t('auth.errors.logoutFailed'));
+      }
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(["/api/user"], null);
+      queryClient.clear();
+      toast({
+        description: t('auth.logoutSuccess'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('auth.errors.logoutFailed'),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const acceptFriendRequestMutation = useMutation({
     mutationFn: async (friendshipId: number) => {
@@ -118,97 +184,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const loginMutation = useMutation({
-    mutationFn: async (credentials: LoginData) => {
-      try {
-        const res = await apiRequest("POST", "/api/login", credentials);
-        if (!res.ok) {
-          throw new Error(t('auth.errors.invalidCredentials'));
-        }
-        return await res.json();
-      } catch (error: any) {
-        throw new Error(error.message || t('auth.errors.loginFailed'));
-      }
-    },
-    onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
-      // Bağımlı sorguları geçersiz kıl
-      queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
-      toast({
-        description: t('auth.loginSuccess'),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t('auth.errors.loginFailed'),
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const registerMutation = useMutation({
-    mutationFn: async (credentials: InsertUser) => {
-      try {
-        const res = await apiRequest("POST", "/api/register", credentials);
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.message || t('auth.errors.registrationFailed'));
-        }
-        return await res.json();
-      } catch (error: any) {
-        throw new Error(error.message || t('auth.errors.registrationFailed'));
-      }
-    },
-    onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
-      queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
-      toast({
-        description: t('auth.registrationSuccess'),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t('auth.errors.registrationFailed'),
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      try {
-        const res = await apiRequest("POST", "/api/logout");
-        if (!res.ok) {
-          throw new Error(t('auth.errors.logoutFailed'));
-        }
-      } catch (error: any) {
-        throw new Error(error.message || t('auth.errors.logoutFailed'));
-      }
-    },
-    onSuccess: () => {
-      queryClient.setQueryData(["/api/user"], null);
-      queryClient.clear(); // Tüm önbelleği temizle
-      toast({
-        description: t('auth.logoutSuccess'),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: t('auth.errors.logoutFailed'),
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
   return (
     <AuthContext.Provider
       value={{
         user: user ?? null,
         isLoading,
-        error,
+        error: error ?? null,
         loginMutation,
         logoutMutation,
         registerMutation,

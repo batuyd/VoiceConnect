@@ -5,13 +5,14 @@ import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from 'ws';
 import session from 'express-session';
 import type { User } from "@shared/schema";
+import ytdl from 'ytdl-core';
 
 // Track connected users globally
 const connectedUsers = new Map<number, {
-    ws: WebSocket;
-    user: User;
-    lastPing: number;
-    currentChannel?: number;
+  ws: WebSocket;
+  user: User;
+  lastPing: number;
+  currentChannel?: number;
 }>();
 
 // WebSocket notification helper
@@ -31,24 +32,29 @@ function sendWebSocketNotification(userId: number, notification: any) {
   return false;
 }
 
+// Hata işleme yardımcı fonksiyonu
+function handleError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(String(error));
+}
+
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
-  // Bot kullanıcısını oluştur
-  app.post("/api/debug/create-bot", async (req, res) => {
+  // Friend request routes
+  app.get("/api/friends/requests", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
-
-    const botUser = await storage.createUser({
-      username: "TestBot",
-      password: "bot123", // Bu sadece test için
-    });
-
-    // Bot'u sunucuya ekle
-    if (req.body.serverId) {
-      await storage.addServerMember(req.body.serverId, botUser.id);
+    try {
+      const requests = await storage.getPendingFriendRequests(req.user.id);
+      console.log('Pending friend requests for user', req.user.id, ':', requests);
+      res.json(requests);
+    } catch (error) {
+      const err = handleError(error);
+      console.error('Get friend requests error:', err);
+      res.status(500).json({ message: "Failed to get friend requests" });
     }
-
-    res.status(201).json(botUser);
   });
 
   app.get("/api/servers", async (req, res) => {
@@ -464,17 +470,6 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Friend related routes
-  app.get("/api/friends/requests", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    try {
-      const requests = await storage.getPendingFriendRequests(req.user.id);
-      console.log('Pending friend requests for user', req.user.id, ':', requests);
-      res.json(requests);
-    } catch (error: any) {
-      console.error('Get friend requests error:', error);
-      res.status(500).json({ message: "Failed to get friend requests" });
-    }
-  });
 
   app.get("/api/friends", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
@@ -593,8 +588,7 @@ export function registerRoutes(app: Express): Server {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
-    clientTracking: true,
-    perMessageDeflate: false
+    clientTracking: true
   });
 
   // Session middleware for WebSocket
@@ -602,11 +596,7 @@ export function registerRoutes(app: Express): Server {
     secret: process.env.REPL_ID!,
     resave: false,
     saveUninitialized: false,
-    store: storage.sessionStore,
-    cookie: {
-      secure: app.get("env") === "production",
-      sameSite: "strict",
-    }
+    store: storage.sessionStore
   });
 
   wss.on('connection', async (ws, req) => {
@@ -677,38 +667,12 @@ export function registerRoutes(app: Express): Server {
               ws.send(JSON.stringify({ type: 'pong' }));
               break;
 
-            case 'friend_request_response':
-              try {
-                if (data.accept) {
-                  await storage.acceptFriendRequest(data.friendshipId);
-                  const friendship = await storage.getFriendshipById(data.friendshipId);
-                  if (friendship) {
-                    sendWebSocketNotification(friendship.senderId, {
-                      type: 'friend_request_accepted',
-                      by: {
-                        id: user.id,
-                        username: user.username,
-                        avatar: user.avatar
-                      }
-                    });
-                  }
-                } else {
-                  await storage.rejectFriendRequest(data.friendshipId);
-                }
-              } catch (error) {
-                console.error('Error handling friend request response:', error);
-                ws.send(JSON.stringify({
-                  type: 'error',
-                  message: 'Failed to process friend request response'
-                }));
-              }
-              break;
-
             default:
               console.log('Unknown message type:', data.type);
           }
         } catch (error) {
-          console.error('Error processing message:', error);
+          const err = handleError(error);
+          console.error('Error processing message:', err);
           ws.send(JSON.stringify({
             type: 'error',
             message: 'Invalid message format'
@@ -729,24 +693,11 @@ export function registerRoutes(app: Express): Server {
       });
 
     } catch (error) {
-      console.error('WebSocket connection error:', error);
+      const err = handleError(error);
+      console.error('WebSocket connection error:', err);
       ws.close();
     }
   });
-
-  // Cleanup inactive connections periodically
-  setInterval(() => {
-    const now = Date.now();
-    connectedUsers.forEach((data, userId) => {
-      if (now - data.lastPing > 60000) { // 1 minute timeout
-        console.log('Cleaning up inactive connection for user:', userId);
-        if (data.ws.readyState === WebSocket.OPEN) {
-          data.ws.close();
-        }
-        connectedUsers.delete(userId);
-      }
-    });
-  }, 30000); // Check every 30 seconds
 
   return httpServer;
 }
