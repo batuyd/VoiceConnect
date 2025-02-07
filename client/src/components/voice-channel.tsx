@@ -1,13 +1,14 @@
 import { Volume2, VolumeX } from "lucide-react";
 import { Channel } from "@shared/schema";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { webRTCService } from "@/lib/webrtc-service";
+import { apiRequest } from "@/lib/queryClient";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -35,6 +36,18 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     enabled: isJoined
   });
 
+  const joinChannelMutation = useMutation({
+    mutationFn: async (memberId: number) => {
+      return await apiRequest('POST', `/api/channels/${channel.id}/members/${memberId}/join`);
+    }
+  });
+
+  const leaveChannelMutation = useMutation({
+    mutationFn: async (memberId: number) => {
+      return await apiRequest('POST', `/api/channels/${channel.id}/members/${memberId}/leave`);
+    }
+  });
+
   useEffect(() => {
     let mounted = true;
 
@@ -42,8 +55,16 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       if (!isJoined || !user?.id) return;
 
       try {
+        // Start local stream
         await webRTCService.startLocalStream();
-        await webRTCService.joinRoom(channel.id, user.id);
+
+        // Connect to existing members
+        for (const member of channelMembers) {
+          if (member.id !== user.id) {
+            const offer = await webRTCService.connectToPeer(member.id);
+            await joinChannelMutation.mutateAsync(member.id);
+          }
+        }
       } catch (error) {
         console.error('Failed to setup voice chat:', error);
         if (mounted) {
@@ -65,15 +86,19 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         webRTCService.leaveRoom();
       }
     };
-  }, [isJoined, channel.id, user?.id, toast, t]);
+  }, [isJoined, channel.id, user?.id, channelMembers, toast, t, joinChannelMutation, leaveChannelMutation]);
 
   const handleJoinLeave = async () => {
+    if (!user?.id) return;
+
     if (isJoined) {
+      await leaveChannelMutation.mutateAsync(user.id);
       webRTCService.leaveRoom();
       setIsJoined(false);
       setIsMuted(false);
     } else {
       setIsJoined(true);
+      refetchMembers();
     }
   };
 

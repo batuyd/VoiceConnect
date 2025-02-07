@@ -2,11 +2,17 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
-import { WebSocketServer, WebSocket } from 'ws';
 import NodeMediaServer from 'node-media-server';
 import fetch from 'node-fetch';
+import cors from 'cors';
 
 export function registerRoutes(app: Express): Server {
+  // Enable CORS
+  app.use(cors({
+    origin: true,
+    credentials: true
+  }));
+
   const sessionMiddleware = setupAuth(app);
 
   // Bot kullanıcısını oluştur
@@ -399,147 +405,6 @@ export function registerRoutes(app: Express): Server {
       port: 8000,
       mediaroot: './media',
       allow_origin: '*'
-    }
-  });
-
-  // WebSocket sunucusu yapılandırması
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/ws'
-  });
-
-  // WebSocket bağlantı yönetimi
-  wss.on('connection', async (ws, req) => {
-    console.log('New WebSocket connection attempt');
-
-    try {
-      // Session middleware'i uygula
-      await new Promise((resolve, reject) => {
-        sessionMiddleware(req as any, {} as any, (err: any) => {
-          if (err) {
-            console.error('Session middleware error:', err);
-            reject(err);
-          } else {
-            resolve(undefined);
-          }
-        });
-      });
-
-      const session = (req as any).session;
-      if (!session?.passport?.user) {
-        console.error('No session or user found');
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Authentication required'
-        }));
-        ws.close();
-        return;
-      }
-
-      const userId = session.passport.user;
-      const user = await storage.getUser(userId);
-      if (!user) {
-        console.error('User not found:', userId);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'User not found'
-        }));
-        ws.close();
-        return;
-      }
-
-      console.log('WebSocket connection authenticated for user:', user.username);
-
-      // Hata yönetimi
-      ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
-      });
-
-      // Mesaj işleme
-      ws.on('message', async (message) => {
-        try {
-          const data = JSON.parse(message.toString());
-          console.log('Received message:', data);
-
-          switch (data.type) {
-            case 'join_room':
-              console.log('User joining room:', data.channelId);
-              wss.clients.forEach((client) => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify({
-                    type: 'user_joined',
-                    userId: userId,
-                    username: user.username
-                  }));
-                }
-              });
-              break;
-
-            case 'offer':
-              console.log('Forwarding offer from:', userId);
-              wss.clients.forEach((client) => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify({
-                    type: 'offer',
-                    from: userId,
-                    offer: data.offer
-                  }));
-                }
-              });
-              break;
-
-            case 'answer':
-              console.log('Forwarding answer from:', userId);
-              wss.clients.forEach((client) => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify({
-                    type: 'answer',
-                    from: userId,
-                    answer: data.answer
-                  }));
-                }
-              });
-              break;
-
-            case 'ice-candidate':
-              console.log('Forwarding ICE candidate from:', userId);
-              wss.clients.forEach((client) => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify({
-                    type: 'ice-candidate',
-                    from: userId,
-                    candidate: data.candidate
-                  }));
-                }
-              });
-              break;
-          }
-        } catch (error) {
-          console.error('Error processing WebSocket message:', error);
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Invalid message format'
-          }));
-        }
-      });
-
-      // Bağlantı kapatma
-      ws.on('close', () => {
-        console.log('WebSocket connection closed for user:', user.username);
-        wss.clients.forEach((client) => {
-          if (client !== ws && client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-              type: 'user_disconnected',
-              userId: userId,
-              username: user.username
-            }));
-          }
-        });
-      });
-
-    } catch (error) {
-      console.error('WebSocket connection error:', error);
-      ws.close();
     }
   });
 
