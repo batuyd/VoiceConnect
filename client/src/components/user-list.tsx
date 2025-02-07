@@ -17,24 +17,25 @@ import {
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 
-// WebSocket bağlantısı için helper
 const setupWebSocket = () => {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+  console.log("Trying to connect WebSocket to:", wsUrl);
+
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    console.log("WebSocket bağlantısı kuruldu");
+    console.log("WebSocket connection established");
   };
 
-  ws.onclose = () => {
-    console.log("WebSocket bağlantısı kapandı");
-    // 5 saniye sonra yeniden bağlanmayı dene
+  ws.onclose = (event) => {
+    console.log("WebSocket connection closed:", event.code, event.reason);
     setTimeout(setupWebSocket, 5000);
   };
 
   ws.onerror = (error) => {
-    console.error("WebSocket bağlantı hatası:", error);
+    console.error("WebSocket connection error:", error);
   };
 
   return ws;
@@ -53,46 +54,48 @@ export function UserList({ serverId }: { serverId: number }) {
     queryKey: ["/api/invites"],
   });
 
-  // WebSocket bağlantısını kur ve dinle
   useEffect(() => {
     if (!currentUser) return;
 
+    console.log("Setting up WebSocket for user:", currentUser.id);
     const ws = setupWebSocket();
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("WebSocket mesajı alındı:", data);
+        console.log("WebSocket message received:", data);
 
         switch (data.type) {
           case "friend_request":
             toast({
-              title: t("friend.newRequest"),
-              description: `${data.from.username} ${t("friend.requestFrom")}`,
+              title: t("friends.newRequest"),
+              description: `${data.from.username} ${t("friends.requestReceived")}`,
             });
-            // Friend request listesini yenile
             queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
             queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
             break;
 
           case "friend_request_accepted":
             toast({
-              title: t("friend.requestAccepted"),
-              description: `${data.by.username} ${t("friend.acceptedBy")}`,
+              title: t("friends.requestAccepted"),
+              description: `${data.by.username} ${t("friends.requestAcceptedBy")}`,
             });
-            // Friend listesini yenile
             queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
             break;
+
+          default:
+            console.log("Unknown message type:", data.type);
         }
       } catch (error) {
-        console.error("WebSocket mesaj işleme hatası:", error);
+        console.error("Error processing WebSocket message:", error);
       }
     };
 
     return () => {
+      console.log("Cleaning up WebSocket connection");
       ws.close();
     };
-  }, [currentUser, toast, t, queryClient]);
+  }, [currentUser, toast, t]);
 
   const acceptInviteMutation = useMutation({
     mutationFn: async (inviteId: number) => {
@@ -154,7 +157,7 @@ export function UserList({ serverId }: { serverId: number }) {
               <div className="space-y-4">
                 {invites.map((invite) => (
                   <div key={invite.id} className="flex items-center justify-between gap-4 p-2 bg-gray-700 rounded">
-                    <span>{t('server.inviteFrom', { serverName: invite.serverName })}</span>
+                    <span>{t('server.inviteFrom')} Server {invite.serverId}</span>
                     <div className="flex gap-2">
                       <Button
                         size="sm"

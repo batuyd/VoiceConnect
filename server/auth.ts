@@ -5,7 +5,8 @@ import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
-import { User as SelectUser } from "@shared/schema";
+import { insertUserSchema, User as SelectUser } from "@shared/schema";
+import { ZodError } from "zod";
 
 declare global {
   namespace Express {
@@ -34,12 +35,12 @@ export const sessionSettings: session.SessionOptions = {
   saveUninitialized: false,
   store: storage.sessionStore,
   cookie: {
-    secure: false, // Will be set to true in production
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    secure: false,
+    maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true,
     sameSite: 'lax'
   },
-  name: 'sid' // Özel session cookie ismi
+  name: 'sid'
 };
 
 export function setupAuth(app: Express) {
@@ -57,12 +58,12 @@ export function setupAuth(app: Express) {
       try {
         const user = await storage.getUserByUsername(username);
         if (!user) {
-          return done(null, false, { message: "Invalid username or password" });
+          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
         }
 
         const isValidPassword = await comparePasswords(password, user.password);
         if (!isValidPassword) {
-          return done(null, false, { message: "Invalid username or password" });
+          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
         }
 
         await storage.updateLastActive(user.id);
@@ -96,34 +97,62 @@ export function setupAuth(app: Express) {
     try {
       const { username, password, email, phone } = req.body;
 
-      if (!username || !password) {
+      if (!username || !password || !email || !phone) {
         return res.status(400).json({ 
-          message: "Username and password are required" 
+          message: "Tüm alanlar zorunludur (kullanıcı adı, şifre, email ve telefon)" 
         });
       }
 
       const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
         return res.status(400).json({ 
-          message: "Username already exists" 
+          message: "Bu kullanıcı adı zaten kullanılıyor" 
         });
       }
 
-      const hashedPassword = await hashPassword(password);
-      const user = await storage.createUser({
-        username,
-        password: hashedPassword,
-        email,
-        phone
-      });
+      const existingEmail = await storage.getUserByEmail(email);
+      if (existingEmail) {
+        return res.status(400).json({ 
+          message: "Bu email adresi zaten kullanılıyor" 
+        });
+      }
 
-      req.login(user, (err) => {
-        if (err) {
-          console.error('Login error after registration:', err);
-          return next(err);
+      const existingPhone = await storage.getUserByPhone(phone);
+      if (existingPhone) {
+        return res.status(400).json({ 
+          message: "Bu telefon numarası zaten kullanılıyor" 
+        });
+      }
+
+      try {
+        const validatedData = insertUserSchema.parse(req.body);
+        const hashedPassword = await hashPassword(password);
+
+        const user = await storage.createUser({
+          ...validatedData,
+          password: hashedPassword,
+          avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}`
+        });
+
+        req.login(user, (err) => {
+          if (err) {
+            console.error('Login error after registration:', err);
+            return next(err);
+          }
+          res.status(201).json(user);
+        });
+      } catch (error) {
+        if (error instanceof ZodError) {
+          return res.status(400).json({ 
+            message: "Doğrulama hatası",
+            errors: error.errors.map(err => ({
+              field: err.path.join('.'),
+              message: err.message
+            }))
+          });
         }
-        res.status(201).json(user);
-      });
+        throw error;
+      }
     } catch (error) {
       console.error('Registration error:', error);
       next(error);
@@ -139,7 +168,7 @@ export function setupAuth(app: Express) {
 
       if (!user) {
         return res.status(401).json({ 
-          message: info?.message || "Authentication failed" 
+          message: info?.message || "Kimlik doğrulama başarısız" 
         });
       }
 
@@ -156,7 +185,7 @@ export function setupAuth(app: Express) {
   app.post("/api/logout", (req, res, next) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({
-        message: "Not authenticated"
+        message: "Oturum açılmamış"
       });
     }
 
@@ -179,7 +208,7 @@ export function setupAuth(app: Express) {
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ 
-        message: "Not authenticated" 
+        message: "Oturum açılmamış" 
       });
     }
     res.json(req.user);

@@ -8,7 +8,7 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   nickname: text("nickname"),
   password: text("password").notNull(),
-  avatar: text("avatar").notNull(),
+  avatar: text("avatar").notNull().default("https://api.dicebear.com/7.x/initials/svg"),
   email: text("email").notNull().unique(),
   phone: text("phone").notNull().unique(),
   bio: text("bio"),
@@ -219,10 +219,13 @@ export const insertUserSchema = baseUserSchema.extend({
     .min(3, "Kullanıcı adı en az 3 karakter olmalıdır")
     .max(20, "Kullanıcı adı en fazla 20 karakter olabilir")
     .regex(/^[a-zA-Z0-9_]+$/, "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir"),
+  password: z.string()
+    .min(8, "Şifre en az 8 karakter olmalıdır"),
+  email: z.string()
+    .email("Geçersiz email adresi"),
+  phone: z.string()
+    .min(1, "Telefon numarası gereklidir"),
   nickname: z.string().max(30, "Takma ad en fazla 30 karakter olabilir").optional(),
-  password: z.string().min(8, "Şifre en az 8 karakter olmalıdır"),
-  email: z.string().email("Geçersiz email adresi").optional(),
-  phone: z.string().optional(),
   avatar: z.string().optional(),
   bio: z.string().max(500, "Biyografi en fazla 500 karakter olabilir").optional(),
   status: z.string().max(100, "Durum mesajı en fazla 100 karakter olabilir").optional(),
@@ -236,7 +239,7 @@ export const insertUserSchema = baseUserSchema.extend({
   theme: z.enum(["light", "dark", "system"]).optional(),
   isPrivateProfile: z.boolean().optional(),
   showLastSeen: z.boolean().optional(),
-});
+}).omit({ id: true, createdAt: true, twoFactorEnabled: true, twoFactorSecret: true });
 
 export const insertServerSchema = createInsertSchema(servers);
 export const insertChannelSchema = createInsertSchema(channels);

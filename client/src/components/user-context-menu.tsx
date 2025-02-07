@@ -26,13 +26,17 @@ export function UserContextMenu({ targetUser, children }: Props) {
   const addFriendMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/friends/${targetUser.id}`);
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message);
+      }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
       toast({
         title: t('friends.addSuccess'),
-        description: t('friends.addSuccessDescription', { username: targetUser.username } as any),
+        description: `${t('friends.requestSent')} ${targetUser.username}`,
       });
     },
     onError: (error: Error) => {
@@ -47,13 +51,17 @@ export function UserContextMenu({ targetUser, children }: Props) {
   const removeFriendMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("DELETE", `/api/friends/${targetUser.id}`);
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message);
+      }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
       toast({
         title: t('friends.removeSuccess'),
-        description: t('friends.removeSuccessDescription', { username: targetUser.username } as any),
+        description: `${t('friends.removeSuccessMsg')} ${targetUser.username}`,
       });
     },
     onError: (error: Error) => {
@@ -68,13 +76,17 @@ export function UserContextMenu({ targetUser, children }: Props) {
   const blockUserMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/blocks/${targetUser.id}`);
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message);
+      }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
       toast({
         title: t('blocks.addSuccess'),
-        description: t('blocks.addSuccessDescription', { username: targetUser.username } as any),
+        description: `${t('blocks.successMsg')} ${targetUser.username}`,
       });
     },
     onError: (error: Error) => {
