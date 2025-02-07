@@ -43,27 +43,71 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     enabled: isJoined
   });
 
+  // Check audio permissions
+  const checkAudioPermissions = async () => {
+    try {
+      console.log('Checking audio permissions...');
+      const mediaDevices = navigator.mediaDevices;
+      if (!mediaDevices) {
+        throw new Error('MediaDevices API not available');
+      }
+
+      // Request permissions first
+      const stream = await mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      console.log('Audio permissions granted');
+      return true;
+    } catch (error) {
+      console.error('Audio permission error:', error);
+      toast({
+        title: t('voice.error'),
+        description: t('voice.microphonePermissionDenied'),
+        variant: "destructive",
+      });
+      return false;
+    }
+  };
+
   const setupAudioDevices = async () => {
     try {
+      console.log('Setting up audio devices...');
+      const hasPermission = await checkAudioPermissions();
+      if (!hasPermission) return null;
+
       if (!selectedInputDevice) {
         toast({
+          title: t('voice.error'),
           description: t('voice.noInputDevice'),
           variant: "destructive",
         });
         return null;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+      // Resume or create AudioContext
+      let context = audioContext.current;
+      if (!context) {
+        context = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioContext.current = context;
+      }
+
+      if (context.state === 'suspended') {
+        await context.resume();
+      }
+
+      console.log('Creating audio stream...');
+      const constraints = {
         audio: {
           deviceId: { exact: selectedInputDevice },
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1
         }
-      });
+      };
 
-      const context = new AudioContext();
-      const source = context.createMediaStreamSource(stream);
+      const audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const source = context.createMediaStreamSource(audioStream);
       const gain = context.createGain();
 
       source.connect(gain);
@@ -71,12 +115,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         gain.connect(context.destination);
       }
 
-      audioContext.current = context;
       gainNode.current = gain;
-      return stream;
+      console.log('Audio setup complete');
+      return audioStream;
 
     } catch (error) {
+      console.error('Audio setup error:', error);
       toast({
+        title: t('voice.error'),
         description: t('voice.deviceAccessError'),
         variant: "destructive",
       });
@@ -88,33 +134,48 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     try {
+      console.log('Connecting to WebSocket...');
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
 
       const ws = new WebSocket(wsUrl);
+      let pingInterval: NodeJS.Timeout;
 
       ws.onopen = () => {
+        console.log('WebSocket connected');
         setWsConnected(true);
         ws.send(JSON.stringify({
           type: 'join_channel',
           channelId: channel.id,
           userId: user?.id
         }));
+
+        // Keep connection alive
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
       };
 
       ws.onclose = () => {
+        console.log('WebSocket closed');
         setWsConnected(false);
         wsRef.current = null;
         setIsJoined(false);
+        clearInterval(pingInterval);
         toast({
+          title: t('voice.error'),
           description: t('voice.connectionClosed'),
           variant: "destructive",
         });
       };
 
-      ws.onerror = () => {
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
         wsRef.current = null;
         toast({
+          title: t('voice.error'),
           description: t('voice.connectionError'),
           variant: "destructive",
         });
@@ -123,25 +184,40 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'member_update') {
-            refetchMembers();
-          } else if (data.type === 'error') {
-            toast({
-              description: data.message,
-              variant: "destructive",
-            });
-            if (data.code === 'AUTH_REQUIRED') {
-              ws.close();
-            }
+          console.log('Received message:', data.type);
+
+          switch (data.type) {
+            case 'member_update':
+              refetchMembers();
+              break;
+            case 'error':
+              toast({
+                title: t('voice.error'),
+                description: data.message,
+                variant: "destructive",
+              });
+              if (data.code === 'AUTH_REQUIRED') {
+                ws.close();
+              }
+              break;
+            case 'pong':
+              // Connection alive
+              break;
+            case 'channel_members':
+              refetchMembers();
+              break;
           }
         } catch (error) {
-          // Hata durumunda sessizce devam et
+          console.error('Message processing error:', error);
         }
       };
 
       wsRef.current = ws;
+
     } catch (error) {
+      console.error('WebSocket connection error:', error);
       toast({
+        title: t('voice.error'),
         description: t('voice.connectionFailed'),
         variant: "destructive",
       });
@@ -150,25 +226,36 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const handleJoinLeave = async () => {
     if (isJoined) {
-      // Kanaldan ayrıl
+      console.log('Leaving channel...');
+      // Leave channel
       if (stream.current) {
         stream.current.getTracks().forEach(track => track.stop());
         stream.current = null;
       }
-      if (wsRef.current) {
+
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'leave_channel',
+          channelId: channel.id
+        }));
         wsRef.current.close();
-        wsRef.current = null;
       }
+      wsRef.current = null;
+
       if (audioContext.current?.state !== 'closed') {
         await audioContext.current?.close();
       }
+      audioContext.current = null;
+      gainNode.current = null;
+
       setIsJoined(false);
       setWsConnected(false);
       toast({
         description: t('voice.leftChannel'),
       });
     } else {
-      // Kanala katıl
+      console.log('Joining channel...');
+      // Join channel
       setIsConnecting(true);
       try {
         const audioStream = await setupAudioDevices();
@@ -181,7 +268,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           });
         }
       } catch (error) {
+        console.error('Join channel error:', error);
         toast({
+          title: t('voice.error'),
           description: t('voice.joinError'),
           variant: "destructive",
         });
@@ -208,12 +297,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     }
   };
 
+  // Cleanup resources
   useEffect(() => {
     return () => {
+      console.log('Cleaning up voice channel...');
       if (stream.current) {
         stream.current.getTracks().forEach(track => track.stop());
       }
-      if (wsRef.current) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.close();
       }
       if (audioContext.current?.state !== 'closed') {
@@ -222,9 +313,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, []);
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   return (
     <div className="space-y-2">
