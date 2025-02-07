@@ -240,7 +240,9 @@ export type User = typeof users.$inferSelect;
 export type Server = typeof servers.$inferSelect;
 export type Channel = typeof channels.$inferSelect;
 export type ServerMember = typeof serverMembers.$inferSelect;
-export type Friendship = typeof friendships.$inferSelect;
+export type Friendship = typeof friendships.$inferSelect & {
+  sender?: User;
+};
 export type ServerInvite = typeof serverInvites.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Reaction = typeof reactions.$inferSelect;

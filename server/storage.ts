@@ -64,6 +64,7 @@ export interface IStorage {
 
   getFriends(userId: number): Promise<User[]>;
   getFriendRequests(userId: number): Promise<Friendship[]>;
+  getPendingFriendRequests(userId: number): Promise<Friendship[]>; // Added
   createFriendRequest(senderId: number, receiverId: number): Promise<Friendship>;
   acceptFriendRequest(friendshipId: number): Promise<void>;
   rejectFriendRequest(friendshipId: number): Promise<void>;
@@ -381,10 +382,35 @@ export class MemStorage implements IStorage {
   }
 
   async getFriendRequests(userId: number): Promise<Friendship[]> {
-    return Array.from(this.friendships.values()).filter(
+    const requests = Array.from(this.friendships.values()).filter(
       f => f.receiverId === userId && f.status === 'pending'
     );
+
+    // Sender bilgilerini ekle
+    return Promise.all(requests.map(async request => {
+      const sender = await this.getUser(request.senderId);
+      return {
+        ...request,
+        sender
+      };
+    }));
   }
+
+  async getPendingFriendRequests(userId: number): Promise<Friendship[]> { // Added method implementation
+    const requests = Array.from(this.friendships.values()).filter(
+      f => f.receiverId === userId && f.status === 'pending'
+    );
+
+    // Sender bilgilerini ekle
+    return Promise.all(requests.map(async request => {
+      const sender = await this.getUser(request.senderId);
+      return {
+        ...request,
+        sender
+      };
+    }));
+  }
+
 
   async createFriendRequest(senderId: number, receiverId: number): Promise<Friendship> {
     // Mevcut arkadaşlık kontrolü
@@ -402,7 +428,13 @@ export class MemStorage implements IStorage {
       createdAt: new Date(),
     };
     this.friendships.set(id, friendship);
-    return friendship;
+
+    // Sender bilgilerini ekleyerek döndür
+    const sender = await this.getUser(senderId);
+    return {
+      ...friendship,
+      sender
+    };
   }
 
   async acceptFriendRequest(friendshipId: number): Promise<void> {
@@ -413,7 +445,6 @@ export class MemStorage implements IStorage {
 
       // Otomatik olarak karşılıklı arkadaşlık oluştur
       await this.addFriend(friendship.senderId, friendship.receiverId);
-      await this.addFriend(friendship.receiverId, friendship.senderId);
     }
   }
 
@@ -903,8 +934,7 @@ export class MemStorage implements IStorage {
         'level_up',
         `Level up reward: Level ${userLevel.level}`,
         { level: userLevel.level }
-      );
-    }
+      );    }
 
     this.userLevels.set(userLevel.id, userLevel);
     return userLevel;
@@ -1064,23 +1094,18 @@ export class MemStorage implements IStorage {
   }
   async getFriendship(userId1: number, userId2: number): Promise<Friendship | undefined> {
     return Array.from(this.friendships.values()).find(
-      f => (f.senderId === userId1 && f.receiverId === userId2) ||
-           (f.senderId === userId2 && f.receiverId === userId1)
+      f => 
+        (f.senderId === userId1 && f.receiverId === userId2) ||
+        (f.senderId === userId2 && f.receiverId === userId1)
     );
   }
 
   async addFriend(userId1: number, userId2: number): Promise<void> {
-    const existingFriendship = await this.getFriendship(userId1, userId2);
-    if (!existingFriendship) {
-      const id = this.currentId++;
-      const friendship: Friendship = {
-        id,
-        senderId: userId1,
-        receiverId: userId2,
-        status: 'accepted',
-        createdAt: new Date(),
-      };
-      this.friendships.set(id, friendship);
+    // Arkadaşlık durumunu güncelle
+    const friendship = await this.getFriendship(userId1, userId2);
+    if (friendship) {
+      friendship.status = 'accepted';
+      this.friendships.set(friendship.id, friendship);
     }
   }
 
@@ -1091,7 +1116,14 @@ export class MemStorage implements IStorage {
     }
   }
   async getFriendshipById(friendshipId: number): Promise<Friendship | undefined> {
-    return this.friendships.get(friendshipId);
+    const friendship = this.friendships.get(friendshipId);
+    if (!friendship) return undefined;
+
+    const sender = await this.getUser(friendship.senderId);
+    return {
+      ...friendship,
+      sender
+    };
   }
 }
 

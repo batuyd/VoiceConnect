@@ -2,10 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
-import ytdl from 'ytdl-core';
 import { WebSocketServer, WebSocket } from 'ws';
-import NodeMediaServer from 'node-media-server';
-import fetch from 'node-fetch';
 import session from 'express-session';
 import type { User } from "@shared/schema";
 
@@ -467,6 +464,17 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Friend related routes
+  app.get("/api/friends/requests", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const requests = await storage.getPendingFriendRequests(req.user.id);
+      res.json(requests);
+    } catch (error) {
+      console.error('Get friend requests error:', error);
+      res.status(500).json({ message: "Failed to get friend requests" });
+    }
+  });
+
   app.get("/api/friends", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     const friends = await storage.getFriends(req.user.id);
@@ -579,31 +587,6 @@ export function registerRoutes(app: Express): Server {
   });
 
   const httpServer = createServer(app);
-
-  // Media streaming server configuration
-  const mediaServerConfig = {
-    rtmp: {
-      port: 1935,
-      chunk_size: 60000,
-      gop_cache: true,
-      ping: 30,
-      ping_timeout: 60,
-      host: '0.0.0.0'
-    },
-    http: {
-      port: 8000,
-      host: '0.0.0.0',
-      mediaroot: './media',
-      allow_origin: '*',
-      cors: {
-        origin: '*',
-        methods: 'GET,POST,OPTIONS',
-        allowedHeaders: 'Content-Type'
-      }
-    }
-  };
-
-  const nms = new NodeMediaServer(mediaServerConfig);
 
   // WebSocket server configuration
   const wss = new WebSocketServer({
@@ -760,28 +743,9 @@ export function registerRoutes(app: Express): Server {
           data.ws.close();
         }
         connectedUsers.delete(userId);
-
-        // Broadcast user disconnected event
-        wss.clients.forEach(client => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-              type: 'user_disconnected',
-              userId,
-              username: data.user.username
-            }));
-          }
-        });
       }
     });
   }, 30000); // Check every 30 seconds
-
-  // Start media server
-  try {
-    nms.run();
-    console.log('Media server started successfully');
-  } catch (error) {
-    console.error('Failed to start media server:', error);
-  }
 
   return httpServer;
 }

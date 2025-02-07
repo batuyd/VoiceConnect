@@ -31,15 +31,16 @@ async function comparePasswords(supplied: string, stored: string) {
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.REPL_ID!,
-    resave: true,
-    saveUninitialized: true,
+    resave: false,
+    saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
       secure: app.get("env") === "production",
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       httpOnly: true,
       sameSite: 'lax'
-    }
+    },
+    name: 'sid' // Session cookie ismi değiştirildi
   };
 
   if (app.get("env") === "production") {
@@ -83,6 +84,7 @@ export function setupAuth(app: Express) {
       if (!user) {
         return done(null, false);
       }
+      await storage.updateLastActive(user.id);
       done(null, user);
     } catch (error) {
       console.error('Session deserialization error:', error);
@@ -152,6 +154,13 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/logout", (req, res, next) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({
+        message: "Not authenticated"
+      });
+    }
+
+    const userId = req.user.id;
     req.logout((err) => {
       if (err) {
         console.error('Logout error:', err);
