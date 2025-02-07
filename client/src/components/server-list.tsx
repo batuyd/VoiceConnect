@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLanguage } from "@/hooks/use-language";
 import { Button } from "@/components/ui/button";
 import { Server } from "@shared/schema";
-import { Plus, User, LogOut } from "lucide-react";
+import { Plus, User, LogOut, Trash2, MoreVertical } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useLocation } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 
 export function ServerList({ 
   onServerSelect, 
@@ -32,6 +33,7 @@ export function ServerList({
   selectedServer: Server | null;
 }) {
   const { t } = useLanguage();
+  const { toast } = useToast();
   const { user, logoutMutation } = useAuth();
   const [, setLocation] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
@@ -50,6 +52,29 @@ export function ServerList({
       queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
       setIsOpen(false);
       setNewServerName("");
+    },
+  });
+
+  const deleteServerMutation = useMutation({
+    mutationFn: async (serverId: number) => {
+      await apiRequest("DELETE", `/api/servers/${serverId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
+      if (selectedServer) {
+        onServerSelect(null);
+      }
+      toast({
+        title: t('server.deleteSuccess'),
+        description: t('server.deleteSuccessMessage'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('server.deleteError'),
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -86,15 +111,42 @@ export function ServerList({
 
       {/* Server List */}
       {servers.map((server) => (
-        <button
-          key={server.id}
-          onClick={() => onServerSelect(server)}
-          className={`w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center transition-all ${
-            selectedServer?.id === server.id ? "rounded-2xl bg-emerald-600" : ""
-          }`}
-        >
-          {server.name[0].toUpperCase()}
-        </button>
+        <div key={server.id} className="relative group">
+          <button
+            onClick={() => onServerSelect(server)}
+            className={`w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center transition-all ${
+              selectedServer?.id === server.id ? "rounded-2xl bg-emerald-600" : ""
+            }`}
+          >
+            {server.name[0].toUpperCase()}
+          </button>
+          {server.ownerId === user?.id && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  className="absolute -right-8 top-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem
+                  className="flex items-center gap-2 text-destructive"
+                  onClick={() => {
+                    if (confirm(t('server.deleteConfirm'))) {
+                      deleteServerMutation.mutate(server.id);
+                    }
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{t('server.delete')}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       ))}
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>

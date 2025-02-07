@@ -674,6 +674,71 @@ export class DatabaseStorage implements IStorage {
     const [friendship] = await db.select({ friendship: friendships, sender: users }).from(friendships).innerJoin(users, eq(users.id, friendships.senderId)).where(eq(friendships.id, friendshipId));
     return friendship;
   }
+
+  async deleteServer(serverId: number, userId: number): Promise<void> {
+    try {
+      // Get server to verify ownership
+      const server = await this.getServer(serverId);
+      if (!server) {
+        throw new Error('Server not found');
+      }
+
+      if (server.ownerId !== userId) {
+        throw new Error('Unauthorized: Only server owner can delete the server');
+      }
+
+      // Use transaction to ensure all related data is deleted
+      await db.transaction(async (tx) => {
+        // Delete all messages in all channels of the server
+        const channels = await tx
+          .select()
+          .from(channels)
+          .where(eq(channels.serverId, serverId));
+
+        for (const channel of channels) {
+          await tx
+            .delete(messages)
+            .where(eq(messages.channelId, channel.id));
+
+          await tx
+            .delete(reactions)
+            .where(
+              or(...(await tx
+                .select()
+                .from(messages)
+                .where(eq(messages.channelId, channel.id)))
+                .map(msg => eq(reactions.messageId, msg.id))
+              )
+            );
+        }
+
+        // Delete all channels
+        await tx
+          .delete(channels)
+          .where(eq(channels.serverId, serverId));
+
+        // Delete all server members
+        await tx
+          .delete(serverMembers)
+          .where(eq(serverMembers.serverId, serverId));
+
+        // Delete all server invites
+        await tx
+          .delete(serverInvites)
+          .where(eq(serverInvites.serverId, serverId));
+
+        // Finally delete the server itself
+        await tx
+          .delete(servers)
+          .where(eq(servers.id, serverId));
+      });
+
+      console.log(`Server ${serverId} successfully deleted by user ${userId}`);
+    } catch (error) {
+      console.error('Error deleting server:', error);
+      throw error;
+    }
+  }
 }
 
 export const storage = new DatabaseStorage();
@@ -835,4 +900,5 @@ interface IStorage {
   addFriend(userId1: number, userId2: number): Promise<void>;
   removeFriend(userId1: number, userId2: number): Promise<void>;
   getFriendshipById(friendshipId: number): Promise<Friendship | undefined>;
+  deleteServer(serverId: number, userId: number): Promise<void>;
 }

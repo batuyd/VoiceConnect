@@ -712,6 +712,17 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.delete("/api/servers/:serverId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      await storage.deleteServer(parseInt(req.params.serverId), req.user.id);
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Delete server error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // WebSocket server configuration
