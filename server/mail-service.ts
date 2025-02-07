@@ -1,3 +1,4 @@
+import { MailService } from '@sendgrid/mail';
 import nodemailer from 'nodemailer';
 
 interface EmailParams {
@@ -12,8 +13,7 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
     const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD } = process.env;
 
     if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASSWORD) {
-      console.error('SMTP configuration missing');
-      return false;
+      throw new Error('SMTP ayarları eksik');
     }
 
     const transporter = nodemailer.createTransport({
@@ -34,10 +34,9 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
       html: params.html || '',
     });
 
-    console.log('Email sent successfully to:', params.to);
     return true;
   } catch (error) {
-    console.error('Failed to send email:', error);
+    console.error('Mail gönderme hatası:', error);
     return false;
   }
 }

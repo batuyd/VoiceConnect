@@ -1,8 +1,12 @@
 import { users, servers, channels, serverMembers, friendships, serverInvites } from "@shared/schema";
 import type { InsertUser, User, Server, Channel, ServerMember, Friendship, ServerInvite, Message, Reaction, MessageWithReactions } from "@shared/schema";
+import session from "express-session";
+import createMemoryStore from "memorystore";
 import { nanoid } from "nanoid";
 import { userCoins, coinTransactions, coinProducts, userAchievements } from "@shared/schema";
 import type { UserCoins, CoinTransaction, CoinProduct, UserAchievement } from "@shared/schema";
+
+const MemoryStore = createMemoryStore(session);
 
 interface Gift {
   id: number;
@@ -79,6 +83,7 @@ export interface IStorage {
   addServerMember(serverId: number, userId: number): Promise<void>;
   getChannel(channelId: number): Promise<Channel | undefined>;
 
+  sessionStore: session.Store;
   updateUserProfile(
     userId: number,
     data: {
@@ -164,6 +169,7 @@ export class MemStorage implements IStorage {
   private serverInvites: Map<string, ServerInvite>;
   private messages: Map<number, Message>;
   private reactions: Map<number, Reaction>;
+  sessionStore: session.Store;
   currentId: number;
   private userCoins: Map<number, UserCoins>;
   private coinTransactions: Map<number, CoinTransaction>;
@@ -185,6 +191,9 @@ export class MemStorage implements IStorage {
     this.messages = new Map();
     this.reactions = new Map();
     this.currentId = 1;
+    this.sessionStore = new MemoryStore({
+      checkPeriod: 86400000,
+    });
     this.userCoins = new Map();
     this.coinTransactions = new Map();
     this.coinProducts = new Map();
@@ -446,7 +455,6 @@ export class MemStorage implements IStorage {
     );
   }
 
-  // Fix type errors in createChannel function
   async createChannel(name: string, serverId: number, isVoice: boolean, isPrivate: boolean = false): Promise<Channel> {
     const id = this.currentId++;
     const channel: Channel = {
@@ -456,7 +464,6 @@ export class MemStorage implements IStorage {
       isVoice,
       isPrivate,
       allowedUsers: [],
-      type: isVoice ? 'voice' : 'text',
       createdAt: new Date(),
       currentMedia: null,
       mediaQueue: []
@@ -620,7 +627,6 @@ export class MemStorage implements IStorage {
     return userCoins;
   }
 
-  // Fix type errors in addCoins
   async addCoins(
     userId: number,
     amount: number,
@@ -633,21 +639,16 @@ export class MemStorage implements IStorage {
       userCoins = await this.createUserCoins(userId);
     }
 
-    const currentBalance = parseInt(userCoins.balance) || 0;
-    const newBalance = currentBalance + amount;
-    userCoins.balance = newBalance.toString();
-
+    userCoins.balance += amount;
     if (amount > 0) {
-      const lifetimeEarned = parseInt(userCoins.lifetimeEarned) || 0;
-      userCoins.lifetimeEarned = (lifetimeEarned + amount).toString();
+      userCoins.lifetimeEarned += amount;
     }
-
     this.userCoins.set(userCoins.id, userCoins);
 
     const transaction: CoinTransaction = {
       id: this.currentId++,
       userId,
-      amount: amount.toString(),
+      amount,
       type,
       description,
       metadata,
@@ -761,7 +762,6 @@ export class MemStorage implements IStorage {
     return Array.from(this.gifts.values());
   }
 
-  // Fix type issues with gifts and coins
   async sendGift(senderId: number, receiverId: number, giftId: number, message?: string): Promise<GiftHistory> {
     const gift = this.gifts.get(giftId);
     if (!gift) {
@@ -769,12 +769,7 @@ export class MemStorage implements IStorage {
     }
 
     const senderCoins = await this.getUserCoins(senderId);
-    if (!senderCoins) {
-      throw new Error("User coins not found");
-    }
-
-    const currentBalance = parseInt(senderCoins.balance) || 0;
-    if (currentBalance < gift.price) {
+    if (!senderCoins || senderCoins.balance < gift.price) {
       throw new Error("Insufficient coins");
     }
 
@@ -948,7 +943,7 @@ export class MemStorage implements IStorage {
     };
 
     this.channels.set(channelId, channel);
-    return channel;
+        return channel;
   }
 
   async addToMediaQueue(channelId: number, media: {
@@ -957,7 +952,7 @@ export class MemStorage implements IStorage {
     title: string;
     queuedBy: number;
   }): Promise<Channel> {
-    const channel = await this.getChannel(channelId);
+    const channel =await this.getChannel(channelId);
     if (!channel) throw new Error("Channel not found");
 
     channel.mediaQueue = [...(channel.mediaQueue || []), media];
