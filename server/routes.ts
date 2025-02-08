@@ -27,30 +27,39 @@ function sendWebSocketMessage(ws: WebSocket | undefined, type: string, data: any
 }
 
 export function registerRoutes(app: Express): Server {
+  // Session ayarlarını güncelle
+  const sessionMiddleware = session({
+    ...sessionSettings,
+    resave: true, // Oturum süresini yenile
+    rolling: true, // Her istekte oturum süresini sıfırla
+    cookie: {
+      ...sessionSettings.cookie,
+      maxAge: 24 * 60 * 60 * 1000 // 24 saat
+    }
+  });
+
+  app.use(sessionMiddleware);
   setupAuth(app);
 
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
-  // Event emitter limit artırımı
   setMaxListeners(20);
 
-  // WebSocket bağlantılarını saklamak için Map
   const clients = new Map<number, WebSocket>();
 
-  // WebSocket bağlantı yönetimi
   wss.on('connection', async (ws: WebSocket, req: any) => {
-    let pingInterval: NodeJS.Timeout;
+    let pingInterval: NodeJS.Timeout | undefined;
     let lastPong = Date.now();
 
     try {
       console.log('New WebSocket connection attempt');
 
       // Session parsing
-      const sessionParser = session(sessionSettings);
       await new Promise<void>((resolve, reject) => {
-        sessionParser(req, {} as any, (err: any) => {
+        sessionMiddleware(req, {} as any, (err: any) => {
           if (err) {
+            console.error('Session parsing error:', err);
             reject(err);
             return;
           }
@@ -58,7 +67,6 @@ export function registerRoutes(app: Express): Server {
         });
       });
 
-      // Kimlik doğrulama kontrolü
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
         ws.close(1008, 'Unauthorized');
@@ -68,7 +76,6 @@ export function registerRoutes(app: Express): Server {
       const userId = req.session.passport.user;
       console.log('WebSocket connected for user:', userId);
 
-      // Varolan bağlantıyı kapat
       const existingWs = clients.get(userId);
       if (existingWs) {
         console.log('Closing existing connection for user:', userId);
@@ -78,10 +85,8 @@ export function registerRoutes(app: Express): Server {
 
       clients.set(userId, ws);
 
-      // Ping/Pong mekanizması
       pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
-          // 30 saniyeden fazla pong yanıtı gelmemişse bağlantıyı kapat
           if (Date.now() - lastPong > 30000) {
             console.log('No pong response, closing connection for user:', userId);
             ws.terminate();
@@ -89,34 +94,30 @@ export function registerRoutes(app: Express): Server {
           }
           ws.ping();
         } else {
-          clearInterval(pingInterval);
+          if (pingInterval) clearInterval(pingInterval);
         }
       }, 15000);
 
-      // Bağlantı kapanma yönetimi
       ws.on('close', (code: number, reason: string) => {
         console.log(`WebSocket disconnected for user: ${userId}, code: ${code}, reason: ${reason}`);
         clients.delete(userId);
-        clearInterval(pingInterval);
+        if (pingInterval) clearInterval(pingInterval);
       });
 
-      // Hata yönetimi
       ws.on('error', (error) => {
         console.error('WebSocket error for user:', userId, error);
         clients.delete(userId);
-        clearInterval(pingInterval);
+        if (pingInterval) clearInterval(pingInterval);
         if (ws.readyState === WebSocket.OPEN) {
           ws.close(1011, 'Internal Server Error');
         }
       });
 
-      // Pong yanıtı yönetimi
       ws.on('pong', () => {
         lastPong = Date.now();
         console.log('Received pong from user:', userId);
       });
 
-      // İlk bağlantı başarı mesajı
       sendWebSocketMessage(ws, 'CONNECTED', { 
         userId,
         timestamp: Date.now()
@@ -124,9 +125,7 @@ export function registerRoutes(app: Express): Server {
 
     } catch (error) {
       console.error('WebSocket connection error:', error);
-      if (pingInterval) {
-        clearInterval(pingInterval);
-      }
+      if (pingInterval) clearInterval(pingInterval);
       if (ws.readyState === WebSocket.OPEN) {
         ws.close(1011, 'Internal Server Error');
       }
@@ -847,8 +846,7 @@ export function registerRoutes(app: Express): Server {
             friendshipId,
             userId: req.user.id,
             username: req.user.username,
-            senderId: friendship.senderId,
-            receiverId: friendship.receiverId
+            senderId: friendship.senderId,            receiverId: friendship.receiverId
           }
         }));
       }

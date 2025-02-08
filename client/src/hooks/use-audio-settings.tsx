@@ -26,8 +26,11 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>("");
   const [isInitialized, setIsInitialized] = useState(false);
   const [isTestingAudio, setIsTestingAudio] = useState(false);
+  const [autoGainControl, setAutoGainControl] = useState(true);
+  const [echoCancellation, setEchoCancellation] = useState(true);
+  const [noiseSuppression, setNoiseSuppression] = useState(true);
 
-  // Real-time volume feedback with improved cleanup
+  // Ses analizi ve gerçek zamanlı seviye güncelleme
   useEffect(() => {
     if (!selectedInputDevice || !isInitialized) return;
 
@@ -36,6 +39,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     let microphone: MediaStreamAudioSourceNode | null = null;
     let mediaStream: MediaStream | null = null;
     let animationFrame: number | null = null;
+    let retryTimeout: NodeJS.Timeout | null = null;
 
     const updateVolume = () => {
       if (!analyser) return;
@@ -46,42 +50,65 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       animationFrame = requestAnimationFrame(updateVolume);
     };
 
-    const setupAudioAnalysis = async () => {
+    const setupAudioAnalysis = async (retryCount = 0) => {
       try {
+        if (retryCount > 3) {
+          throw new Error('Maximum retry attempts reached');
+        }
+
         mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: selectedInputDevice }
+          audio: {
+            deviceId: selectedInputDevice,
+            autoGainControl,
+            echoCancellation,
+            noiseSuppression,
+            sampleRate: 48000,
+            channelCount: 2
+          }
         });
 
-        audioContext = new AudioContext();
+        audioContext = new AudioContext({ sampleRate: 48000 });
         analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
         microphone = audioContext.createMediaStreamSource(mediaStream);
         microphone.connect(analyser);
         updateVolume();
+
       } catch (error) {
-        console.warn('Could not initialize audio analysis:', error);
-        toast({
-          description: t('audio.initializationError'),
-          variant: "destructive",
-        });
+        console.warn('Audio analysis setup failed:', error);
+        if (retryCount < 3) {
+          retryTimeout = setTimeout(() => {
+            setupAudioAnalysis(retryCount + 1);
+          }, 2000);
+        } else {
+          toast({
+            description: t('audio.initializationError'),
+            variant: "destructive",
+          });
+        }
       }
     };
 
     setupAudioAnalysis();
 
+    // Cleanup
     return () => {
       if (animationFrame) cancelAnimationFrame(animationFrame);
+      if (retryTimeout) clearTimeout(retryTimeout);
       if (microphone) microphone.disconnect();
       if (audioContext) audioContext.close();
       if (mediaStream) {
         mediaStream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [selectedInputDevice, isInitialized, toast, t]);
+  }, [selectedInputDevice, isInitialized, autoGainControl, echoCancellation, noiseSuppression, toast, t]);
 
+  // Cihaz yönetimi ve otomatik yeniden bağlanma
   useEffect(() => {
     let mounted = true;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
 
-    const initializeAudioDevices = async () => {
+    const initializeAudioDevices = async (retryCount = 0) => {
       if (!mounted) return;
 
       try {
@@ -102,11 +129,21 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         if (hasAudioDevices) {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
-              audio: { echoCancellation: true, noiseSuppression: true }
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              }
             });
             stream.getTracks().forEach(track => track.stop());
           } catch (error) {
             console.warn('Audio permission denied:', error);
+            if (retryCount < 3) {
+              reconnectTimeout = setTimeout(() => {
+                initializeAudioDevices(retryCount + 1);
+              }, 2000);
+              return;
+            }
             toast({
               description: t('audio.permissionDenied'),
               variant: "destructive",
@@ -131,6 +168,12 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         );
 
         if (audioDevices.length === 0) {
+          if (retryCount < 3) {
+            reconnectTimeout = setTimeout(() => {
+              initializeAudioDevices(retryCount + 1);
+            }, 2000);
+            return;
+          }
           console.warn('No audio devices available after permission');
           toast({
             description: t('audio.noDevicesAfterPermission'),
@@ -141,25 +184,35 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
         setAudioDevices(audioDevices);
 
-        const defaultInput = audioDevices.find(d => d.kind === 'audioinput');
-        const defaultOutput = audioDevices.find(d => d.kind === 'audiooutput');
-
-        if (defaultInput) {
-          setSelectedInputDevice(defaultInput.deviceId);
+        // Cihaz seçimi ve varsayılan ayarlar
+        if (!selectedInputDevice) {
+          const defaultInput = audioDevices.find(d => d.kind === 'audioinput');
+          if (defaultInput) {
+            setSelectedInputDevice(defaultInput.deviceId);
+          }
         }
 
-        if (defaultOutput) {
-          setSelectedOutputDevice(defaultOutput.deviceId);
+        if (!selectedOutputDevice) {
+          const defaultOutput = audioDevices.find(d => d.kind === 'audiooutput');
+          if (defaultOutput) {
+            setSelectedOutputDevice(defaultOutput.deviceId);
+          }
         }
 
         setIsInitialized(true);
 
       } catch (error) {
         console.error('Audio initialization error:', error);
-        toast({
-          description: t('audio.initializationError'),
-          variant: "destructive",
-        });
+        if (retryCount < 3) {
+          reconnectTimeout = setTimeout(() => {
+            initializeAudioDevices(retryCount + 1);
+          }, 2000);
+        } else {
+          toast({
+            description: t('audio.initializationError'),
+            variant: "destructive",
+          });
+        }
       }
     };
 
@@ -178,14 +231,18 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     return () => {
       mounted = false;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
       try {
         navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
       } catch (error) {
         console.warn('Could not remove device change listener:', error);
       }
     };
-  }, [toast, t]);
+  }, [selectedInputDevice, selectedOutputDevice, toast, t]);
 
+  // Gelişmiş test sesi fonksiyonu
   const playTestSound = useCallback(async () => {
     if (!isInitialized) {
       toast({
@@ -198,12 +255,13 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     setIsTestingAudio(true);
 
     try {
-      const audioContext = new AudioContext();
+      const audioContext = new AudioContext({ sampleRate: 48000 });
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
 
       oscillator.type = 'sine';
-      oscillator.frequency.value = 440;
+      oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(880, audioContext.currentTime + 0.5);
       gainNode.gain.value = volume[0] / 100;
 
       oscillator.connect(gainNode);
