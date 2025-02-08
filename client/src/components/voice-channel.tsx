@@ -1,14 +1,15 @@
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX, Trash2 } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
 import { useWebRTC } from "@/hooks/use-webrtc";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -33,10 +34,22 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const { isConnected, createPeer, cleanup } = useWebRTC(channel.id);
 
-  const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
-    queryKey: [`/api/channels/${channel.id}/members`],
-    enabled: isJoined,
-    refetchInterval: 5000 // Her 5 saniyede bir güncelle
+  const deleteChannelMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/channels/${channel.id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/servers/${channel.serverId}/channels`] });
+      toast({
+        description: t('server.channelDeleted'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const setupLocalStream = async () => {
@@ -115,6 +128,12 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     };
   }, [isJoined, cleanup, localStream]);
 
+  const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
+    queryKey: [`/api/channels/${channel.id}/members`],
+    enabled: isJoined,
+    refetchInterval: 5000 // Her 5 saniyede bir güncelle
+  });
+
   const currentMemberStatus = channelMembers.find(member => member.id === user?.id);
   const isCurrentUserMuted = currentMemberStatus?.isMuted || isMuted;
 
@@ -135,14 +154,27 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           {isConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
         </div>
 
-        <Button
-          variant={isJoined ? "destructive" : "default"}
-          size="sm"
-          onClick={handleJoinLeave}
-          className="w-20"
-        >
-          {isJoined ? t('server.leave') : t('server.join')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={isJoined ? "destructive" : "default"}
+            size="sm"
+            onClick={handleJoinLeave}
+            className="w-20"
+          >
+            {isJoined ? t('server.leave') : t('server.join')}
+          </Button>
+
+          {isOwner && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => deleteChannelMutation.mutate()}
+              disabled={deleteChannelMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {isJoined && (
