@@ -35,11 +35,13 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
-    enabled: isJoined
+    enabled: isJoined,
+    refetchInterval: 5000 // Her 5 saniyede bir güncelle
   });
 
   const setupLocalStream = async () => {
     try {
+      console.log('Setting up local stream with device:', selectedInputDevice);
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
@@ -49,6 +51,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         },
         video: false
       });
+
+      console.log('Local stream setup successful');
       setLocalStream(stream);
       return stream;
     } catch (error) {
@@ -63,19 +67,25 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const handleJoinLeave = async () => {
     if (isJoined) {
+      console.log('Leaving voice channel');
       if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+        localStream.getTracks().forEach(track => {
+          track.stop();
+          console.log('Stopped track:', track.kind);
+        });
         setLocalStream(null);
       }
       cleanup();
       setIsJoined(false);
       setIsMuted(false);
     } else {
+      console.log('Joining voice channel');
       const stream = await setupLocalStream();
       if (stream) {
         // Initialize peer connections with existing members
         for (const member of channelMembers) {
           if (member.id !== user?.id) {
+            console.log('Creating peer connection with:', member.username);
             await createPeer(member.id, true);
           }
         }
@@ -87,7 +97,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const toggleMute = () => {
     if (localStream) {
       localStream.getAudioTracks().forEach(track => {
-        track.enabled = isMuted; // Note: We flip the current state
+        track.enabled = !isMuted; // Toggle the current state
+        console.log('Track enabled:', track.enabled);
       });
       setIsMuted(!isMuted);
     }
@@ -103,6 +114,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       }
     };
   }, [isJoined, cleanup, localStream]);
+
+  const currentMemberStatus = channelMembers.find(member => member.id === user?.id);
+  const isCurrentUserMuted = currentMemberStatus?.isMuted || isMuted;
 
   return (
     <div className="space-y-2">

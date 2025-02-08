@@ -20,6 +20,7 @@ export function useWebRTC(channelId: number) {
   const createPeer = useCallback(async (targetUserId: number, initiator: boolean): Promise<RTCPeerConnection> => {
     try {
       if (!localStreamRef.current) {
+        console.log('Requesting user media...');
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
@@ -29,15 +30,23 @@ export function useWebRTC(channelId: number) {
           },
           video: false
         });
+        console.log('Got user media stream');
         localStreamRef.current = stream;
       }
 
-      const peerConnection = new RTCPeerConnection({
+      const config = {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:global.stun.twilio.com:3478' }
-        ]
-      });
+        ],
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'balanced',
+        rtcpMuxPolicy: 'require',
+        iceCandidatePoolSize: 0
+      };
+
+      console.log('Creating RTCPeerConnection with config:', config);
+      const peerConnection = new RTCPeerConnection(config);
 
       // Add local tracks to the connection
       localStreamRef.current.getTracks().forEach(track => {
@@ -50,6 +59,7 @@ export function useWebRTC(channelId: number) {
       // Handle ICE candidates
       peerConnection.onicecandidate = async (event) => {
         if (event.candidate) {
+          console.log('Got ICE candidate:', event.candidate);
           try {
             const response = await fetch(`/api/channels/${channelId}/signal`, {
               method: 'POST',
@@ -86,12 +96,46 @@ export function useWebRTC(channelId: number) {
         }
       };
 
+      // Handle negotiation needed
+      peerConnection.onnegotiationneeded = async () => {
+        console.log('Negotiation needed');
+        if (initiator) {
+          try {
+            const offer = await peerConnection.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: false
+            });
+            await peerConnection.setLocalDescription(offer);
+
+            const response = await fetch(`/api/channels/${channelId}/signal`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                targetUserId,
+                signal: {
+                  type: 'offer',
+                  sdp: peerConnection.localDescription
+                }
+              })
+            });
+
+            if (!response.ok) {
+              throw new Error('Failed to send offer');
+            }
+          } catch (error) {
+            console.error('Offer error:', error);
+            cleanupPeer(targetUserId);
+          }
+        }
+      };
+
       // Handle remote stream
       peerConnection.ontrack = (event) => {
         console.log('Received remote track:', event.track.kind);
         const [remoteStream] = event.streams;
 
         if (remoteStream) {
+          console.log('Creating new audio element for remote stream');
           const audioElement = new Audio();
           audioElement.srcObject = remoteStream;
           audioElement.autoplay = true;
@@ -110,37 +154,6 @@ export function useWebRTC(channelId: number) {
           });
         }
       };
-
-      // Create and send offer if initiator
-      if (initiator) {
-        const offer = await peerConnection.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false
-        });
-        await peerConnection.setLocalDescription(offer);
-
-        try {
-          const response = await fetch(`/api/channels/${channelId}/signal`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              targetUserId,
-              signal: {
-                type: 'offer',
-                sdp: peerConnection.localDescription
-              }
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to send offer');
-          }
-        } catch (error) {
-          console.error('Offer error:', error);
-          cleanupPeer(targetUserId);
-          throw error;
-        }
-      }
 
       setPeers(prev => ({
         ...prev,
@@ -163,14 +176,17 @@ export function useWebRTC(channelId: number) {
 
   const handleIncomingSignal = useCallback(async (userId: number, signal: RTCSessionDescriptionInit | RTCIceCandidateInit) => {
     try {
+      console.log('Handling incoming signal:', signal);
       let peerConnection = peers[userId]?.connection;
 
       if (!peerConnection) {
+        console.log('Creating new peer for incoming signal');
         peerConnection = await createPeer(userId, false);
       }
 
       if ('type' in signal) {
         if (signal.type === 'offer') {
+          console.log('Processing offer');
           await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
@@ -191,10 +207,12 @@ export function useWebRTC(channelId: number) {
             throw new Error('Failed to send answer');
           }
         } else if (signal.type === 'answer') {
+          console.log('Processing answer');
           await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-        } else if ('candidate' in signal && signal.candidate) {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
         }
+      } else if (signal.candidate) {
+        console.log('Adding ICE candidate');
+        await peerConnection.addIceCandidate(new RTCIceCandidate(signal));
       }
     } catch (error) {
       console.error('Error handling incoming signal:', error);
@@ -202,13 +220,18 @@ export function useWebRTC(channelId: number) {
   }, [peers, createPeer, channelId]);
 
   const cleanupPeer = useCallback((userId: number) => {
+    console.log('Cleaning up peer:', userId);
     const peerConnection = peers[userId];
     if (peerConnection) {
       // Stop all tracks
-      peerConnection.stream.getTracks().forEach(track => track.stop());
+      peerConnection.stream.getTracks().forEach(track => {
+        console.log('Stopping track:', track.kind);
+        track.stop();
+      });
 
       // Close audio element if it exists
       if (peerConnection.audioElement) {
+        console.log('Closing audio element');
         peerConnection.audioElement.pause();
         peerConnection.audioElement.srcObject = null;
       }
@@ -225,12 +248,16 @@ export function useWebRTC(channelId: number) {
   }, [peers]);
 
   const cleanup = useCallback(() => {
+    console.log('Running cleanup');
     Object.keys(peers).forEach(userId => {
       cleanupPeer(Number(userId));
     });
 
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current.getTracks().forEach(track => {
+        console.log('Stopping local track:', track.kind);
+        track.stop();
+      });
       localStreamRef.current = null;
     }
 

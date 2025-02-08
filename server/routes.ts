@@ -31,24 +31,37 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
 
     try {
+      console.log('Received WebRTC signal:', {
+        fromUser: req.user.id,
+        targetUser: req.body.targetUserId,
+        signalType: req.body.signal.type
+      });
+
       const { targetUserId, signal } = req.body;
       const channelId = parseInt(req.params.channelId);
 
+      // Get channel and check if it's a voice channel
+      const channel = await storage.getChannel(channelId);
+      if (!channel || !channel.isVoice) {
+        return res.status(400).json({ error: "Invalid channel" });
+      }
+
       // Check if both users are members of the channel
-      const members = await storage.getServerMembers(channelId);
+      const members = await storage.getServerMembers(channel.serverId);
       const isValidConnection = members.some(m => m.id === targetUserId) && 
                               members.some(m => m.id === req.user!.id);
 
       if (!isValidConnection) {
+        console.log('Invalid connection attempt between users:', req.user.id, targetUserId);
         return res.status(403).json({ error: "Invalid connection attempt" });
       }
 
-      // Relay the signal to the target user
-      // In a real implementation, you would use a real-time solution to deliver this
-      // For now, we'll just acknowledge the signal
+      // In a real implementation, you would use WebSocket or another real-time solution
+      // For now, we just acknowledge the signal
+      console.log('Successfully processed signal');
       res.json({ success: true });
     } catch (error) {
-      console.error('WebRTC signaling error:', handleError(error));
+      console.error('WebRTC signaling error:', error);
       res.status(500).json({ message: "Failed to relay signal" });
     }
   });
@@ -629,7 +642,6 @@ export function registerRoutes(app: Express): Server {
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
       console.log('Created friend request:', friendship);
 
-
       res.status(201).json(friendship);
     } catch (error: any) {
       console.error('Add friend error:', error);
@@ -649,7 +661,6 @@ export function registerRoutes(app: Express): Server {
       }
 
       await storage.acceptFriendRequest(friendshipId);
-
 
       res.sendStatus(200);
     } catch (error: any) {
