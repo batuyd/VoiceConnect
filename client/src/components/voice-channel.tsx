@@ -50,49 +50,37 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     refetchInterval: 2000
   });
 
-  const resetConnectionState = useCallback(() => {
-    setWsConnected(false);
-    setIsConnecting(false);
-    retryCount.current = 0;
-    setConnectionErrors(0);
-  }, []);
-
-  const requestAudioPermissions = useCallback(async () => {
-    try {
-      console.log('Requesting audio permissions...');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop());
-      setAudioPermissionGranted(true);
-      console.log('Audio permissions granted');
-      return true;
-    } catch (error) {
-      console.error('Audio permission error:', error);
-      toast({
-        description: t('voice.permissionDenied'),
-        variant: "destructive",
-      });
-      return false;
-    }
-  }, [toast, t]);
-
   const cleanupAudioResources = useCallback(async () => {
     console.log('Cleaning up audio resources');
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
+    try {
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
       mediaRecorderRef.current = null;
-    }
 
-    if (stream.current) {
-      stream.current.getTracks().forEach(track => track.stop());
-      stream.current = null;
-    }
+      if (stream.current) {
+        stream.current.getTracks().forEach(track => {
+          try {
+            track.stop();
+          } catch (error) {
+            console.error('Error stopping track:', error);
+          }
+        });
+        stream.current = null;
+      }
 
-    if (audioContext.current?.state !== 'closed') {
-      await audioContext.current?.close();
+      if (audioContext.current?.state !== 'closed') {
+        try {
+          await audioContext.current?.close();
+        } catch (error) {
+          console.error('Error closing audio context:', error);
+        }
+      }
       audioContext.current = null;
+      gainNode.current = null;
+    } catch (error) {
+      console.error('Error in cleanupAudioResources:', error);
     }
-
-    gainNode.current = null;
   }, []);
 
   const setupAudioStream = useCallback(async () => {
@@ -127,7 +115,6 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       gainNode.current = audioContext.current.createGain();
       gainNode.current.gain.value = isMuted ? 0 : 1;
       source.connect(gainNode.current);
-      gainNode.current.connect(audioContext.current.destination);
 
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         console.log('Starting media recorder');
@@ -156,34 +143,46 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         description: t('voice.deviceAccessError'),
         variant: "destructive",
       });
-      await handleLeaveChannel();
+      setConnectionErrors(prev => prev + 1);
     }
   }, [selectedInputDevice, isJoined, audioPermissionGranted, wsConnected, channel.id, isMuted, toast, t, cleanupAudioResources]);
 
   const handleLeaveChannel = useCallback(async () => {
     console.log('Leaving channel:', channel.id);
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'leave_channel',
-        channelId: channel.id
-      }));
+      try {
+        wsRef.current.send(JSON.stringify({
+          type: 'leave_channel',
+          channelId: channel.id
+        }));
+      } catch (error) {
+        console.error('Error sending leave message:', error);
+      }
     }
 
     await cleanupAudioResources();
 
     if (wsRef.current) {
-      wsRef.current.close();
+      try {
+        wsRef.current.close();
+      } catch (error) {
+        console.error('Error closing WebSocket:', error);
+      }
       wsRef.current = null;
     }
 
     setIsJoined(false);
-    resetConnectionState();
+    setWsConnected(false);
+    setIsConnecting(false);
     setAudioPermissionGranted(false);
+    retryCount.current = 0;
+    setConnectionErrors(0);
 
     if (isJoined) {
       playLeaveSound();
     }
-  }, [channel.id, playLeaveSound, isJoined, cleanupAudioResources, resetConnectionState]);
+  }, [channel.id, playLeaveSound, isJoined, cleanupAudioResources]);
 
   const connectWebSocket = useCallback(async () => {
     if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries || !channel.id || connectionErrors >= maxConnectionErrors) {
@@ -201,21 +200,31 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     try {
       setIsConnecting(true);
 
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        console.log('WebSocket already connected');
+        setIsConnecting(false);
+        return;
       }
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
-      console.log('Trying to connect WebSocket to:', wsUrl);
+      console.log('Connecting WebSocket to:', wsUrl);
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         console.log('WebSocket connected');
+        setWsConnected(true);
+        setIsConnecting(false);
         setConnectionErrors(0);
+        retryCount.current = 0;
+
+        ws.send(JSON.stringify({
+          type: 'join_channel',
+          channelId: channel.id,
+          userId: user.id
+        }));
       };
 
       ws.onmessage = async (event) => {
@@ -235,20 +244,12 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
                   description: t('voice.tooManyErrors'),
                   variant: "destructive",
                 });
+                handleLeaveChannel();
               }
-              await handleLeaveChannel();
               break;
 
             case 'connection_success':
               console.log('Connection success confirmed');
-              setWsConnected(true);
-              setIsConnecting(false);
-              retryCount.current = 0;
-              ws.send(JSON.stringify({
-                type: 'join_channel',
-                channelId: channel.id,
-                userId: user.id
-              }));
               break;
 
             case 'join_success':
@@ -280,6 +281,9 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
                 }
               }
               break;
+
+            default:
+              console.warn('Unknown message type:', data.type);
           }
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error);
@@ -300,22 +304,13 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
           setTimeout(() => {
             connectWebSocket();
           }, timeout);
-        } else if (retryCount.current >= maxRetries || connectionErrors >= maxConnectionErrors) {
-          handleLeaveChannel();
-          toast({
-            description: t('voice.connectionLost'),
-            variant: "destructive",
-          });
         }
       };
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         setConnectionErrors(prev => prev + 1);
-        toast({
-          description: t('voice.connectionFailed'),
-          variant: "destructive",
-        });
+        setIsConnecting(false);
       };
     } catch (error) {
       console.error('WebSocket connection error:', error);
@@ -341,6 +336,24 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     playLeaveSound
   ]);
 
+  const requestAudioPermissions = useCallback(async () => {
+    try {
+      console.log('Requesting audio permissions...');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      setAudioPermissionGranted(true);
+      console.log('Audio permissions granted');
+      return true;
+    } catch (error) {
+      console.error('Audio permission error:', error);
+      toast({
+        description: t('voice.permissionDenied'),
+        variant: "destructive",
+      });
+      return false;
+    }
+  }, [toast, t]);
+
   const handleJoinLeave = useCallback(async () => {
     if (isJoined) {
       await handleLeaveChannel();
@@ -349,22 +362,16 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       if (hasPermission) {
         setIsJoined(true);
         playJoinSound();
-        await connectWebSocket();
+        connectWebSocket();
       }
     }
-  }, [
-    isJoined,
-    handleLeaveChannel,
-    requestAudioPermissions,
-    playJoinSound,
-    connectWebSocket
-  ]);
+  }, [isJoined, handleLeaveChannel, requestAudioPermissions, playJoinSound, connectWebSocket]);
 
   useEffect(() => {
-    if (isJoined && !wsConnected && connectionErrors < maxConnectionErrors) {
+    if (isJoined && !wsConnected && !isConnecting && connectionErrors < maxConnectionErrors) {
       connectWebSocket();
     }
-  }, [isJoined, wsConnected, connectionErrors, connectWebSocket]);
+  }, [isJoined, wsConnected, isConnecting, connectionErrors, connectWebSocket]);
 
   useEffect(() => {
     if (!gainNode.current) return;
