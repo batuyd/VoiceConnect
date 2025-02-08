@@ -199,6 +199,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               });
             } else if (data.type === 'member_update') {
               refetchMembers();
+            } else if (data.type === 'user_left') {
+              // Refresh member list when a user leaves
+              refetchMembers();
+
+              // Show notification
+              toast({
+                description: t('voice.userLeft', { username: data.username }),
+              });
             } else if (data.type === 'voice_data' && data.fromUserId !== user.id) {
               // Handle incoming voice data
               const audioData = data.data;
@@ -273,29 +281,50 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     }
   }, [isMuted]);
 
+  const handleLeaveChannel = useCallback(async () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'leave_channel',
+        channelId: channel.id,
+        userId: user?.id
+      }));
+    }
+
+    if (stream.current) {
+      stream.current.getTracks().forEach(track => track.stop());
+      stream.current = null;
+    }
+
+    if (audioContext.current?.state !== 'closed') {
+      await audioContext.current?.close();
+    }
+
+    setIsJoined(false);
+    setWsConnected(false);
+    setRetryCount(0);
+    setAudioPermissionGranted(false);
+  }, [channel.id, user?.id]);
+
+  useEffect(() => {
+    return () => {
+      // Cleanup when component unmounts
+      handleLeaveChannel();
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, [handleLeaveChannel]);
+
   const handleJoinLeave = useCallback(async () => {
     if (isJoined) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (stream.current) {
-        stream.current.getTracks().forEach(track => track.stop());
-      }
-      if (audioContext.current?.state !== 'closed') {
-        await audioContext.current?.close();
-      }
-      setIsJoined(false);
-      setWsConnected(false);
-      setRetryCount(0);
-      setAudioPermissionGranted(false);
+      await handleLeaveChannel();
     } else {
       const hasPermission = await requestAudioPermissions();
       if (hasPermission) {
         setIsJoined(true);
       }
     }
-  }, [isJoined, requestAudioPermissions]);
+  }, [isJoined, requestAudioPermissions, handleLeaveChannel]);
 
   return (
     <div className="space-y-2">

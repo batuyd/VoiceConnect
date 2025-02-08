@@ -891,7 +891,35 @@ export function registerRoutes(app: Express): Server {
                 }
               }
               break;
+            case 'leave_channel':
+              if (!data.channelId) {
+                console.error('Missing channelId in leave channel message');
+                break;
+              }
 
+              const leavingUser = connectedUsers.get(userId);
+              if (leavingUser) {
+                const previousChannel = leavingUser.currentChannel;
+                leavingUser.currentChannel = undefined;
+
+                if (previousChannel) {
+                  // Notify other users in the channel about the user leaving
+                  const remainingUsers = Array.from(connectedUsers.values())
+                    .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
+
+                  for (const user of remainingUsers) {
+                    if (user.ws.readyState === WebSocket.OPEN) {
+                      user.ws.send(JSON.stringify({
+                        type: 'user_left',
+                        userId,
+                        username: leavingUser.user.username,
+                        channelId: previousChannel
+                      }));
+                    }
+                  }
+                }
+              }
+              break;
             default:
               console.log('Unknown message type', {
                 timestamp: new Date().toISOString(),
@@ -921,6 +949,29 @@ export function registerRoutes(app: Express): Server {
           userId,
           username: user.username
         });
+
+        const closingUser = connectedUsers.get(userId);
+        if (closingUser?.currentChannel) {
+          // Notify other users in the channel about the user disconnecting
+          const remainingUsers = Array.from(connectedUsers.values())
+            .filter(conn =>
+              conn.currentChannel === closingUser.currentChannel &&
+              conn.user.id !== userId
+            );
+
+          for (const user of remainingUsers) {
+            if (user.ws.readyState === WebSocket.OPEN) {
+              user.ws.send(JSON.stringify({
+                type: 'user_left',
+                userId,
+                username: closingUser.user.username,
+                channelId: closingUser.currentChannel,
+                reason: 'disconnected'
+              }));
+            }
+          }
+        }
+
         connectedUsers.delete(userId);
       });
 
