@@ -12,19 +12,19 @@ export function useWebSocket() {
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
-    
+
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        
+
         switch (message.type) {
           case 'FRIEND_REQUEST':
             // Friend request bildirimi geldiğinde friend requests query'sini invalidate et
             queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
-            
+
             // Kullanıcıya toast bildirimi göster
             toast({
               title: t('friend.newRequest'),
@@ -32,6 +32,10 @@ export function useWebSocket() {
                 username: message.data.sender.username 
               }),
             });
+            break;
+          case 'FRIENDSHIP_REMOVED':
+            // Arkadaşlık silindiğinde friends listesini güncelle
+            queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
             break;
         }
       } catch (error) {

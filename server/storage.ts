@@ -496,6 +496,7 @@ export class DatabaseStorage implements IStorage {
   }
 
 
+
   async getUserCoins(userId: number): Promise<UserCoins | undefined> {
     const [result] = await db
       .select()
@@ -781,7 +782,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removeFriend(userId1: number, userId2: number): Promise<void> {
-    await db.delete(friendships).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
+    try {
+      const [existingFriendship] = await db
+        .select()
+        .from(friendships)
+        .where(
+          or(
+            and(
+              eq(friendships.senderId, userId1),
+              eq(friendships.receiverId, userId2)
+            ),
+            and(
+              eq(friendships.senderId, userId2),
+              eq(friendships.receiverId, userId1)
+            )
+          )
+        );
+
+      if (!existingFriendship) {
+        throw new Error('Friendship not found');
+      }
+
+      await db
+        .delete(friendships)
+        .where(eq(friendships.id, existingFriendship.id));
+
+      console.log(`Friendship between ${userId1} and ${userId2} successfully deleted`);
+    } catch (error) {
+      console.error('Error removing friend:', error);
+      throw error;
+    }
   }
   async getFriendshipById(friendshipId: number): Promise<Friendship | undefined> {
     const [friendship] = await db.select({ friendship: friendships, sender: users }).from(friendships).innerJoin(users, eq(users.id, friendships.senderId)).where(eq(friendships.id, friendshipId));
@@ -943,8 +973,7 @@ interface IStorage {
   sessionStore: session.Store;
   updateUserProfile(
     userId: number,
-    data: {
-      bio?: string;
+    data: {      bio?: string;
       age?: number;
       avatar?: string;
       nickname?: string;

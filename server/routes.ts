@@ -749,6 +749,19 @@ export function registerRoutes(app: Express): Server {
     try {
       const friendId = parseInt(req.params.friendId);
       await storage.removeFriend(req.user.id, friendId);
+
+      // WebSocket üzerinden arkadaşlık durumunun güncellendiğini bildirme
+      const targetWs = clients.get(friendId);
+      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+        targetWs.send(JSON.stringify({
+          type: 'FRIENDSHIP_REMOVED',
+          data: {
+            userId: req.user.id,
+            friendId: friendId
+          }
+        }));
+      }
+
       res.sendStatus(200);
     } catch (error: any) {
       console.error('Remove friend error:', error);
