@@ -34,6 +34,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const [audioPermissionGranted, setAudioPermissionGranted] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionErrors, setConnectionErrors] = useState(0);
+  const [audioInitialized, setAudioInitialized] = useState(false);
 
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
@@ -43,6 +44,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const retryCount = useRef(0);
   const maxRetries = 3;
   const maxConnectionErrors = 3;
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const setupTimeoutRef = useRef<NodeJS.Timeout>();
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
@@ -52,9 +55,15 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
   const cleanupAudioResources = useCallback(async () => {
     console.log('Cleaning up audio resources');
+    clearTimeout(setupTimeoutRef.current);
+
     try {
       if (mediaRecorderRef.current?.state === 'recording') {
-        mediaRecorderRef.current.stop();
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (error) {
+          console.error('Error stopping media recorder:', error);
+        }
       }
       mediaRecorderRef.current = null;
 
@@ -78,6 +87,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       }
       audioContext.current = null;
       gainNode.current = null;
+      setAudioInitialized(false);
     } catch (error) {
       console.error('Error in cleanupAudioResources:', error);
     }
@@ -85,6 +95,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
   const handleLeaveChannel = useCallback(async () => {
     console.log('Leaving channel:', channel.id);
+    clearTimeout(reconnectTimeoutRef.current);
+    clearTimeout(setupTimeoutRef.current);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       try {
@@ -112,6 +124,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     setWsConnected(false);
     setIsConnecting(false);
     setAudioPermissionGranted(false);
+    setAudioInitialized(false);
     retryCount.current = 0;
     setConnectionErrors(0);
 
@@ -127,6 +140,11 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         wsConnected,
         channelId: channel.id
       });
+      return;
+    }
+
+    if (audioInitialized) {
+      console.log('Audio already initialized');
       return;
     }
 
@@ -151,33 +169,50 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       gainNode.current = audioContext.current.createGain();
       gainNode.current.gain.value = isMuted ? 0 : 1;
       source.connect(gainNode.current);
+      gainNode.current.connect(audioContext.current.destination);
 
       console.log('Audio context setup complete');
+      setAudioInitialized(true);
 
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        console.log('Starting media recorder');
-        const recorder = new MediaRecorder(mediaStream, {
-          mimeType: 'audio/webm;codecs=opus'
-        });
+      // Delay starting the media recorder to ensure stable connection
+      setupTimeoutRef.current = setTimeout(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          console.log('Starting media recorder');
+          try {
+            const recorder = new MediaRecorder(mediaStream, {
+              mimeType: 'audio/webm;codecs=opus'
+            });
 
-        recorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN && !isMuted) {
-            try {
-              wsRef.current.send(JSON.stringify({
-                type: 'voice_data',
-                channelId: channel.id,
-                data: event.data
-              }));
-            } catch (error) {
-              console.error('Error sending voice data:', error);
-            }
+            recorder.ondataavailable = (event) => {
+              if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN && !isMuted) {
+                try {
+                  wsRef.current.send(JSON.stringify({
+                    type: 'voice_data',
+                    channelId: channel.id,
+                    data: event.data
+                  }));
+                } catch (error) {
+                  console.error('Error sending voice data:', error);
+                  if (error instanceof Error && error.message.includes('closed')) {
+                    handleLeaveChannel();
+                  }
+                }
+              }
+            };
+
+            mediaRecorderRef.current = recorder;
+            recorder.start(100);
+          } catch (error) {
+            console.error('Error starting media recorder:', error);
+            toast({
+              description: t('voice.deviceError'),
+              variant: "destructive",
+            });
+            setConnectionErrors(prev => prev + 1);
           }
-        };
+        }
+      }, 1500); // Increased delay to ensure more stable connection
 
-        mediaRecorderRef.current = recorder;
-        recorder.start(100);
-        console.log('Media recorder started');
-      }
     } catch (error) {
       console.error('Audio setup error:', error);
       toast({
@@ -185,8 +220,23 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         variant: "destructive",
       });
       setConnectionErrors(prev => prev + 1);
+      if (connectionErrors >= maxConnectionErrors) {
+        handleLeaveChannel();
+      }
     }
-  }, [selectedInputDevice, isJoined, audioPermissionGranted, wsConnected, channel.id, isMuted, toast, t]);
+  }, [
+    selectedInputDevice,
+    isJoined,
+    audioPermissionGranted,
+    wsConnected,
+    channel.id,
+    isMuted,
+    audioInitialized,
+    toast,
+    t,
+    connectionErrors,
+    handleLeaveChannel
+  ]);
 
   const connectWebSocket = useCallback(async () => {
     if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries || connectionErrors >= maxConnectionErrors) {
@@ -211,7 +261,6 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
-
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -224,6 +273,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         setConnectionErrors(0);
         retryCount.current = 0;
 
+        // Delay joining to ensure stable connection
         joinTimeout = setTimeout(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
@@ -231,7 +281,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
               channelId: channel.id
             }));
           }
-        }, 500);
+        }, 1000);
       };
 
       ws.onclose = () => {
@@ -243,7 +293,13 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         if (isJoined && retryCount.current < maxRetries && connectionErrors < maxConnectionErrors) {
           const timeout = Math.min(1000 * Math.pow(2, retryCount.current), 5000);
           retryCount.current++;
-          setTimeout(connectWebSocket, timeout);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            if (isJoined) {
+              connectWebSocket();
+            }
+          }, timeout);
+        } else if (retryCount.current >= maxRetries || connectionErrors >= maxConnectionErrors) {
+          handleLeaveChannel();
         }
       };
 
@@ -251,6 +307,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         console.error('WebSocket error:', error);
         clearTimeout(joinTimeout);
         setConnectionErrors(prev => prev + 1);
+        setIsConnecting(false);
       };
 
       ws.onmessage = async (event) => {
@@ -322,6 +379,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     playJoinSound,
     playLeaveSound,
     toast,
+    handleLeaveChannel
   ]);
 
   const requestAudioPermissions = useCallback(async () => {
@@ -368,6 +426,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
   useEffect(() => {
     return () => {
+      clearTimeout(reconnectTimeoutRef.current);
+      clearTimeout(setupTimeoutRef.current);
       if (isJoined) {
         handleLeaveChannel();
       }
@@ -388,7 +448,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
             <Volume2 className="h-4 w-4 text-gray-400" />
           )}
           <span>{channel.name}</span>
-          {wsConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
+          {wsConnected && audioInitialized && <span className="w-2 h-2 rounded-full bg-green-500" />}
         </div>
 
         {!isConnecting && (
@@ -399,7 +459,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
             className="w-20"
             disabled={connectionErrors >= maxConnectionErrors}
           >
-            {isJoined ? t('server.leave') : t('server.join')}
+            {isJoined ? t('voice.leave') : t('voice.join')}
           </Button>
         )}
       </div>
