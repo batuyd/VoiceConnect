@@ -15,8 +15,6 @@ export const translations = {
       verify2FA: 'Enter 2FA Code',
       verify2FADescription: 'Enter the 6-digit code from your authenticator app',
       logout: 'Logout',
-      friendRequests: 'Friend Requests',
-      noFriendRequests: 'No pending friend requests',
       errors: {
         usernameRequired: 'Username is required',
         passwordRequired: 'Password is required',
@@ -55,10 +53,6 @@ export const translations = {
       makeAdmin: 'Make Admin',
       removeAdmin: 'Remove Admin',
       volume: 'Volume',
-      deleteChannelTitle: 'Delete Channel',
-      deleteChannelDescription: 'Are you sure you want to delete this channel? This action cannot be undone.',
-      channelDeleted: 'Channel has been deleted',
-      error: 'Error'
     },
     settings: {
       title: 'Settings',
@@ -232,10 +226,6 @@ export const translations = {
       noDevices: 'No audio devices found',
       defaultDevice: 'Default Device',
     },
-    common: {
-      cancel: 'Cancel',
-      delete: 'Delete',
-    }
   },
   tr: {
     auth: {
@@ -251,8 +241,6 @@ export const translations = {
       verify2FA: '2FA Kodunu Girin',
       verify2FADescription: 'Doğrulayıcı uygulamanızdan 6 haneli kodu girin',
       logout: 'Çıkış Yap',
-      friendRequests: 'Arkadaşlık İstekleri',
-      noFriendRequests: 'Bekleyen arkadaşlık isteği yok',
       errors: {
         usernameRequired: 'Kullanıcı adı gerekli',
         passwordRequired: 'Şifre gerekli',
@@ -291,10 +279,6 @@ export const translations = {
       makeAdmin: 'Admin Yap',
       removeAdmin: 'Admin Yetkisini Kaldır',
       volume: 'Ses Seviyesi',
-      deleteChannelTitle: 'Kanalı Sil',
-      deleteChannelDescription: 'Bu kanalı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
-      channelDeleted: 'Kanal silindi',
-      error: 'Hata'
     },
     settings: {
       title: 'Ayarlar',
@@ -468,9 +452,5 @@ export const translations = {
       noDevices: 'Ses cihazı bulunamadı',
       defaultDevice: 'Varsayılan Cihaz',
     },
-    common: {
-      cancel: 'İptal',
-      delete: 'Sil',
-    }
   }
 };

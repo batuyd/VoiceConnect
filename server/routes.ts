@@ -730,26 +730,44 @@ export function registerRoutes(app: Express): Server {
     server: httpServer,
     path: '/ws',
     clientTracking: true,
+    perMessageDeflate: false,
   });
 
-  // WebSocket session parser setup
+  // WebSocket session middleware setup
   const sessionParser = session(sessionSettings);
 
-  // WebSocket connection handler
+  // WebSocket connection handler with improved logging and error handling
   wss.on('connection', async (ws, req) => {
-    console.log('New WebSocket connection attempt');
+    console.log('New WebSocket connection attempt', {
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      url: req.url,
+      remoteAddress: req.socket.remoteAddress
+    });
 
     try {
-      // Parse session synchronously
+      // Parse session synchronously to ensure proper authentication
       await new Promise<void>((resolve, reject) => {
         sessionParser(req as any, {} as any, (err) => {
-          if (err) reject(err);
-          else resolve();
+          if (err) {
+            console.error('Session parsing error:', {
+              error: handleError(err),
+              timestamp: new Date().toISOString()
+            });
+            reject(err);
+          } else {
+            resolve();
+          }
         });
       });
 
+      // Check authentication
       const session = (req as any).session;
       if (!session?.passport?.user) {
+        console.log('WebSocket authentication failed - no session', {
+          timestamp: new Date().toISOString(),
+          sessionData: session
+        });
         ws.send(JSON.stringify({
           type: 'error',
           message: 'Authentication required'
@@ -758,10 +776,15 @@ export function registerRoutes(app: Express): Server {
         return;
       }
 
+      // Get user data
       const userId = session.passport.user;
       const user = await storage.getUser(userId);
 
       if (!user) {
+        console.log('WebSocket authentication failed - user not found', {
+          timestamp: new Date().toISOString(),
+          userId
+        });
         ws.send(JSON.stringify({
           type: 'error',
           message: 'User not found'
@@ -770,7 +793,8 @@ export function registerRoutes(app: Express): Server {
         return;
       }
 
-      console.log('WebSocket connection authenticated:', {
+      console.log('WebSocket connection authenticated', {
+        timestamp: new Date().toISOString(),
         userId: user.id,
         username: user.username
       });
@@ -788,7 +812,7 @@ export function registerRoutes(app: Express): Server {
         lastPing: Date.now(),
       });
 
-      // Send success message
+      // Send initial success message
       ws.send(JSON.stringify({
         type: 'connection_established',
         userId: user.id,
@@ -796,80 +820,17 @@ export function registerRoutes(app: Express): Server {
       }));
 
       // Handle incoming messages
-      ws.onmessage = async (event) => {
+      ws.on('message', async (message) => {
         try {
-          const data = JSON.parse(event.data as string);
-          console.log('WebSocket message received:', data);
+          const data = JSON.parse(message.toString());
+          console.log('WebSocket message received', {
+            timestamp: new Date().toISOString(),
+            userId,
+            messageType: data.type,
+            data
+          });
 
           switch (data.type) {
-            case 'join_channel':
-              if (!data.channelId) {
-                console.error('Missing channelId in join channel message');
-                break;
-              }
-
-              const currentUser = connectedUsers.get(userId);
-              if (currentUser) {
-                // Leave previous channel if any
-                if (currentUser.currentChannel) {
-                  await handleLeaveChannel(currentUser.currentChannel, userId, currentUser);
-                }
-
-                currentUser.currentChannel = data.channelId;
-
-                // Notify other users in the channel
-                const otherUsers = Array.from(connectedUsers.values())
-                  .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
-
-                for (const user of otherUsers) {
-                  if (user.ws.readyState === WebSocket.OPEN) {
-                    user.ws.send(JSON.stringify({
-                      type: 'user_joined',
-                      userId: userId,
-                      username: currentUser.user.username
-                    }));
-                  }
-                }
-              }
-              break;
-
-            case 'leave_channel':
-              if (!data.channelId) {
-                console.error('Missing channelId in leave channel message');
-                break;
-              }
-
-              const leavingUser = connectedUsers.get(userId);
-              if (leavingUser) {
-                await handleLeaveChannel(data.channelId, userId, leavingUser);
-              }
-              break;
-
-            case 'voice_data':
-              if (!data.channelId || !data.data) {
-                console.error('Missing required data in voice message');
-                break;
-              }
-
-              // Forward voice data to other users in the same channel
-              const channelUsers = Array.from(connectedUsers.values())
-                .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
-
-              for (const user of channelUsers) {
-                if (user.ws.readyState === WebSocket.OPEN) {
-                  try {
-                    user.ws.send(JSON.stringify({
-                      type: 'voice_data',
-                      fromUserId: userId,
-                      data: data.data
-                    }));
-                  } catch (error) {
-                    console.error('Error sending voice data:', error);
-                  }
-                }
-              }
-              break;
-
             case 'ping':
               const userConnection = connectedUsers.get(userId);
               if (userConnection) {
@@ -879,56 +840,56 @@ export function registerRoutes(app: Express): Server {
               break;
 
             default:
-              console.log('Unknown message type:', data.type);
+              console.log('Unknown message type', {
+                timestamp: new Date().toISOString(),
+                userId,
+                type: data.type
+              });
           }
         } catch (error) {
-          console.error('Failed to process WebSocket message:', error);
+          console.error('Error processing message', {
+            timestamp: new Date().toISOString(),
+            userId,
+            error: handleError(error),
+            rawMessage: message.toString()
+          });
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid message format'
+          }));
         }
-      };
+      });
 
       // Handle connection close
       ws.on('close', () => {
-        console.log('WebSocket connection closed:', {
-          userId: userId,
+        console.log('WebSocket connection closed', {
+          timestamp: new Date().toISOString(),
+          userId,
           username: user.username
         });
+        connectedUsers.delete(userId);
+      });
 
-        const closingUser = connectedUsers.get(userId);
-        if (closingUser?.currentChannel) {
-          handleLeaveChannel(closingUser.currentChannel, userId, closingUser);
-        }
+      // Handle errors
+      ws.on('error', (error) => {
+        console.error('WebSocket connection error', {
+          timestamp: new Date().toISOString(),
+          userId,
+          error: handleError(error)
+        });
         connectedUsers.delete(userId);
       });
 
     } catch (error) {
-      console.error('WebSocket connection error:', error);
+      console.error('WebSocket connection setup error', {
+        timestamp: new Date().toISOString(),
+        error: handleError(error)
+      });
       ws.close();
     }
   });
 
-  // Helper function to handle channel leave logic
-  async function handleLeaveChannel(channelId: number, userId: number, userConnection: any) {
-    const previousChannel = userConnection.currentChannel;
-    userConnection.currentChannel = undefined;
-
-    if (previousChannel) {
-      // Notify other users in the channel
-      const remainingUsers = Array.from(connectedUsers.values())
-        .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
-
-      for (const user of remainingUsers) {
-        if (user.ws.readyState === WebSocket.OPEN) {
-          user.ws.send(JSON.stringify({
-            type: 'user_left',
-            userId: userId,
-            username: userConnection.user.username
-          }));
-        }
-      }
-    }
-  }
-
-  // Clean up inactive connections every 30 seconds
+  // Cleanup inactive connections every 30 seconds
   setInterval(() => {
     const now = Date.now();
     for (const [userId, connection] of connectedUsers) {
