@@ -131,33 +131,18 @@ export class DatabaseStorage implements IStorage {
   async createFriendRequest(senderId: number, receiverId: number): Promise<Friendship> {
     console.log(`Creating friend request from ${senderId} to ${receiverId}`);
 
-    // Check if friendship already exists
-    const [existingFriendship] = await db
-      .select()
-      .from(friendships)
-      .where(
-        or(
-          and(
-            eq(friendships.senderId, senderId),
-            eq(friendships.receiverId, receiverId)
-          ),
-          and(
-            eq(friendships.senderId, receiverId),
-            eq(friendships.receiverId, senderId)
-          )
-        )
-      );
+    // Check if friendship already exists with any status
+    const existingFriendship = await this.getFriendship(senderId, receiverId);
 
     if (existingFriendship) {
-      throw new Error(
-        existingFriendship.status === 'accepted'
-          ? "Already friends with this user"
-          : "Friend request already exists"
-      );
+      if (existingFriendship.status === 'accepted') {
+        throw new Error("Already friends with this user");
+      } else if (existingFriendship.status === 'pending') {
+        throw new Error("Friend request already exists");
+      }
     }
 
-    console.log("No existing friendship found, creating new request");
-
+    // If no friendship exists, create a new one
     const [friendship] = await db
       .insert(friendships)
       .values({
@@ -789,20 +774,26 @@ export class DatabaseStorage implements IStorage {
       .from(friendships)
       .innerJoin(users, eq(users.id, friendships.senderId))
       .where(
-        or(
-          and(
-            eq(friendships.senderId, userId1),
-            eq(friendships.receiverId, userId2)
+        and(
+          or(
+            and(
+              eq(friendships.senderId, userId1),
+              eq(friendships.receiverId, userId2)
+            ),
+            and(
+              eq(friendships.senderId, userId2),
+              eq(friendships.receiverId, userId1)
+            )
           ),
-          and(
-            eq(friendships.senderId, userId2),
-            eq(friendships.receiverId, userId1)
+          or(
+            eq(friendships.status, 'accepted'),
+            eq(friendships.status, 'pending')
           )
         )
       );
 
     if (!friendship) {
-      console.log('No friendship found');
+      console.log('No active friendship found');
       return undefined;
     }
 
