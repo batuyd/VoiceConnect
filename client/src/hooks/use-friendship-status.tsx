@@ -59,6 +59,9 @@ export function useFriendshipStatus() {
     mutationFn: async (friendshipId: number) => {
       const response = await fetch(`/api/friends/${friendshipId}/accept`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
 
       if (!response.ok) {
@@ -68,11 +71,11 @@ export function useFriendshipStatus() {
 
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       refreshFriendshipData();
       toast({
         title: t('friends.requestAccepted'),
-        description: t('friends.requestAcceptedDescription'),
+        description: t('friends.nowFriends', { username: data.username }),
         variant: 'default'
       });
     },
