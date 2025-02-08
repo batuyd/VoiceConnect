@@ -32,18 +32,17 @@ async function comparePasswords(supplied: string, stored: string) {
 
 export const sessionSettings: session.SessionOptions = {
   secret: process.env.REPL_ID!,
-  resave: true,
+  resave: false,
   saveUninitialized: false,
   store: storage.sessionStore,
   cookie: {
-    secure: false,
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 gün
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     httpOnly: true,
     sameSite: 'lax',
     path: '/'
   },
-  name: 'sid',
-  rolling: true // Her istekte session süresini yeniler
+  name: 'sid'
 };
 
 export function setupAuth(app: Express) {
@@ -52,10 +51,7 @@ export function setupAuth(app: Express) {
     sessionSettings.cookie!.secure = true;
   }
 
-  // Session middleware'ini passport'tan önce ekleyelim
   app.use(session(sessionSettings));
-
-  // Passport middleware'lerini ekleyelim
   app.use(passport.initialize());
   app.use(passport.session());
 
@@ -64,12 +60,12 @@ export function setupAuth(app: Express) {
       try {
         const user = await storage.getUserByUsername(username);
         if (!user) {
-          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         const isValidPassword = await comparePasswords(password, user.password);
         if (!isValidPassword) {
-          return done(null, false, { message: "Geçersiz kullanıcı adı veya şifre" });
+          return done(null, false, { message: "Invalid username or password" });
         }
 
         await storage.updateLastActive(user.id);
@@ -82,20 +78,16 @@ export function setupAuth(app: Express) {
   );
 
   passport.serializeUser((user, done) => {
-    console.log('Serializing user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
-      console.log('Deserializing user:', id);
       const user = await storage.getUser(id);
       if (!user) {
-        console.log('User not found during deserialization:', id);
         return done(null, false);
       }
       await storage.updateLastActive(user.id);
-      console.log('User deserialized successfully:', user.id);
       done(null, user);
     } catch (error) {
       console.error('Session deserialization error:', error);
@@ -105,76 +97,51 @@ export function setupAuth(app: Express) {
 
   app.post("/api/register", async (req, res, next) => {
     try {
-      const { username, password, email, phone } = req.body;
+      const validatedData = insertUserSchema.parse(req.body);
 
-      if (!username || !password || !email || !phone) {
-        return res.status(400).json({ 
-          message: "Tüm alanlar zorunludur (kullanıcı adı, şifre, email ve telefon)" 
-        });
-      }
-
-      const existingUser = await storage.getUserByUsername(username);
+      const existingUser = await storage.getUserByUsername(validatedData.username);
       if (existingUser) {
-        return res.status(400).json({ 
-          message: "Bu kullanıcı adı zaten kullanılıyor" 
-        });
+        return res.status(400).json({ message: "Username already exists" });
       }
 
-      const existingEmail = await storage.getUserByEmail(email);
+      const existingEmail = await storage.getUserByEmail(validatedData.email);
       if (existingEmail) {
-        return res.status(400).json({ 
-          message: "Bu email adresi zaten kullanılıyor" 
-        });
+        return res.status(400).json({ message: "Email already exists" });
       }
 
-      const existingPhone = await storage.getUserByPhone(phone);
-      if (existingPhone) {
-        return res.status(400).json({ 
-          message: "Bu telefon numarası zaten kullanılıyor" 
-        });
-      }
+      const hashedPassword = await hashPassword(validatedData.password);
+
+      const user = await storage.createUser({
+        ...validatedData,
+        password: hashedPassword,
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(validatedData.username)}`
+      });
 
       try {
-        const validatedData = insertUserSchema.parse(req.body);
-        const hashedPassword = await hashPassword(password);
-
-        const user = await storage.createUser({
-          ...validatedData,
-          password: hashedPassword,
-          avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}`
-        });
-
-        // Send welcome email
-        const { subject, html } = emailTemplates.welcomeEmail(username);
+        const { subject, html } = emailTemplates.welcomeEmail(validatedData.username);
         await sendEmail({
-          to: email,
+          to: validatedData.email,
           subject,
           html
-        }).catch(error => {
-          console.error('Welcome email error:', error);
-        });
-
-        req.login(user, (err) => {
-          if (err) {
-            console.error('Login error after registration:', err);
-            return next(err);
-          }
-          res.status(201).json(user);
         });
       } catch (error) {
-        if (error instanceof ZodError) {
-          return res.status(400).json({ 
-            message: "Doğrulama hatası",
-            errors: error.errors.map(err => ({
-              field: err.path.join('.'),
-              message: err.message
-            }))
-          });
-        }
-        throw error;
+        console.error('Welcome email error:', error);
       }
+
+      req.login(user, (err) => {
+        if (err) {
+          console.error('Login error after registration:', err);
+          return next(err);
+        }
+        res.status(201).json(user);
+      });
     } catch (error) {
-      console.error('Registration error:', error);
+      if (error instanceof ZodError) {
+        return res.status(400).json({ 
+          message: "Validation error",
+          errors: error.errors 
+        });
+      }
       next(error);
     }
   });
@@ -187,9 +154,7 @@ export function setupAuth(app: Express) {
       }
 
       if (!user) {
-        return res.status(401).json({ 
-          message: info?.message || "Kimlik doğrulama başarısız" 
-        });
+        return res.status(401).json({ message: info?.message || "Authentication failed" });
       }
 
       req.login(user, (err) => {
@@ -197,9 +162,7 @@ export function setupAuth(app: Express) {
           console.error('Session creation error:', err);
           return next(err);
         }
-        console.log('User logged in successfully:', user.id);
 
-        // Session'ı kaydet
         req.session.save((err) => {
           if (err) {
             console.error('Session save error:', err);
@@ -213,28 +176,21 @@ export function setupAuth(app: Express) {
 
   app.post("/api/logout", (req, res, next) => {
     if (!req.isAuthenticated()) {
-      return res.status(401).json({
-        message: "Oturum açılmamış"
-      });
+      return res.status(401).json({ message: "Not authenticated" });
     }
 
-    console.log('Logging out user:', req.user?.id);
     req.logout((err) => {
       if (err) {
         console.error('Logout error:', err);
         return next(err);
       }
+
       req.session.destroy((err) => {
         if (err) {
           console.error('Session destruction error:', err);
           return next(err);
         }
-        res.clearCookie('sid', { 
-          path: '/',
-          httpOnly: true,
-          sameSite: 'lax',
-          secure: false 
-        });
+        res.clearCookie('sid');
         res.sendStatus(200);
       });
     });
@@ -242,9 +198,7 @@ export function setupAuth(app: Express) {
 
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) {
-      return res.status(401).json({ 
-        message: "Oturum açılmamış" 
-      });
+      return res.status(401).json({ message: "Not authenticated" });
     }
     res.json(req.user);
   });

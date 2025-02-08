@@ -20,6 +20,8 @@ import { VoiceChannel } from "./voice-channel";
 import { TextChannel } from "./text-channel";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { motion, AnimatePresence } from "framer-motion";
+import { Card } from "@/components/ui/card";
 
 export function ChannelList({ 
   serverId,
@@ -54,17 +56,12 @@ export function ChannelList({
 
   const createChannelMutation = useMutation({
     mutationFn: async (data: typeof newChannel) => {
-      try {
-        const res = await apiRequest("POST", `/api/servers/${serverId}/channels`, data);
-        if (!res.ok) {
-          const error = await res.json();
-          throw new Error(error.message || "Failed to create channel");
-        }
-        return res.json();
-      } catch (error: any) {
-        console.error('Create channel error:', error);
-        throw error;
+      const res = await apiRequest("POST", `/api/servers/${serverId}/channels`, data);
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create channel");
       }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/servers/${serverId}/channels`] });
@@ -110,21 +107,21 @@ export function ChannelList({
   const voiceChannels = channels.filter(c => c.isVoice);
 
   return (
-    <div className="w-64 bg-gray-800 p-4">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="font-semibold">{t('server.channels')}</h2>
+    <div className="w-64 bg-gray-800/50 backdrop-blur-sm border-r border-gray-700">
+      <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+        <h2 className="font-semibold text-gray-100">{t('server.channels')}</h2>
         <div className="flex gap-2">
           {isOwner && (
             <>
               <Dialog open={isOpen} onOpenChange={setIsOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="ghost" size="icon">
+                  <Button variant="ghost" size="icon" className="hover:bg-gray-700/50">
                     <Plus className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="bg-gray-800 border-gray-700">
                   <DialogHeader>
-                    <DialogTitle>{t('server.createChannel')}</DialogTitle>
+                    <DialogTitle className="text-gray-100">{t('server.createChannel')}</DialogTitle>
                   </DialogHeader>
                   <form
                     onSubmit={(e) => {
@@ -142,12 +139,13 @@ export function ChannelList({
                     className="space-y-4"
                   >
                     <div>
-                      <Label htmlFor="channelName">{t('server.channelName')}</Label>
+                      <Label htmlFor="channelName" className="text-gray-200">{t('server.channelName')}</Label>
                       <Input
                         id="channelName"
                         value={newChannel.name}
                         onChange={(e) => setNewChannel(prev => ({ ...prev, name: e.target.value }))}
                         placeholder={t('server.channelNamePlaceholder')}
+                        className="bg-gray-700 border-gray-600 text-gray-100"
                       />
                     </div>
                     <div className="flex items-center space-x-2">
@@ -158,11 +156,12 @@ export function ChannelList({
                           setNewChannel(prev => ({ ...prev, isVoice: checked }))
                         }
                       />
-                      <Label htmlFor="isVoice">{t('server.voiceChannel')}</Label>
+                      <Label htmlFor="isVoice" className="text-gray-200">{t('server.voiceChannel')}</Label>
                     </div>
                     <Button 
                       type="submit" 
                       disabled={createChannelMutation.isPending || !newChannel.name.trim()}
+                      className="w-full"
                     >
                       {t('server.createChannel')}
                     </Button>
@@ -172,13 +171,13 @@ export function ChannelList({
 
               <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="ghost" size="icon">
+                  <Button variant="ghost" size="icon" className="hover:bg-gray-700/50">
                     <UserPlus className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="bg-gray-800 border-gray-700">
                   <DialogHeader>
-                    <DialogTitle>{t('server.inviteFriend')}</DialogTitle>
+                    <DialogTitle className="text-gray-100">{t('server.inviteFriend')}</DialogTitle>
                   </DialogHeader>
                   <form
                     onSubmit={(e) => {
@@ -190,17 +189,21 @@ export function ChannelList({
                     className="space-y-4"
                   >
                     <div>
-                      <Label>{t('server.selectFriend')}</Label>
+                      <Label className="text-gray-200">{t('server.selectFriend')}</Label>
                       <Select
                         value={selectedFriendId}
                         onValueChange={setSelectedFriendId}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="bg-gray-700 border-gray-600 text-gray-100">
                           <SelectValue placeholder={t('server.selectFriend')} />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="bg-gray-800 border-gray-700">
                           {friends.map((friend) => (
-                            <SelectItem key={friend.id} value={friend.id.toString()}>
+                            <SelectItem 
+                              key={friend.id} 
+                              value={friend.id.toString()}
+                              className="text-gray-100 focus:bg-gray-700"
+                            >
                               {friend.username}
                             </SelectItem>
                           ))}
@@ -210,6 +213,7 @@ export function ChannelList({
                     <Button 
                       type="submit" 
                       disabled={!selectedFriendId || inviteFriendMutation.isPending}
+                      className="w-full"
                     >
                       {t('server.sendInvite')}
                     </Button>
@@ -221,36 +225,50 @@ export function ChannelList({
         </div>
       </div>
 
-      <div className="space-y-4">
-        {textChannels.length > 0 && (
-          <div>
-            <h3 className="text-xs text-gray-400 mb-2">{t('server.textChannels')}</h3>
-            <div className="space-y-1">
-              {textChannels.map((channel) => (
-                <TextChannel
-                  key={channel.id}
-                  channel={channel}
-                  isOwner={isOwner}
-                  onSelect={() => onChannelSelect(channel)}
-                  isSelected={selectedChannel?.id === channel.id}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+      <div className="space-y-4 p-2">
+        <AnimatePresence>
+          {textChannels.length > 0 && (
+            <motion.div
+              initial={{ y: -10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -10, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <h3 className="text-xs font-semibold text-gray-400 px-2 mb-2">{t('server.textChannels')}</h3>
+              <div className="space-y-0.5">
+                {textChannels.map((channel) => (
+                  <TextChannel
+                    key={channel.id}
+                    channel={channel}
+                    isOwner={isOwner}
+                    onSelect={() => onChannelSelect(channel)}
+                    isSelected={selectedChannel?.id === channel.id}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
 
-        {voiceChannels.length > 0 && (
-          <div>
-            <h3 className="text-xs text-gray-400 mb-2">{t('server.voiceChannels')}</h3>
-            {voiceChannels.map((channel) => (
-              <VoiceChannel 
-                key={channel.id} 
-                channel={channel} 
-                isOwner={isOwner}
-              />
-            ))}
-          </div>
-        )}
+          {voiceChannels.length > 0 && (
+            <motion.div
+              initial={{ y: -10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -10, opacity: 0 }}
+              transition={{ duration: 0.2, delay: 0.1 }}
+            >
+              <h3 className="text-xs font-semibold text-gray-400 px-2 mb-2">{t('server.voiceChannels')}</h3>
+              <div className="space-y-0.5">
+                {voiceChannels.map((channel) => (
+                  <VoiceChannel 
+                    key={channel.id} 
+                    channel={channel} 
+                    isOwner={isOwner}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
