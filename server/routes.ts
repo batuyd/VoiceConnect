@@ -15,7 +15,13 @@ const connectedUsers = new Map<number, {
   currentChannel?: number;
 }>();
 
-// WebSocket notification helper
+function handleError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 function sendWebSocketNotification(userId: number, notification: any) {
   const userConnection = connectedUsers.get(userId);
   if (userConnection && userConnection.ws.readyState === WebSocket.OPEN) {
@@ -31,18 +37,10 @@ function sendWebSocketNotification(userId: number, notification: any) {
   return false;
 }
 
-// Error handling helper
-function handleError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
-
   const httpServer = createServer(app);
+  const sessionParser = session(sessionSettings);
 
   // WebSocket server configuration
   const wss = new WebSocketServer({
@@ -50,9 +48,6 @@ export function registerRoutes(app: Express): Server {
     path: '/ws',
     clientTracking: true,
   });
-
-  // Create session parser
-  const sessionParser = session(sessionSettings);
 
   // WebSocket connection handler
   wss.on('connection', async (ws, req) => {
@@ -77,7 +72,7 @@ export function registerRoutes(app: Express): Server {
         console.error('No authenticated user found in session');
         ws.send(JSON.stringify({
           type: 'error',
-          message: 'Authentication failed'
+          message: 'Yetkilendirme başarısız oldu'
         }));
         ws.close();
         return;
@@ -90,7 +85,7 @@ export function registerRoutes(app: Express): Server {
         console.error('User not found in storage:', userId);
         ws.send(JSON.stringify({
           type: 'error',
-          message: 'User not found'
+          message: 'Kullanıcı bulunamadı'
         }));
         ws.close();
         return;
@@ -131,7 +126,25 @@ export function registerRoutes(app: Express): Server {
                 console.error('No channelId provided in join_channel message');
                 ws.send(JSON.stringify({
                   type: 'error',
-                  message: 'Channel ID is required'
+                  message: 'Kanal ID gerekli'
+                }));
+                break;
+              }
+
+              const channel = await storage.getChannel(data.channelId);
+              if (!channel) {
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Kanal bulunamadı'
+                }));
+                break;
+              }
+
+              const canAccess = await storage.canAccessChannel(data.channelId, userId);
+              if (!canAccess) {
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Bu kanala erişim izniniz yok'
                 }));
                 break;
               }
@@ -228,12 +241,16 @@ export function registerRoutes(app: Express): Server {
 
             default:
               console.warn('Unknown message type:', data.type);
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Bilinmeyen mesaj türü'
+              }));
           }
         } catch (error) {
           console.error('Failed to handle WebSocket message:', error);
           ws.send(JSON.stringify({
             type: 'error',
-            message: 'Failed to process message'
+            message: 'Mesaj işlenirken hata oluştu'
           }));
         }
       });

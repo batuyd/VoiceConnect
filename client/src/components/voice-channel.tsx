@@ -394,15 +394,17 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
           {wsConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
         </div>
 
-        <Button
-          variant={isJoined ? "destructive" : "default"}
-          size="sm"
-          onClick={handleJoinLeave}
-          className="w-20"
-          disabled={isConnecting || connectionErrors >= maxConnectionErrors}
-        >
-          {isJoined ? t('server.leave') : t('server.join')}
-        </Button>
+        {!isConnecting && (
+          <Button
+            variant={isJoined ? "destructive" : "default"}
+            size="sm"
+            onClick={handleJoinLeave}
+            className="w-20"
+            disabled={connectionErrors >= maxConnectionErrors}
+          >
+            {isJoined ? t('server.leave') : t('server.join')}
+          </Button>
+        )}
       </div>
 
       {isJoined && (
