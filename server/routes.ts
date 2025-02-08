@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from 'ws';
 import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
-import session from 'express-session'; // Import express-session
+import session from 'express-session';
 
 // Error handling helper
 function handleError(error: unknown): string {
@@ -848,7 +848,7 @@ export function registerRoutes(app: Express): Server {
         } catch (wsError) {
           console.error('WebSocket send error:', wsError);
           // WebSocket hatası arkadaşlık silme işlemini etkilememeli
-                }
+        }
       }
 
       res.sendStatus(200);
