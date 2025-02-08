@@ -26,6 +26,121 @@ export function useWebSocket(): WebSocketManager {
   const maxReconnectAttempts = 5;
   const reconnectAttemptRef = useRef(0);
 
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    console.log('Setting up WebSocket connection...');
+    setConnectionStatus('connecting');
+
+    // Ensure we're using the correct protocol based on the current connection
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket connection established');
+      setConnectionStatus('connected');
+      reconnectAttemptRef.current = 0;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = undefined;
+      }
+      // Refresh friendship data when connection is established
+      refreshFriendshipData();
+    };
+
+    ws.onclose = (event) => {
+      console.log('WebSocket connection closed:', event);
+      setConnectionStatus('disconnected');
+
+      if (reconnectAttemptRef.current < maxReconnectAttempts) {
+        const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000);
+        reconnectAttemptRef.current++;
+
+        console.log(`Attempting to reconnect... (Attempt ${reconnectAttemptRef.current}/${maxReconnectAttempts})`);
+        reconnectTimeoutRef.current = setTimeout(connect, timeout);
+      } else {
+        toast({
+          title: t('error.connectionLost'),
+          description: t('error.refreshPage'),
+          variant: 'destructive'
+        });
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      // Only show error toast if we're not already attempting to reconnect
+      if (reconnectAttemptRef.current === 0) {
+        toast({
+          title: t('error.connectionError'),
+          description: t('error.tryAgainLater'),
+          variant: 'destructive'
+        });
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        console.log('WebSocket message received:', message);
+
+        // Get all handlers for this event type
+        const handlers = eventHandlersRef.current.get(message.type);
+        if (handlers) {
+          handlers.forEach(handler => handler(message.data));
+        }
+
+        // Handle friendship-related events
+        switch (message.type) {
+          case 'FRIEND_REQUEST':
+            console.log('Friend request received:', message.data);
+            refreshFriendshipData();
+            toast({
+              title: t('friends.newRequest'),
+              description: t('friends.requestReceived', { username: message.data.sender?.username }),
+              variant: 'default'
+            });
+            break;
+
+          case 'FRIEND_REQUEST_ACCEPTED':
+            console.log('Friend request accepted:', message.data);
+            refreshFriendshipData();
+            toast({
+              title: t('friends.requestAccepted'),
+              description: t('friends.nowFriends', { username: message.data.username }),
+              variant: 'default'
+            });
+            break;
+
+          case 'FRIEND_REQUEST_REJECTED':
+            console.log('Friend request rejected:', message.data);
+            refreshFriendshipData();
+            toast({
+              title: t('friends.requestRejected'),
+              description: t('friends.requestRejectedDesc', { username: message.data.username }),
+              variant: 'default'
+            });
+            break;
+
+          case 'FRIENDSHIP_REMOVED':
+            console.log('Friendship removed:', message.data);
+            refreshFriendshipData();
+            toast({
+              title: t('friends.removed'),
+              description: t('friends.removedDesc', { username: message.data.username }),
+              variant: 'default'
+            });
+            break;
+        }
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
+      }
+    };
+  }, [queryClient, toast, t, refreshFriendshipData]);
+
   const on = useCallback((event: string, handler: WebSocketEventHandler) => {
     if (!eventHandlersRef.current.has(event)) {
       eventHandlersRef.current.set(event, new Set());
@@ -43,118 +158,13 @@ export function useWebSocket(): WebSocketManager {
     }
   }, []);
 
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-
-    console.log('Setting up WebSocket connection...');
-    setConnectionStatus('connecting');
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('WebSocket connection established');
-      setConnectionStatus('connected');
-      reconnectAttemptRef.current = 0;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = undefined;
-      }
-      refreshFriendshipData();
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket connection closed');
-      setConnectionStatus('disconnected');
-
-      if (reconnectAttemptRef.current < maxReconnectAttempts) {
-        const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000);
-        reconnectAttemptRef.current++;
-
-        reconnectTimeoutRef.current = setTimeout(() => {
-          console.log(`Attempting to reconnect WebSocket... (Attempt ${reconnectAttemptRef.current}/${maxReconnectAttempts})`);
-          connect();
-        }, timeout);
-      } else {
-        toast({
-          title: t('error.connectionLost'),
-          description: t('error.refreshPage'),
-          variant: 'destructive'
-        });
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      toast({
-        title: t('error.connectionError'),
-        description: t('error.tryAgainLater'),
-        variant: 'destructive'
-      });
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        console.log('WebSocket message received:', event.data);
-        const message = JSON.parse(event.data);
-
-        // Get all handlers for this event type
-        const handlers = eventHandlersRef.current.get(message.type);
-        if (handlers) {
-          handlers.forEach(handler => handler(message.data));
-        }
-
-        switch (message.type) {
-          case 'CONNECTED':
-            console.log('WebSocket connection confirmed for user:', message.data.userId);
-            refreshFriendshipData();
-            break;
-
-          case 'FRIEND_REQUEST':
-            console.log('Friend request received:', message.data);
-            refreshFriendshipData();
-            break;
-
-          case 'FRIEND_REQUEST_SENT':
-            console.log('Friend request sent confirmation:', message.data);
-            refreshFriendshipData();
-            break;
-
-          case 'FRIEND_REQUEST_ACCEPTED':
-            console.log('Friend request accepted:', message.data);
-            refreshFriendshipData();
-            break;
-
-          case 'FRIEND_REQUEST_REJECTED':
-            console.log('Friend request rejected:', message.data);
-            refreshFriendshipData();
-            break;
-
-          case 'FRIENDSHIP_REMOVED':
-            console.log('Friendship removed:', message.data);
-            refreshFriendshipData();
-            break;
-
-          default:
-            console.warn('Unknown message type:', message.type);
-        }
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-      }
-    };
-  }, [queryClient, toast, t, refreshFriendshipData]);
-
   useEffect(() => {
     connect();
-
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
-        console.log('Cleaning up WebSocket connection');
         wsRef.current.close();
       }
     };

@@ -1,0 +1,31 @@
+{
+  "friends": {
+    "newRequest": "New Friend Request",
+    "requestReceived": "{username} sent you a friend request",
+    "requestSent": "Friend Request Sent",
+    "requestSentDescription": "Your friend request has been sent successfully",
+    "requestError": "Friend Request Error",
+    "requestAccepted": "Friend Request Accepted",
+    "requestAcceptedDescription": "You are now friends",
+    "nowFriends": "You are now friends with {username}",
+    "acceptError": "Error Accepting Request",
+    "requestRejected": "Friend Request Rejected",
+    "requestRejectedDescription": "The friend request has been rejected",
+    "rejectError": "Error Rejecting Request",
+    "removed": "Friend Removed",
+    "removedDescription": "The friend has been removed from your friends list",
+    "removeError": "Error Removing Friend",
+    "sentRequest": "Friend Request Sent",
+    "addFriend": "Add Friend",
+    "removeFriend": "Remove Friend",
+    "pending": "Pending Request",
+    "accept": "Accept",
+    "reject": "Reject"
+  },
+  "error": {
+    "connectionLost": "Connection Lost",
+    "refreshPage": "Please refresh the page to reconnect",
+    "connectionError": "Connection Error",
+    "tryAgainLater": "Please try again later"
+  }
+}

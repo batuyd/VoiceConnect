@@ -41,14 +41,14 @@ export function useFriendshipStatus() {
     onSuccess: () => {
       refreshFriendshipData();
       toast({
-        title: t('friends.addSuccess'),
-        description: t('friends.addSuccessDescription'),
+        title: t('friends.requestSent'),
+        description: t('friends.requestSentDescription'),
         variant: 'default'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: t('friends.addError'),
+        title: t('friends.requestError'),
         description: error.message,
         variant: 'destructive',
       });
@@ -71,14 +71,14 @@ export function useFriendshipStatus() {
     onSuccess: () => {
       refreshFriendshipData();
       toast({
-        title: t('friends.requestAcceptSuccess'),
-        description: t('friends.requestAcceptSuccessDescription'),
+        title: t('friends.requestAccepted'),
+        description: t('friends.requestAcceptedDescription'),
         variant: 'default'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: t('friends.requestAcceptError'),
+        title: t('friends.acceptError'),
         description: error.message,
         variant: 'destructive',
       });
@@ -101,14 +101,14 @@ export function useFriendshipStatus() {
     onSuccess: () => {
       refreshFriendshipData();
       toast({
-        title: t('friends.requestRejectSuccess'),
-        description: t('friends.requestRejectSuccessDescription'),
+        title: t('friends.requestRejected'),
+        description: t('friends.requestRejectedDescription'),
         variant: 'default'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: t('friends.requestRejectError'),
+        title: t('friends.rejectError'),
         description: error.message,
         variant: 'destructive',
       });
@@ -128,12 +128,13 @@ export function useFriendshipStatus() {
         const error = await response.json();
         throw new Error(error.message || 'Failed to remove friend');
       }
+      return response.json();
     },
     onSuccess: () => {
       refreshFriendshipData();
       toast({
-        title: t('friends.removeSuccess'),
-        description: t('friends.removeSuccessDescription'),
+        title: t('friends.removed'),
+        description: t('friends.removedDescription'),
         variant: 'default'
       });
     },
@@ -153,7 +154,7 @@ export function useFriendshipStatus() {
         refreshFriendshipData();
         toast({
           title: t('friends.newRequest'),
-          description: t('friends.requestReceived', data),
+          description: t('friends.requestReceived', { username: data.sender?.username }),
           variant: 'default'
         });
       };
@@ -162,7 +163,7 @@ export function useFriendshipStatus() {
         refreshFriendshipData();
         toast({
           title: t('friends.requestAccepted'),
-          description: t('friends.nowFriends', data),
+          description: t('friends.nowFriends', { username: data.username }),
           variant: 'default'
         });
       };
@@ -171,7 +172,7 @@ export function useFriendshipStatus() {
         refreshFriendshipData();
         toast({
           title: t('friends.requestRejected'),
-          description: t('friends.requestRejectedDesc', data),
+          description: t('friends.requestRejectedDescription'),
           variant: 'default'
         });
       };
@@ -180,7 +181,7 @@ export function useFriendshipStatus() {
         refreshFriendshipData();
         toast({
           title: t('friends.removed'),
-          description: t('friends.removedDesc', data),
+          description: t('friends.removedDescription'),
           variant: 'default'
         });
       };
