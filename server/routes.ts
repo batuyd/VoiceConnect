@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
 
@@ -21,18 +21,23 @@ export function registerRoutes(app: Express): Server {
   // WebSocket bağlantılarını saklamak için Map
   const clients = new Map<number, WebSocket>();
 
-  wss.on('connection', (ws, req) => {
-    if (!req.session?.passport?.user) {
+  wss.on('connection', (ws: WebSocket, req: any) => {
+    try {
+      if (!req.session?.passport?.user) {
+        ws.close();
+        return;
+      }
+
+      const userId = req.session.passport.user;
+      clients.set(userId, ws);
+
+      ws.on('close', () => {
+        clients.delete(userId);
+      });
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
       ws.close();
-      return;
     }
-
-    const userId = req.session.passport.user;
-    clients.set(userId, ws);
-
-    ws.on('close', () => {
-      clients.delete(userId);
-    });
   });
 
   // Friend request routes
@@ -88,7 +93,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // WebRTC signaling endpoint
   app.post("/api/channels/:channelId/signal", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
@@ -220,6 +224,7 @@ export function registerRoutes(app: Express): Server {
       res.status(400).json({ error: handleError(error) });
     }
   });
+
 
 
   app.get("/api/servers/:serverId/members", async (req, res) => {
@@ -748,24 +753,36 @@ export function registerRoutes(app: Express): Server {
 
     try {
       const friendId = parseInt(req.params.friendId);
+
+      if (isNaN(friendId)) {
+        return res.status(400).json({ message: "Invalid friend ID" });
+      }
+
+      console.log(`Attempting to remove friendship between ${req.user.id} and ${friendId}`);
+
       await storage.removeFriend(req.user.id, friendId);
 
       // WebSocket üzerinden arkadaşlık durumunun güncellendiğini bildirme
       const targetWs = clients.get(friendId);
       if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-        targetWs.send(JSON.stringify({
-          type: 'FRIENDSHIP_REMOVED',
-          data: {
-            userId: req.user.id,
-            friendId: friendId
-          }
-        }));
+        try {
+          targetWs.send(JSON.stringify({
+            type: 'FRIENDSHIP_REMOVED',
+            data: {
+              userId: req.user.id,
+              friendId: friendId
+            }
+          }));
+        } catch (wsError) {
+          console.error('WebSocket send error:', wsError);
+          // WebSocket hatası arkadaşlık silme işlemini etkilememeli
+        }
       }
 
       res.sendStatus(200);
     } catch (error: any) {
       console.error('Remove friend error:', error);
-      res.status(500).json({ message: "Failed to remove friend" });
+      res.status(500).json({ message: error.message || "Failed to remove friend" });
     }
   });
 

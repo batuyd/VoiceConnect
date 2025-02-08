@@ -783,6 +783,8 @@ export class DatabaseStorage implements IStorage {
 
   async removeFriend(userId1: number, userId2: number): Promise<void> {
     try {
+      console.log(`Looking for friendship between users ${userId1} and ${userId2}`);
+
       const [existingFriendship] = await db
         .select()
         .from(friendships)
@@ -800,13 +802,18 @@ export class DatabaseStorage implements IStorage {
         );
 
       if (!existingFriendship) {
+        console.error(`No friendship found between users ${userId1} and ${userId2}`);
         throw new Error('Friendship not found');
       }
 
-      await db
-        .delete(friendships)
-        .where(eq(friendships.id, existingFriendship.id));
+      console.log(`Found friendship:`, existingFriendship);
 
+      const result = await db
+        .delete(friendships)
+        .where(eq(friendships.id, existingFriendship.id))
+        .returning();
+
+      console.log(`Deleted friendship result:`, result);
       console.log(`Friendship between ${userId1} and ${userId2} successfully deleted`);
     } catch (error) {
       console.error('Error removing friend:', error);
