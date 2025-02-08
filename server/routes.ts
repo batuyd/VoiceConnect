@@ -77,16 +77,6 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Cannot add yourself as a friend" });
       }
 
-      // Check if already friends or pending request exists
-      const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
-      if (existingFriendship) {
-        if (existingFriendship.status === 'accepted') {
-          return res.status(400).json({ message: "Already friends with this user" });
-        } else if (existingFriendship.status === 'pending') {
-          return res.status(400).json({ message: "Friend request already sent" });
-        }
-      }
-
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
       console.log('Created friend request:', friendship);
 
@@ -119,7 +109,7 @@ export function registerRoutes(app: Express): Server {
       res.status(201).json(friendship);
     } catch (error: any) {
       console.error('Add friend error:', error);
-      res.status(500).json({ message: "Failed to send friend request" });
+      res.status(400).json({ message: error.message || "Failed to send friend request" });
     }
   });
 
@@ -861,7 +851,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/servers/:serverId", async (req, res) => {
+app.delete("/api/servers/:serverId", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     try {
       await storage.deleteServer(parseInt(req.params.serverId), req.user.id);

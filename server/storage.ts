@@ -149,7 +149,11 @@ export class DatabaseStorage implements IStorage {
       );
 
     if (existingFriendship) {
-      throw new Error("Friendship already exists");
+      throw new Error(
+        existingFriendship.status === 'accepted'
+          ? "Already friends with this user"
+          : "Friend request already exists"
+      );
     }
 
     console.log("No existing friendship found, creating new request");
@@ -508,7 +512,6 @@ export class DatabaseStorage implements IStorage {
   async removeReaction(messageId: number, userId: number, emoji: string): Promise<void> {
     await db.delete(reactions).where(and(eq(reactions.messageId, messageId), eq(reactions.userId, userId), eq(reactions.emoji, emoji)));
   }
-
 
 
   async getUserCoins(userId: number): Promise<UserCoins | undefined> {
