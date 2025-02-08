@@ -853,7 +853,7 @@ export function registerRoutes(app: Express): Server {
                 if (user.ws.readyState === WebSocket.OPEN) {
                   try {
                     user.ws.send(JSON.stringify({
-                      type: 'voice_data',
+                                            type: 'voice_data',
                       fromUserId: userId,
                       data: data.data
                     }));
@@ -876,21 +876,45 @@ export function registerRoutes(app: Express): Server {
               const currentUser = connectedUsers.get(userId);
               if (currentUser) {
                 currentUser.currentChannel = data.channelId;
-                // Notify other users in the channel
+
+                // Get all other users in the channel
                 const otherUsers = Array.from(connectedUsers.values())
                   .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
 
+                // Notify other users about new user joining
                 for (const user of otherUsers) {
                   if (user.ws.readyState === WebSocket.OPEN) {
-                    user.ws.send(JSON.stringify({
-                      type: 'user_joined',
-                      userId,
-                      username: currentUser.user.username
-                    }));
+                    try {
+                      user.ws.send(JSON.stringify({
+                        type: 'user_joined',
+                        userId,
+                        username: currentUser.user.username
+                      }));
+                    } catch (error) {
+                      console.error('Error sending user_joined notification:', error);
+                    }
+                  }
+                }
+
+                // Force refresh channel members for all users
+                const allChannelUsers = Array.from(connectedUsers.values())
+                  .filter(conn => conn.currentChannel === data.channelId);
+
+                for (const user of allChannelUsers) {
+                  if (user.ws.readyState === WebSocket.OPEN) {
+                    try {
+                      user.ws.send(JSON.stringify({
+                        type: 'member_update',
+                        channelId: data.channelId
+                      }));
+                    } catch (error) {
+                      console.error('Error sending member_update notification:', error);
+                    }
                   }
                 }
               }
               break;
+
             case 'leave_channel':
               if (!data.channelId) {
                 console.error('Missing channelId in leave channel message');
@@ -909,10 +933,11 @@ export function registerRoutes(app: Express): Server {
                     channelId: previousChannel
                   });
 
-                  // Notify other users in the channel about the user leaving
+                  // Get all remaining users in the channel
                   const remainingUsers = Array.from(connectedUsers.values())
                     .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
 
+                  // Notify other users about user leaving
                   for (const user of remainingUsers) {
                     if (user.ws.readyState === WebSocket.OPEN) {
                       try {
@@ -929,7 +954,7 @@ export function registerRoutes(app: Express): Server {
                   }
 
                   // Force refresh channel members for all remaining users
-                  remainingUsers.forEach(user => {
+                  for (const user of remainingUsers) {
                     if (user.ws.readyState === WebSocket.OPEN) {
                       try {
                         user.ws.send(JSON.stringify({
@@ -940,10 +965,11 @@ export function registerRoutes(app: Express): Server {
                         console.error('Error sending member_update notification:', error);
                       }
                     }
-                  });
+                  }
                 }
               }
               break;
+
             default:
               console.log('Unknown message type', {
                 timestamp: new Date().toISOString(),
@@ -985,13 +1011,31 @@ export function registerRoutes(app: Express): Server {
 
           for (const user of remainingUsers) {
             if (user.ws.readyState === WebSocket.OPEN) {
-              user.ws.send(JSON.stringify({
-                type: 'user_left',
-                userId,
-                username: closingUser.user.username,
-                channelId: closingUser.currentChannel,
-                reason: 'disconnected'
-              }));
+              try {
+                user.ws.send(JSON.stringify({
+                  type: 'user_left',
+                  userId,
+                  username: closingUser.user.username,
+                  channelId: closingUser.currentChannel,
+                  reason: 'disconnected'
+                }));
+              } catch (error) {
+                console.error('Error sending disconnect notification:', error);
+              }
+            }
+          }
+
+          // Force refresh channel members for remaining users
+          for (const user of remainingUsers) {
+            if (user.ws.readyState === WebSocket.OPEN) {
+              try {
+                user.ws.send(JSON.stringify({
+                  type: 'member_update',
+                  channelId: closingUser.currentChannel
+                }));
+              } catch (error) {
+                console.error('Error sending member_update notification:', error);
+              }
             }
           }
         }

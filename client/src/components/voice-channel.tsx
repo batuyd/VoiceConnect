@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { MediaControls } from "./media-controls";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
+import { useSoundEffects } from "@/hooks/use-sound-effects";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface VoiceChannelProps {
@@ -28,6 +29,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const { selectedInputDevice } = useAudioSettings();
+  const { playJoinSound, playLeaveSound } = useSoundEffects();
 
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -45,7 +47,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined,
-    refetchInterval: 5000 // Her 5 saniyede bir üye listesini güncelle
+    refetchInterval: 5000 
   });
 
   const setupAudioStream = useCallback(async () => {
@@ -150,6 +152,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             channelId: channel.id,
             userId: user.id
           }));
+          playJoinSound(); 
         };
 
         ws.onclose = () => {
@@ -191,15 +194,15 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                 variant: "destructive",
               });
             } else if (data.type === 'member_update' || data.type === 'user_left' || data.type === 'user_joined') {
-              // Üye listesini hemen güncelle
               await refetchMembers();
 
-              // Bildirim göster
               if (data.type === 'user_left') {
+                playLeaveSound();
                 toast({
                   description: t('voice.userLeft', { username: data.username }),
                 });
               } else if (data.type === 'user_joined') {
+                playJoinSound();
                 toast({
                   description: t('voice.userJoined', { username: data.username }),
                 });
@@ -247,7 +250,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         wsRef.current = null;
       }
     };
-  }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers]);
+  }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers, playJoinSound, playLeaveSound]);
 
   useEffect(() => {
     if (isJoined && !audioPermissionGranted) {
