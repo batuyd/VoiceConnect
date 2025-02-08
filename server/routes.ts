@@ -787,7 +787,34 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
 
     try {
+      const friendshipId = parseInt(req.params.friendshipId);
+      const friendship = await storage.getFriendshipById(friendshipId);
+
+      if (!friendship) {
+        return res.status(404).json({ message: "Friendship request not found" });
+      }
+
       await storage.rejectFriendRequest(parseInt(req.params.friendshipId));
+
+      // WebSocket üzerinden arkadaşlık isteğinin reddedildiğini bildirme
+      const targetWs = clients.get(friendship.senderId);
+      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+        try {
+          targetWs.send(JSON.stringify({
+            type: 'FRIEND_REQUEST_REJECTED',
+            data: {
+              friendshipId,
+              userId: req.user.id,
+              username: req.user.username,
+              senderId: friendship.senderId,
+              receiverId: friendship.receiverId
+            }
+          }));
+        } catch (wsError) {
+          console.error('WebSocket send error:', wsError);
+        }
+      }
+
       res.sendStatus(200);
     } catch (error: any) {
       console.error('Reject friend request error:', error);
@@ -813,11 +840,11 @@ export function registerRoutes(app: Express): Server {
       const targetWs = clients.get(friendId);
       if (targetWs && targetWs.readyState === WebSocket.OPEN) {
         try {
-          targetWs.send(JSON.stringify({
-            type: 'FRIENDSHIP_REMOVED',
+          targetWs.send(JSON.stringify({            type: 'FRIENDSHIP_REMOVED',
             data: {
               userId: req.user.id,
-              friendId: friendId
+              friendId: friendId,
+              username: req.user.username
             }
           }));
         } catch (wsError) {
