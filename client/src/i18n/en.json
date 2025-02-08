@@ -36,9 +36,13 @@
     "welcomeDescription": "Join our community to connect, share, and collaborate with others in real-time.",
     "errors": {
       "usernameRequired": "Username is required",
+      "usernameTooShort": "Username must be at least 3 characters",
       "passwordRequired": "Password is required",
+      "passwordTooShort": "Password must be at least 6 characters",
       "emailRequired": "Email is required",
+      "invalidEmail": "Please enter a valid email address",
       "phoneRequired": "Phone number is required",
+      "invalidPhone": "Please enter a valid phone number",
       "loginFailed": "Invalid username or password",
       "registrationFailed": "Registration failed. Please try again."
     },

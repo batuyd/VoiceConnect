@@ -28,7 +28,14 @@ export default function AuthPage() {
   const { t, language, setLanguage } = useLanguage();
 
   const loginForm = useForm({
-    resolver: zodResolver(insertUserSchema.pick({ username: true, password: true })),
+    resolver: zodResolver(
+      insertUserSchema
+        .pick({ username: true, password: true })
+        .extend({
+          username: insertUserSchema.shape.username.min(3, t('auth.errors.usernameTooShort')),
+          password: insertUserSchema.shape.password.min(6, t('auth.errors.passwordTooShort'))
+        })
+    ),
     defaultValues: {
       username: "",
       password: ""
@@ -36,7 +43,14 @@ export default function AuthPage() {
   });
 
   const registerForm = useForm({
-    resolver: zodResolver(insertUserSchema),
+    resolver: zodResolver(
+      insertUserSchema.extend({
+        username: insertUserSchema.shape.username.min(3, t('auth.errors.usernameTooShort')),
+        password: insertUserSchema.shape.password.min(6, t('auth.errors.passwordTooShort')),
+        email: insertUserSchema.shape.email.email(t('auth.errors.invalidEmail')),
+        phone: insertUserSchema.shape.phone.regex(/^\+?[\d\s-]{10,}$/, t('auth.errors.invalidPhone'))
+      })
+    ),
     defaultValues: {
       email: "",
       phone: "",
@@ -91,26 +105,35 @@ export default function AuthPage() {
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="username">{t('auth.username')}</Label>
-                      <Input id="username" {...loginForm.register("username")} />
+                      <Input 
+                        id="username" 
+                        {...loginForm.register("username")}
+                        className={loginForm.formState.errors.username ? "border-destructive" : ""}
+                      />
                       {loginForm.formState.errors.username && (
                         <p className="text-sm text-destructive mt-1">
-                          {t('auth.errors.usernameRequired')}
+                          {loginForm.formState.errors.username.message}
                         </p>
                       )}
                     </div>
                     <div>
                       <Label htmlFor="password">{t('auth.password')}</Label>
-                      <Input id="password" type="password" {...loginForm.register("password")} />
+                      <Input 
+                        id="password" 
+                        type="password" 
+                        {...loginForm.register("password")}
+                        className={loginForm.formState.errors.password ? "border-destructive" : ""}
+                      />
                       {loginForm.formState.errors.password && (
                         <p className="text-sm text-destructive mt-1">
-                          {t('auth.errors.passwordRequired')}
+                          {loginForm.formState.errors.password.message}
                         </p>
                       )}
                     </div>
                     <Button 
                       type="submit" 
                       className="w-full"
-                      disabled={loginMutation.isPending}
+                      disabled={loginMutation.isPending || !loginForm.formState.isValid}
                     >
                       {loginMutation.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -133,44 +156,62 @@ export default function AuthPage() {
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="reg-username">{t('auth.username')}</Label>
-                      <Input id="reg-username" {...registerForm.register("username")} />
+                      <Input 
+                        id="reg-username" 
+                        {...registerForm.register("username")}
+                        className={registerForm.formState.errors.username ? "border-destructive" : ""}
+                      />
                       {registerForm.formState.errors.username && (
                         <p className="text-sm text-destructive mt-1">
-                          {t('auth.errors.usernameRequired')}
+                          {registerForm.formState.errors.username.message}
                         </p>
                       )}
                     </div>
                     <div>
                       <Label htmlFor="reg-email">Email</Label>
-                      <Input id="reg-email" type="email" {...registerForm.register("email")} />
+                      <Input 
+                        id="reg-email" 
+                        type="email" 
+                        {...registerForm.register("email")}
+                        className={registerForm.formState.errors.email ? "border-destructive" : ""}
+                      />
                       {registerForm.formState.errors.email && (
                         <p className="text-sm text-destructive mt-1">
-                          {t('auth.errors.emailRequired')}
+                          {registerForm.formState.errors.email.message}
                         </p>
                       )}
                     </div>
                     <div>
                       <Label htmlFor="reg-phone">{t('auth.phone')}</Label>
-                      <Input id="reg-phone" {...registerForm.register("phone")} />
+                      <Input 
+                        id="reg-phone" 
+                        {...registerForm.register("phone")}
+                        className={registerForm.formState.errors.phone ? "border-destructive" : ""}
+                      />
                       {registerForm.formState.errors.phone && (
                         <p className="text-sm text-destructive mt-1">
-                          {t('auth.errors.phoneRequired')}
+                          {registerForm.formState.errors.phone.message}
                         </p>
                       )}
                     </div>
                     <div>
                       <Label htmlFor="reg-password">{t('auth.password')}</Label>
-                      <Input id="reg-password" type="password" {...registerForm.register("password")} />
+                      <Input 
+                        id="reg-password" 
+                        type="password" 
+                        {...registerForm.register("password")}
+                        className={registerForm.formState.errors.password ? "border-destructive" : ""}
+                      />
                       {registerForm.formState.errors.password && (
                         <p className="text-sm text-destructive mt-1">
-                          {t('auth.errors.passwordRequired')}
+                          {registerForm.formState.errors.password.message}
                         </p>
                       )}
                     </div>
                     <Button 
                       type="submit" 
                       className="w-full"
-                      disabled={registerMutation.isPending}
+                      disabled={registerMutation.isPending || !registerForm.formState.isValid}
                     >
                       {registerMutation.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />

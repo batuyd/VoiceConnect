@@ -36,9 +36,13 @@
     "welcomeDescription": "Topluluğumuza katılın, paylaşın ve gerçek zamanlı olarak diğerleriyle iletişim kurun.",
     "errors": {
       "usernameRequired": "Kullanıcı adı gerekli",
+      "usernameTooShort": "Kullanıcı adı en az 3 karakter olmalıdır",
       "passwordRequired": "Şifre gerekli",
+      "passwordTooShort": "Şifre en az 6 karakter olmalıdır",
       "emailRequired": "E-posta adresi gerekli",
+      "invalidEmail": "Geçerli bir e-posta adresi girin",
       "phoneRequired": "Telefon numarası gerekli",
+      "invalidPhone": "Geçerli bir telefon numarası girin",
       "loginFailed": "Geçersiz kullanıcı adı veya şifre",
       "registrationFailed": "Kayıt başarısız oldu. Lütfen tekrar deneyin."
     },
