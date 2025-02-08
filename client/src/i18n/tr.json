@@ -132,6 +132,8 @@
     "testFailedDesc": "Test sesi çalınamadı. Lütfen ses ayarlarınızı kontrol edin.",
     "notSupported": "Tarayıcınız ses cihazlarını desteklemiyor",
     "permissionDenied": "Ses cihazlarına erişim izni reddedildi",
+    "permissionRequired": "Mikrofon İzni Gerekli",
+    "permissionRequiredDesc": "Sesli sohbet özelliklerini kullanabilmek için lütfen mikrofon iznini verin",
     "noDevices": "Ses cihazı bulunamadı",
     "noDevicesAfterPermission": "İzin verildikten sonra ses cihazı bulunamadı",
     "initializationError": "Ses ayarları başlatılırken hata oluştu",

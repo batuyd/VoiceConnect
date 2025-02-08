@@ -12,7 +12,6 @@ type AudioSettingsContextType = {
   setSelectedOutputDevice: (deviceId: string) => void;
   playTestSound: () => Promise<void>;
   isTestingAudio: boolean;
-  // Yeni ses efekti ayarları
   voiceEffect: 'none' | 'pitch-up' | 'pitch-down' | 'robot' | 'echo';
   setVoiceEffect: (effect: 'none' | 'pitch-up' | 'pitch-down' | 'robot' | 'echo') => void;
   noiseSuppressionLevel: 'off' | 'low' | 'medium' | 'high';
@@ -37,18 +36,15 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const [echoCancellation, setEchoCancellation] = useState(true);
   const [noiseSuppression, setNoiseSuppression] = useState(true);
 
-  // Yeni ses efekti state'leri
   const [voiceEffect, setVoiceEffect] = useState<'none' | 'pitch-up' | 'pitch-down' | 'robot' | 'echo'>('none');
   const [noiseSuppressionLevel, setNoiseSuppressionLevel] = useState<'off' | 'low' | 'medium' | 'high'>('medium');
   const [audioQuality, setAudioQuality] = useState<'low' | 'medium' | 'high'>('high');
 
-  // Ses efektlerini uygulama
   const applyAudioEffects = useCallback((stream: MediaStream) => {
     const audioContext = new AudioContext({ sampleRate: 48000 });
     const source = audioContext.createMediaStreamSource(stream);
     let currentNode: AudioNode = source;
 
-    // Pitch shifter effect
     if (voiceEffect.includes('pitch')) {
       const pitchShifter = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
@@ -61,7 +57,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       currentNode = gainNode;
     }
 
-    // Robot effect
     if (voiceEffect === 'robot') {
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
@@ -76,7 +71,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       currentNode = gainNode;
     }
 
-    // Echo effect
     if (voiceEffect === 'echo') {
       const delay = audioContext.createDelay(0.5);
       const feedback = audioContext.createGain();
@@ -90,7 +84,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       currentNode = delay;
     }
 
-    // Noise suppression settings
     if (noiseSuppressionLevel !== 'off') {
       const compressor = audioContext.createDynamicsCompressor();
 
@@ -116,13 +109,11 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       currentNode = compressor;
     }
 
-    // Final output
     const destination = audioContext.createMediaStreamDestination();
     currentNode.connect(destination);
     return destination.stream;
   }, [voiceEffect, noiseSuppressionLevel]);
 
-  // Ses kalitesi ayarları
   const getAudioConstraints = useCallback(() => {
     const constraints: MediaTrackConstraints = {
       deviceId: selectedInputDevice,
@@ -149,7 +140,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     return constraints;
   }, [selectedInputDevice, autoGainControl, echoCancellation, noiseSuppression, audioQuality]);
 
-  // Ses analizi ve gerçek zamanlı seviye güncelleme
   useEffect(() => {
     if (!selectedInputDevice || !isInitialized) return;
 
@@ -203,7 +193,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     setupAudioAnalysis();
 
-    // Cleanup
     return () => {
       if (animationFrame) cancelAnimationFrame(animationFrame);
       if (retryTimeout) clearTimeout(retryTimeout);
@@ -215,7 +204,37 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     };
   }, [selectedInputDevice, isInitialized, autoGainControl, echoCancellation, noiseSuppression, toast, t, getAudioConstraints, applyAudioEffects]);
 
-  // Cihaz yönetimi ve otomatik yeniden bağlanma
+
+  const requestAudioPermission = useCallback(async (retryCount = 0): Promise<MediaStream | null> => {
+    try {
+      const constraints = getAudioConstraints();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+      return stream;
+    } catch (error: any) {
+      console.warn('Audio permission error:', error);
+
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        toast({
+          title: t('audio.permissionRequired'),
+          description: t('audio.permissionRequiredDesc'),
+          variant: "destructive",
+        });
+        return null;
+      }
+
+      if (retryCount < 3) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return requestAudioPermission(retryCount + 1);
+      }
+
+      toast({
+        description: t('audio.initializationError'),
+        variant: "destructive",
+      });
+      return null;
+    }
+  }, [getAudioConstraints, toast, t]);
+
   useEffect(() => {
     let mounted = true;
     let reconnectTimeout: NodeJS.Timeout | null = null;
@@ -233,45 +252,17 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           return;
         }
 
+        const stream = await requestAudioPermission();
+        if (!stream) return;
+        stream.getTracks().forEach(track => track.stop());
+
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const hasAudioDevices = devices.some(device =>
-          device.kind === 'audioinput' || device.kind === 'audiooutput'
-        );
-
-        if (hasAudioDevices) {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: getAudioConstraints() });
-            stream.getTracks().forEach(track => track.stop());
-          } catch (error) {
-            console.warn('Audio permission denied:', error);
-            if (retryCount < 3) {
-              reconnectTimeout = setTimeout(() => {
-                initializeAudioDevices(retryCount + 1);
-              }, 2000);
-              return;
-            }
-            toast({
-              description: t('audio.permissionDenied'),
-              variant: "destructive",
-            });
-            return;
-          }
-        } else {
-          console.warn('No audio devices found');
-          toast({
-            description: t('audio.noDevices'),
-            variant: "destructive",
-          });
-          return;
-        }
-
-        if (!mounted) return;
-
-        const availableDevices = await navigator.mediaDevices.enumerateDevices();
-        const audioDevices = availableDevices.filter(device =>
+        const audioDevices = devices.filter(device =>
           (device.kind === 'audioinput' || device.kind === 'audiooutput') &&
           device.deviceId
         );
+
+        if (!mounted) return;
 
         if (audioDevices.length === 0) {
           if (retryCount < 3) {
@@ -280,9 +271,9 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
             }, 2000);
             return;
           }
-          console.warn('No audio devices available after permission');
+          console.warn('No audio devices available');
           toast({
-            description: t('audio.noDevicesAfterPermission'),
+            description: t('audio.noDevices'),
             variant: "destructive",
           });
           return;
@@ -290,7 +281,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
         setAudioDevices(audioDevices);
 
-        // Cihaz seçimi ve varsayılan ayarlar
         if (!selectedInputDevice) {
           const defaultInput = audioDevices.find(d => d.kind === 'audioinput');
           if (defaultInput) {
@@ -324,9 +314,9 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     initializeAudioDevices();
 
-    const handleDeviceChange = async () => {
+    const handleDeviceChange = () => {
       console.log('Audio devices changed, reinitializing...');
-      await initializeAudioDevices();
+      initializeAudioDevices();
     };
 
     try {
@@ -346,9 +336,8 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         console.warn('Could not remove device change listener:', error);
       }
     };
-  }, [selectedInputDevice, selectedOutputDevice, toast, t, getAudioConstraints]);
+  }, [selectedInputDevice, selectedOutputDevice, toast, t, requestAudioPermission]);
 
-  // Gelişmiş test sesi fonksiyonu
   const playTestSound = useCallback(async () => {
     if (!isInitialized) {
       toast({
@@ -407,7 +396,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         setSelectedOutputDevice,
         playTestSound,
         isTestingAudio,
-        // Yeni özellikleri ekleyelim
         voiceEffect,
         setVoiceEffect,
         noiseSuppressionLevel,
