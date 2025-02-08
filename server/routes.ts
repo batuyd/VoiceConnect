@@ -293,18 +293,22 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
 
     try {
-      // Call original handler.  This assumes app.routes.post is available and contains the original handler.  This might require refactoring depending on the express setup.
-      const originalPostMessage = app.routes.post["/api/channels/:channelId/messages"];
-      await originalPostMessage(req, res);
-
+      const channelId = parseInt(req.params.channelId);
+      const message = await storage.createMessage({
+        content: req.body.content,
+        channelId: channelId,
+        userId: req.user.id
+      });
 
       const achievements = await storage.getUserAchievements(req.user.id);
       const messageAchievement = achievements.find(a => a.type === "messages");
       if (messageAchievement) {
         await storage.updateUserAchievement(req.user.id, "messages", messageAchievement.progress + 1);
       } else {
-        await storage.updateUserAchievement(req.user.id, "messages", 1);
+        await storage.createUserAchievement(req.user.id, "messages", 1);
       }
+
+      res.status(201).json(message);
     } catch (error) {
       console.error('Post message error:', handleError(error));
       res.status(500).json({ message: "Failed to post message" });
