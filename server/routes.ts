@@ -10,6 +10,7 @@ import ytdl from 'ytdl-core';
 interface WebSocketClient extends WebSocket {
   isAlive: boolean;
   userId?: number;
+  channelId?: number;
 }
 
 function handleError(error: unknown): string {
@@ -42,10 +43,9 @@ export function registerRoutes(app: Express): Server {
 
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const clients = new Map<number, WebSocketClient>();
 
   setMaxListeners(20);
-
-  const clients = new Map<number, WebSocketClient>();
 
   function heartbeat(this: WebSocketClient) {
     this.isAlive = true;
@@ -122,6 +122,7 @@ export function registerRoutes(app: Express): Server {
             case 'ping':
               sendWebSocketMessage(ws, 'pong', { timestamp: Date.now() });
               break;
+
             case 'join_channel':
               try {
                 const channelId = data.channelId;
@@ -140,15 +141,47 @@ export function registerRoutes(app: Express): Server {
                 }
 
                 console.log(`User ${userId} joined channel ${channelId}`);
+                ws.channelId = channelId;
+
                 sendWebSocketMessage(ws, 'channel_joined', { 
                   channelId,
                   timestamp: Date.now()
+                });
+
+                // Diğer kullanıcılara yeni katılımcıyı bildir
+                wss.clients.forEach((client: WebSocketClient) => {
+                  if (client.channelId === channelId && client.userId !== userId) {
+                    sendWebSocketMessage(client, 'user_joined', {
+                      userId,
+                      channelId,
+                      timestamp: Date.now()
+                    });
+                  }
                 });
               } catch (error) {
                 console.error('Error joining channel:', error);
                 sendWebSocketMessage(ws, 'error', { message: 'Failed to join channel' });
               }
               break;
+
+            case 'leave_channel':
+              if (ws.channelId) {
+                const oldChannelId = ws.channelId;
+                ws.channelId = undefined;
+
+                // Diğer kullanıcılara ayrılan kullanıcıyı bildir
+                wss.clients.forEach((client: WebSocketClient) => {
+                  if (client.channelId === oldChannelId && client.userId !== userId) {
+                    sendWebSocketMessage(client, 'user_left', {
+                      userId,
+                      channelId: oldChannelId,
+                      timestamp: Date.now()
+                    });
+                  }
+                });
+              }
+              break;
+
             default:
               console.log('Unknown message type:', data.type);
           }

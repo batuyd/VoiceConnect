@@ -484,7 +484,6 @@ export class DatabaseStorage implements IStorage {
   }
 
 
-
   async getUserCoins(userId: number): Promise<UserCoins | undefined> {
     const [result] = await db
       .select()
@@ -688,7 +687,42 @@ export class DatabaseStorage implements IStorage {
     throw new Error("Method not implemented.");
   }
   async canAccessChannel(channelId: number, userId: number): Promise<boolean> {
-    throw new Error("Method not implemented.");
+    try {
+      // Get the channel
+      const channel = await this.getChannel(channelId);
+      if (!channel) {
+        return false;
+      }
+
+      // Get the server that owns this channel
+      const server = await this.getServer(channel.serverId);
+      if (!server) {
+        return false;
+      }
+
+      // If user is the server owner, they can access all channels
+      if (server.ownerId === userId) {
+        return true;
+      }
+
+      // Check if user is a member of the server
+      const members = await this.getServerMembers(channel.serverId);
+      const isMember = members.some(member => member.id === userId);
+      if (!isMember) {
+        return false;
+      }
+
+      // If channel is private, check allowed users
+      if (channel.isPrivate) {
+        return channel.allowedUsers?.includes(userId) || false;
+      }
+
+      // If all checks pass, user can access the channel
+      return true;
+    } catch (error) {
+      console.error('Error checking channel access:', error);
+      return false;
+    }
   }
 
   // Media related methods (These methods will need to be implemented using the database)
@@ -964,8 +998,7 @@ export class DatabaseStorage implements IStorage {
         .innerJoin(users, eq(users.id, friendships.senderId))
         .where(
           and(
-            or(
-              and(
+            or(and(
                 eq(friendships.senderId, userId1),
                 eq(friendships.receiverId, userId2)
               ),

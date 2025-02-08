@@ -1,6 +1,6 @@
 import { Volume2, VolumeX, Trash2 } from "lucide-react";
 import { Channel } from "@shared/schema";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,9 +32,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const { joinChannel } = useWebSocket();
-
-  const { isConnected, createPeer, cleanup } = useWebRTC(channel.id);
+  const { connectionStatus, websocket, joinChannel } = useWebSocket();
+  const { isConnected, peers, createPeer, cleanup } = useWebRTC(channel.id);
 
   const deleteChannelMutation = useMutation({
     mutationFn: async () => {
@@ -54,9 +53,15 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     },
   });
 
-  const setupLocalStream = async () => {
+  const setupLocalStream = useCallback(async () => {
     try {
       console.log('Setting up local stream with device:', selectedInputDevice);
+
+      // Önce ses izinlerini kontrol et
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('getUserMedia is not supported');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
@@ -78,11 +83,13 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       });
       return null;
     }
-  };
+  }, [selectedInputDevice, toast, t]);
 
   const handleJoinLeave = async () => {
     if (isJoined) {
       console.log('Leaving voice channel');
+
+      // Ses akışını temizle
       if (localStream) {
         localStream.getTracks().forEach(track => {
           track.stop();
@@ -90,34 +97,54 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         });
         setLocalStream(null);
       }
+
+      // WebRTC bağlantılarını temizle
       cleanup();
+
+      // WebSocket üzerinden kanaldan ayrıldığını bildir
+      if (websocket?.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+          type: 'leave_channel',
+          channelId: channel.id
+        }));
+      }
+
       setIsJoined(false);
       setIsMuted(false);
     } else {
       console.log('Joining voice channel');
       const stream = await setupLocalStream();
       if (stream) {
-        joinChannel(channel.id); 
-        for (const member of channelMembers) {
+        // WebSocket üzerinden kanala katıl
+        joinChannel(channel.id);
+
+        // Mevcut üyelerle WebRTC bağlantısı kur
+        const members = await queryClient.fetchQuery({
+          queryKey: [`/api/channels/${channel.id}/members`],
+          queryFn: () => apiRequest("GET", `/api/channels/${channel.id}/members`)
+        });
+
+        for (const member of members) {
           if (member.id !== user?.id) {
             console.log('Creating peer connection with:', member.username);
-            await createPeer(member.id, true);
+            await createPeer(member.id, stream, true);
           }
         }
+
         setIsJoined(true);
       }
     }
   };
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     if (localStream) {
       localStream.getAudioTracks().forEach(track => {
-        track.enabled = !isMuted; 
+        track.enabled = !isMuted;
         console.log('Track enabled:', track.enabled);
       });
       setIsMuted(!isMuted);
     }
-  };
+  }, [localStream, isMuted]);
 
   useEffect(() => {
     return () => {
@@ -133,8 +160,33 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined,
-    refetchInterval: 5000 
+    refetchInterval: 5000
   });
+
+  useEffect(() => {
+    if (websocket) {
+      const handleUserJoined = (data: any) => {
+        if (data.channelId === channel.id) {
+          refetchMembers();
+        }
+      };
+
+      const handleUserLeft = (data: any) => {
+        if (data.channelId === channel.id) {
+          refetchMembers();
+        }
+      };
+
+      websocket.addEventListener('message', (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === 'user_joined') {
+          handleUserJoined(message.data);
+        } else if (message.type === 'user_left') {
+          handleUserLeft(message.data);
+        }
+      });
+    }
+  }, [websocket, channel.id, refetchMembers]);
 
   const currentMemberStatus = channelMembers.find(member => member.id === user?.id);
   const isCurrentUserMuted = currentMemberStatus?.isMuted || isMuted;
@@ -202,6 +254,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                   </Avatar>
                   <span className="text-sm">{member.username}</span>
                   {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
+                  {peers[member.id] && <span className="w-2 h-2 rounded-full bg-green-500" />}
                 </div>
               ))}
             </div>
