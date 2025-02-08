@@ -84,7 +84,7 @@ export function SettingsDialog() {
 
           {/* Theme Settings */}
           <div>
-            <h4 className="font-medium mb-4">{t('settings.theme')}</h4>
+            <h4 className="font-medium mb-4">{t('settings.theme.title')}</h4>
             <RadioGroup
               value={theme}
               onValueChange={(value) => setTheme(value as "light" | "dark" | "system")}

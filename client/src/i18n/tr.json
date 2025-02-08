@@ -57,15 +57,15 @@
     "title": "Ayarlar",
     "language": "Dil",
     "theme": {
-      "title": "Tema",
-      "light": "Açık Tema",
-      "dark": "Koyu Tema",
-      "system": "Sistem Teması"
+      "title": "Tema Ayarları",
+      "light": "Aydınlık",
+      "dark": "Karanlık",
+      "system": "Sistem"
     },
     "audio": {
       "title": "Ses Ayarları",
-      "input": "Giriş Cihazı",
-      "output": "Çıkış Cihazı",
+      "input": "Mikrofon",
+      "output": "Hoparlör",
       "volume": "Ses Seviyesi",
       "selectInput": "Mikrofon seçin",
       "selectOutput": "Hoparlör seçin",

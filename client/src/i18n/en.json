@@ -57,15 +57,15 @@
     "title": "Settings",
     "language": "Language",
     "theme": {
-      "title": "Theme",
-      "light": "Light Theme",
-      "dark": "Dark Theme",
-      "system": "System Theme"
+      "title": "Theme Settings",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
     },
     "audio": {
       "title": "Audio Settings",
-      "input": "Input Device",
-      "output": "Output Device",
+      "input": "Microphone",
+      "output": "Speaker",
       "volume": "Volume",
       "selectInput": "Select microphone",
       "selectOutput": "Select speaker",
