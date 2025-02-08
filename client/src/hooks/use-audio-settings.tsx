@@ -12,6 +12,13 @@ type AudioSettingsContextType = {
   setSelectedOutputDevice: (deviceId: string) => void;
   playTestSound: () => Promise<void>;
   isTestingAudio: boolean;
+  // Yeni ses efekti ayarları
+  voiceEffect: 'none' | 'pitch-up' | 'pitch-down' | 'robot' | 'echo';
+  setVoiceEffect: (effect: 'none' | 'pitch-up' | 'pitch-down' | 'robot' | 'echo') => void;
+  noiseSuppressionLevel: 'off' | 'low' | 'medium' | 'high';
+  setNoiseSuppressionLevel: (level: 'off' | 'low' | 'medium' | 'high') => void;
+  audioQuality: 'low' | 'medium' | 'high';
+  setAudioQuality: (quality: 'low' | 'medium' | 'high') => void;
 };
 
 const AudioSettingsContext = createContext<AudioSettingsContextType | null>(null);
@@ -29,6 +36,118 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const [autoGainControl, setAutoGainControl] = useState(true);
   const [echoCancellation, setEchoCancellation] = useState(true);
   const [noiseSuppression, setNoiseSuppression] = useState(true);
+
+  // Yeni ses efekti state'leri
+  const [voiceEffect, setVoiceEffect] = useState<'none' | 'pitch-up' | 'pitch-down' | 'robot' | 'echo'>('none');
+  const [noiseSuppressionLevel, setNoiseSuppressionLevel] = useState<'off' | 'low' | 'medium' | 'high'>('medium');
+  const [audioQuality, setAudioQuality] = useState<'low' | 'medium' | 'high'>('high');
+
+  // Ses efektlerini uygulama
+  const applyAudioEffects = useCallback((stream: MediaStream) => {
+    const audioContext = new AudioContext({ sampleRate: 48000 });
+    const source = audioContext.createMediaStreamSource(stream);
+    let currentNode: AudioNode = source;
+
+    // Pitch shifter effect
+    if (voiceEffect.includes('pitch')) {
+      const pitchShifter = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      pitchShifter.frequency.value = voiceEffect === 'pitch-up' ? 880 : 220;
+      gainNode.gain.value = 0.5;
+
+      currentNode.connect(gainNode);
+      pitchShifter.connect(gainNode);
+      currentNode = gainNode;
+    }
+
+    // Robot effect
+    if (voiceEffect === 'robot') {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.type = 'sawtooth';
+      oscillator.frequency.value = 440;
+      gainNode.gain.value = 0.5;
+
+      oscillator.start();
+      oscillator.connect(gainNode);
+      currentNode.connect(gainNode);
+      currentNode = gainNode;
+    }
+
+    // Echo effect
+    if (voiceEffect === 'echo') {
+      const delay = audioContext.createDelay(0.5);
+      const feedback = audioContext.createGain();
+
+      delay.delayTime.value = 0.15;
+      feedback.gain.value = 0.4;
+
+      currentNode.connect(delay);
+      delay.connect(feedback);
+      feedback.connect(delay);
+      currentNode = delay;
+    }
+
+    // Noise suppression settings
+    if (noiseSuppressionLevel !== 'off') {
+      const compressor = audioContext.createDynamicsCompressor();
+
+      switch (noiseSuppressionLevel) {
+        case 'low':
+          compressor.threshold.value = -50;
+          compressor.knee.value = 40;
+          compressor.ratio.value = 12;
+          break;
+        case 'medium':
+          compressor.threshold.value = -40;
+          compressor.knee.value = 30;
+          compressor.ratio.value = 16;
+          break;
+        case 'high':
+          compressor.threshold.value = -30;
+          compressor.knee.value = 20;
+          compressor.ratio.value = 20;
+          break;
+      }
+
+      currentNode.connect(compressor);
+      currentNode = compressor;
+    }
+
+    // Final output
+    const destination = audioContext.createMediaStreamDestination();
+    currentNode.connect(destination);
+    return destination.stream;
+  }, [voiceEffect, noiseSuppressionLevel]);
+
+  // Ses kalitesi ayarları
+  const getAudioConstraints = useCallback(() => {
+    const constraints: MediaTrackConstraints = {
+      deviceId: selectedInputDevice,
+      autoGainControl,
+      echoCancellation,
+      noiseSuppression,
+    };
+
+    switch (audioQuality) {
+      case 'low':
+        constraints.sampleRate = 22050;
+        constraints.channelCount = 1;
+        break;
+      case 'medium':
+        constraints.sampleRate = 44100;
+        constraints.channelCount = 1;
+        break;
+      case 'high':
+        constraints.sampleRate = 48000;
+        constraints.channelCount = 2;
+        break;
+    }
+
+    return constraints;
+  }, [selectedInputDevice, autoGainControl, echoCancellation, noiseSuppression, audioQuality]);
 
   // Ses analizi ve gerçek zamanlı seviye güncelleme
   useEffect(() => {
@@ -56,21 +175,14 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           throw new Error('Maximum retry attempts reached');
         }
 
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: selectedInputDevice,
-            autoGainControl,
-            echoCancellation,
-            noiseSuppression,
-            sampleRate: 48000,
-            channelCount: 2
-          }
-        });
+        const constraints = getAudioConstraints();
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+        const processedStream = applyAudioEffects(mediaStream);
 
-        audioContext = new AudioContext({ sampleRate: 48000 });
+        audioContext = new AudioContext({ sampleRate: constraints.sampleRate });
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 2048;
-        microphone = audioContext.createMediaStreamSource(mediaStream);
+        microphone = audioContext.createMediaStreamSource(processedStream);
         microphone.connect(analyser);
         updateVolume();
 
@@ -101,7 +213,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         mediaStream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [selectedInputDevice, isInitialized, autoGainControl, echoCancellation, noiseSuppression, toast, t]);
+  }, [selectedInputDevice, isInitialized, autoGainControl, echoCancellation, noiseSuppression, toast, t, getAudioConstraints, applyAudioEffects]);
 
   // Cihaz yönetimi ve otomatik yeniden bağlanma
   useEffect(() => {
@@ -128,13 +240,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
         if (hasAudioDevices) {
           try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-              }
-            });
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: getAudioConstraints() });
             stream.getTracks().forEach(track => track.stop());
           } catch (error) {
             console.warn('Audio permission denied:', error);
@@ -240,7 +346,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         console.warn('Could not remove device change listener:', error);
       }
     };
-  }, [selectedInputDevice, selectedOutputDevice, toast, t]);
+  }, [selectedInputDevice, selectedOutputDevice, toast, t, getAudioConstraints]);
 
   // Gelişmiş test sesi fonksiyonu
   const playTestSound = useCallback(async () => {
@@ -301,6 +407,13 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         setSelectedOutputDevice,
         playTestSound,
         isTestingAudio,
+        // Yeni özellikleri ekleyelim
+        voiceEffect,
+        setVoiceEffect,
+        noiseSuppressionLevel,
+        setNoiseSuppressionLevel,
+        audioQuality,
+        setAudioQuality,
       }}
     >
       {children}

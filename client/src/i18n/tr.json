@@ -87,6 +87,7 @@
   },
   "settings": {
     "title": "Ayarlar",
+    "general": "Genel",
     "language": "Dil",
     "theme": {
       "title": "Tema Ayarları",
@@ -103,10 +104,27 @@
       "selectOutput": "Hoparlör seçin",
       "defaultDevice": "Varsayılan Cihaz",
       "test": "Sesi Test Et",
-      "inputDevice": "Mikrofon",
-      "outputDevice": "Hoparlör",
-      "inputVolume": "Mikrofon Seviyesi",
-      "outputVolume": "Hoparlör Seviyesi"
+      "quality": "Ses Kalitesi",
+      "selectQuality": "Kalite seçin",
+      "qualityLow": "Düşük",
+      "qualityMedium": "Orta",
+      "qualityHigh": "Yüksek"
+    },
+    "effects": {
+      "title": "Efekt Ayarları",
+      "voice": "Ses Efekti",
+      "selectVoice": "Efekt seçin",
+      "voiceNone": "Normal",
+      "voicePitchUp": "Tiz Ses",
+      "voicePitchDown": "Bas Ses",
+      "voiceRobot": "Robot",
+      "voiceEcho": "Yankı",
+      "noiseSuppression": "Gürültü Engelleme",
+      "selectNoiseSuppression": "Seviye seçin",
+      "noiseSuppressionOff": "Kapalı",
+      "noiseSuppressionLow": "Düşük",
+      "noiseSuppressionMedium": "Orta",
+      "noiseSuppressionHigh": "Yüksek"
     }
   },
   "audio": {
