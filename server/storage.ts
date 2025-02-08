@@ -722,7 +722,46 @@ export class DatabaseStorage implements IStorage {
     throw new Error("Method not implemented.");
   }
   async deleteChannel(channelId: number): Promise<void> {
-    throw new Error("Method not implemented.");
+    try {
+      // Get channel first to verify it exists
+      const channel = await this.getChannel(channelId);
+      if (!channel) {
+        throw new Error('Channel not found');
+      }
+
+      // Use transaction to ensure all related data is deleted
+      await db.transaction(async (tx) => {
+        // Delete all messages and reactions in the channel
+        const channelMessages = await tx
+          .select()
+          .from(messages)
+          .where(eq(messages.channelId, channelId));
+
+        if (channelMessages.length > 0) {
+          // Delete reactions for all messages in this channel
+          await tx
+            .delete(reactions)
+            .where(
+              or(...channelMessages.map(msg => eq(reactions.messageId, msg.id)))
+            );
+        }
+
+        // Delete all messages
+        await tx
+          .delete(messages)
+          .where(eq(messages.channelId, channelId));
+
+        // Finally delete the channel itself
+        await tx
+          .delete(channels)
+          .where(eq(channels.id, channelId));
+      });
+
+      console.log(`Channel ${channelId} successfully deleted`);
+    } catch (error) {
+      console.error('Error deleting channel:', error);
+      throw error;
+    }
   }
 
   // Friend related methods (These methods will need to be implemented using the database)
