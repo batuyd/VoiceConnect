@@ -385,18 +385,41 @@ export class DatabaseStorage implements IStorage {
     return insertedMessage;
   }
   async getMessages(channelId: number): Promise<MessageWithReactions[]> {
-    const messagesResult = await db.select().from(messages).where(eq(messages.channelId, channelId)).orderBy(messages.createdAt);
+    // Önce mesajları alalım
+    const messagesResult = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.channelId, channelId))
+      .orderBy(messages.createdAt);
 
-    return Promise.all(
-      messagesResult.map(async message => {
-        const [user] = await db.select().from(users).where(eq(users.id, message.userId));
-        const reactionsResult = await db.select().from(reactions).where(eq(reactions.messageId, message.id));
+    // Her mesaj için kullanıcı ve reaksiyonları getirelim
+    return await Promise.all(
+      messagesResult.map(async (message) => {
+        // Mesajın sahibi olan kullanıcıyı getir
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, message.userId));
 
+        // Mesaja ait tüm reaksiyonları getir
+        const messageReactions = await db
+          .select()
+          .from(reactions)
+          .where(eq(reactions.messageId, message.id));
+
+        // Her reaksiyon için kullanıcı bilgisini getir
         const reactionsWithUsers = await Promise.all(
-          reactionsResult.map(async reaction => ({
-            ...reaction,
-            user: (await this.getUser(reaction.userId))!
-          }))
+          messageReactions.map(async (reaction) => {
+            const [reactionUser] = await db
+              .select()
+              .from(users)
+              .where(eq(users.id, reaction.userId));
+
+            return {
+              ...reaction,
+              user: reactionUser!
+            };
+          })
         );
 
         return {
@@ -409,21 +432,41 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction> {
+    // Önce aynı emoji için reaksiyon var mı kontrol edelim
+    const [existingReaction] = await db
+      .select()
+      .from(reactions)
+      .where(
+        and(
+          eq(reactions.messageId, messageId),
+          eq(reactions.userId, userId),
+          eq(reactions.emoji, emoji)
+        )
+      );
+
+    if (existingReaction) {
+      return existingReaction;
+    }
+
     const reaction: Reaction = {
-      id: 0, //Auto-incremented by database
+      id: 0, // Auto-incremented by database
       emoji,
       messageId,
       userId,
       createdAt: new Date(),
     };
-    const [insertedReaction] = await db.insert(reactions).values(reaction).returning();
+
+    const [insertedReaction] = await db
+      .insert(reactions)
+      .values(reaction)
+      .returning();
+
     return insertedReaction;
   }
 
   async removeReaction(messageId: number, userId: number, emoji: string): Promise<void> {
     await db.delete(reactions).where(and(eq(reactions.messageId, messageId), eq(reactions.userId, userId), eq(reactions.emoji, emoji)));
   }
-
 
 
   async getUserCoins(userId: number): Promise<UserCoins | undefined> {
