@@ -61,27 +61,29 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     }
   }, [toast, t]);
 
+  const cleanupAudioResources = useCallback(async () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+
+    if (stream.current) {
+      stream.current.getTracks().forEach(track => track.stop());
+      stream.current = null;
+    }
+
+    if (audioContext.current?.state !== 'closed') {
+      await audioContext.current?.close();
+      audioContext.current = null;
+    }
+  }, []);
+
   const setupAudioStream = useCallback(async () => {
     if (!selectedInputDevice || !isJoined || !audioPermissionGranted) return;
 
     try {
-      // Cleanup existing audio resources
-      if (mediaRecorderRef.current) {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current = null;
-      }
+      await cleanupAudioResources();
 
-      if (stream.current) {
-        stream.current.getTracks().forEach(track => track.stop());
-        stream.current = null;
-      }
-
-      if (audioContext.current?.state !== 'closed') {
-        await audioContext.current?.close();
-        audioContext.current = null;
-      }
-
-      // Setup new audio stream
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: { exact: selectedInputDevice },
@@ -98,6 +100,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       gainNode.current = audioContext.current.createGain();
       gainNode.current.gain.value = isMuted ? 0 : 1;
       source.connect(gainNode.current);
+      gainNode.current.connect(audioContext.current.destination);
 
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         const audioTrack = mediaStream.getAudioTracks()[0];
@@ -126,7 +129,31 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       });
       handleLeaveChannel();
     }
-  }, [selectedInputDevice, isJoined, audioPermissionGranted, channel.id, isMuted, toast, t]);
+  }, [selectedInputDevice, isJoined, audioPermissionGranted, channel.id, isMuted, toast, t, cleanupAudioResources]);
+
+  const handleLeaveChannel = useCallback(async () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'leave_channel',
+        channelId: channel.id
+      }));
+    }
+
+    await cleanupAudioResources();
+
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    setIsJoined(false);
+    setWsConnected(false);
+    setAudioPermissionGranted(false);
+
+    if (isJoined) {
+      playLeaveSound();
+    }
+  }, [channel.id, playLeaveSound, isJoined, cleanupAudioResources]);
 
   const connectWebSocket = useCallback(async () => {
     if (!isJoined || !user?.id) return;
@@ -144,6 +171,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        console.log('WebSocket connected');
         setWsConnected(true);
         ws.send(JSON.stringify({
           type: 'join_channel',
@@ -153,6 +181,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       };
 
       ws.onclose = () => {
+        console.log('WebSocket disconnected');
         setWsConnected(false);
         wsRef.current = null;
         if (isJoined) {
@@ -165,6 +194,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       ws.onmessage = async (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('WebSocket message received:', data);
 
           switch (data.type) {
             case 'user_joined':
@@ -191,6 +221,14 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
           console.error('Failed to parse WebSocket message:', error);
         }
       };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        toast({
+          description: t('voice.connectionFailed'),
+          variant: "destructive",
+        });
+      };
     } catch (error) {
       console.error('WebSocket connection error:', error);
       toast({
@@ -199,44 +237,6 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       });
     }
   }, [isJoined, channel.id, user?.id, toast, t, refetchMembers]);
-
-  const handleLeaveChannel = useCallback(async () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'leave_channel',
-        channelId: channel.id
-      }));
-    }
-
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-    }
-
-    if (stream.current) {
-      stream.current.getTracks().forEach(track => track.stop());
-      stream.current = null;
-    }
-
-    if (audioContext.current?.state !== 'closed') {
-      await audioContext.current?.close();
-      audioContext.current = null;
-    }
-
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    setIsJoined(false);
-    setWsConnected(false);
-    setAudioPermissionGranted(false);
-
-    // Only play leave sound if we were actually joined
-    if (isJoined) {
-      playLeaveSound();
-    }
-  }, [channel.id, playLeaveSound, isJoined]);
 
   const handleJoinLeave = useCallback(async () => {
     if (isJoined) {
@@ -266,7 +266,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   }, [isJoined, connectWebSocket]);
 
   useEffect(() => {
-    if (!gainNode.current || !audioContext.current) return;
+    if (!gainNode.current) return;
     gainNode.current.gain.value = isMuted ? 0 : 1;
   }, [isMuted]);
 
