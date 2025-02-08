@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/hooks/use-language';
+import { useAuth } from '@/hooks/use-auth';
 
 type WebSocketMessage = {
   type: string;
@@ -14,6 +15,7 @@ const PONG_TIMEOUT = 10000;  // 10 seconds timeout for pong response
 export function useWebSocket() {
   const { toast } = useToast();
   const { t } = useLanguage();
+  const { user } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const socketRef = useRef<WebSocket | null>(null);
@@ -24,6 +26,11 @@ export function useWebSocket() {
 
   const connectWebSocket = useCallback(() => {
     try {
+      if (!user) {
+        console.log('No user found, skipping WebSocket connection');
+        return;
+      }
+
       if (retryCount >= MAX_RETRY_COUNT) {
         console.error('Maximum reconnection attempts exceeded');
         toast({
@@ -41,13 +48,17 @@ export function useWebSocket() {
 
       console.log(`Attempting WebSocket connection (${retryCount + 1}/${MAX_RETRY_COUNT}):`, wsUrl);
 
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        console.log('WebSocket connection already exists');
+        return;
+      }
+
       if (socketRef.current) {
         console.log('Closing existing WebSocket connection');
         socketRef.current.close();
         socketRef.current = null;
       }
 
-      // Create WebSocket with credentials support
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
@@ -56,6 +67,12 @@ export function useWebSocket() {
         setIsConnected(true);
         setRetryCount(0);
         lastPongRef.current = Date.now();
+
+        // Send authentication message
+        socket.send(JSON.stringify({
+          type: 'authenticate',
+          userId: user.id,
+        }));
 
         // Start ping interval
         pingIntervalRef.current = setInterval(() => {
@@ -98,13 +115,7 @@ export function useWebSocket() {
       };
 
       socket.onerror = (error) => {
-        console.error('WebSocket error:', {
-          error,
-          readyState: socket.readyState,
-          url: socket.url,
-          timestamp: new Date().toISOString()
-        });
-
+        console.error('WebSocket error:', error);
         if (!isConnected) {
           toast({
             title: t('errors.connectionError'),
@@ -119,11 +130,22 @@ export function useWebSocket() {
           const data = JSON.parse(event.data) as WebSocketMessage;
           console.log('WebSocket message received:', {
             type: data.type,
-            timestamp: new Date().toISOString(),
-            data
+            timestamp: new Date().toISOString()
           });
 
           switch (data.type) {
+            case 'pong':
+              console.log('Pong received - connection active');
+              clearTimeout(pongTimeoutRef.current);
+              lastPongRef.current = Date.now();
+              break;
+
+            case 'auth_success':
+              toast({
+                description: t('success.connected'),
+              });
+              break;
+
             case 'error':
               toast({
                 title: t('errors.error'),
@@ -131,48 +153,25 @@ export function useWebSocket() {
                 variant: 'destructive',
               });
               break;
-
-            case 'connection_established':
-            case 'auth_success':
-              toast({
-                description: t('success.connected'),
-              });
-              break;
-
-            case 'pong':
-              console.log('Pong received - connection active');
-              clearTimeout(pongTimeoutRef.current);
-              lastPongRef.current = Date.now();
-              break;
-
-            default:
-              console.log('Unknown message type:', data.type);
           }
         } catch (error) {
-          console.error('Error processing WebSocket message:', {
-            error,
-            rawData: event.data,
-            timestamp: new Date().toISOString()
-          });
+          console.error('Error processing WebSocket message:', error);
         }
       };
     } catch (error) {
-      console.error('Error creating WebSocket connection:', {
-        error,
-        retryCount,
-        isConnected,
-        timestamp: new Date().toISOString()
-      });
+      console.error('Error creating WebSocket connection:', error);
       toast({
         title: t('errors.connectionError'),
         description: t('errors.connectionErrorDesc'),
         variant: 'destructive',
       });
     }
-  }, [toast, t, retryCount, isConnected]);
+  }, [toast, t, user, retryCount, isConnected]);
 
   useEffect(() => {
-    connectWebSocket();
+    if (user) {
+      connectWebSocket();
+    }
 
     return () => {
       clearTimeout(reconnectTimeoutRef.current);
@@ -183,27 +182,18 @@ export function useWebSocket() {
         socketRef.current = null;
       }
     };
-  }, [connectWebSocket]);
+  }, [user, connectWebSocket]);
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-      console.log('WebSocket connection closed, cannot send message');
-      toast({
-        title: t('errors.connectionError'),
-        description: t('errors.messageNotSent'),
-        variant: 'destructive',
-      });
+      console.error('WebSocket connection closed, cannot send message');
       return;
     }
 
     try {
       socketRef.current.send(JSON.stringify(message));
     } catch (error) {
-      console.error('Error sending message:', {
-        error,
-        message,
-        timestamp: new Date().toISOString()
-      });
+      console.error('Error sending message:', error);
       toast({
         title: t('errors.error'),
         description: t('errors.messageNotSent'),
@@ -215,5 +205,6 @@ export function useWebSocket() {
   return {
     isConnected,
     sendMessage,
+    ws: socketRef.current,
   };
 }

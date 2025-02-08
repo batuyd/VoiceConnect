@@ -14,41 +14,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-
-const setupWebSocket = () => {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-  console.log("Trying to connect WebSocket to:", wsUrl);
-
-  const ws = new WebSocket(wsUrl);
-
-  ws.onopen = () => {
-    console.log("WebSocket connection established");
-    // Send authentication message
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'authenticate' }));
-    }
-  };
-
-  ws.onclose = (event) => {
-    console.log("WebSocket connection closed:", event.code, event.reason);
-  };
-
-  ws.onerror = (error) => {
-    console.error("WebSocket connection error:", error);
-  };
-
-  return ws;
-};
+import { useWebSocket } from "@/hooks/use-websocket";
 
 export function UserList({ serverId }: { serverId: number }) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
-  const wsRef = useRef<WebSocket | null>(null);
+  const { isConnected, sendMessage } = useWebSocket();
 
   const { data: users = [] } = useQuery<User[]>({
     queryKey: [`/api/servers/${serverId}/members`],
@@ -61,65 +35,16 @@ export function UserList({ serverId }: { serverId: number }) {
   useEffect(() => {
     if (!currentUser) return;
 
-    console.log("Setting up WebSocket for user:", currentUser.id);
+    console.log("Setting up WebSocket event handlers for user:", currentUser.id);
 
-    // WebSocket bağlantısını kur
-    const ws = setupWebSocket();
-    wsRef.current = ws;
-
-    // Mesaj işleme
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("WebSocket message received:", data);
-
-        switch (data.type) {
-          case "friend_request":
-            toast({
-              title: t("friends.newRequest"),
-              description: `${data.from.username} ${t("friends.requestReceived")}`,
-            });
-            queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
-            break;
-
-          case "friend_request_accepted":
-            toast({
-              title: t("friends.requestAccepted"),
-              description: `${data.by.username} ${t("friends.requestAcceptedBy")}`,
-            });
-            queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
-            break;
-
-          default:
-            console.log("Unknown message type:", data.type);
-        }
-      } catch (error) {
-        console.error("Error processing WebSocket message:", error);
-      }
-    };
-
-    // Cleanup
-    return () => {
-      console.log("Cleaning up WebSocket connection");
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.close();
-      }
-    };
-  }, [currentUser, toast, t]);
-
-  // WebSocket yeniden bağlanma mantığı
-  useEffect(() => {
-    const reconnectInterval = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.CLOSED) {
-        console.log("Attempting to reconnect WebSocket...");
-        const ws = setupWebSocket();
-        wsRef.current = ws;
-      }
-    }, 5000); // Her 5 saniyede bir kontrol et
-
-    return () => clearInterval(reconnectInterval);
-  }, []);
+    if (isConnected) {
+      sendMessage({
+        type: 'join_server',
+        serverId,
+        userId: currentUser.id
+      });
+    }
+  }, [currentUser, isConnected, serverId, sendMessage]);
 
   const acceptInviteMutation = useMutation({
     mutationFn: async (inviteId: number) => {

@@ -59,7 +59,7 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
     <div className="space-y-2">
       <div className={`flex items-center justify-between p-2 rounded hover:bg-gray-700 ${
         isSelected ? "bg-gray-700" : ""
-      }`}>
+      } group`}>
         <button
           onClick={onSelect}
           className="flex items-center space-x-2 flex-1"
@@ -67,48 +67,47 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
           <Hash className="h-4 w-4 text-gray-400" />
           <span>{channel.name}</span>
         </button>
-        <div className="flex items-center space-x-2">
-          {isOwner && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="opacity-0 group-hover:opacity-100"
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                      <Trash2 className="h-4 w-4 mr-2" />
+
+        {isOwner && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="opacity-0 group-hover:opacity-100"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t('common.delete')}
+                  </DropdownMenuItem>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('server.deleteChannelTitle')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('server.deleteChannelDescription')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteChannelMutation.mutate()}
+                      disabled={deleteChannelMutation.isPending}
+                    >
                       {t('common.delete')}
-                    </DropdownMenuItem>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{t('server.deleteChannelTitle')}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t('server.deleteChannelDescription')}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => deleteChannelMutation.mutate()}
-                        disabled={deleteChannelMutation.isPending}
-                      >
-                        {t('common.delete')}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       {isSelected && <MediaControls channelId={channel.id} isVoiceChannel={false} />}
     </div>

@@ -15,6 +15,8 @@ export const translations = {
       verify2FA: 'Enter 2FA Code',
       verify2FADescription: 'Enter the 6-digit code from your authenticator app',
       logout: 'Logout',
+      friendRequests: 'Friend Requests',
+      noFriendRequests: 'No pending friend requests',
       errors: {
         usernameRequired: 'Username is required',
         passwordRequired: 'Password is required',
@@ -249,6 +251,8 @@ export const translations = {
       verify2FA: '2FA Kodunu Girin',
       verify2FADescription: 'Doğrulayıcı uygulamanızdan 6 haneli kodu girin',
       logout: 'Çıkış Yap',
+      friendRequests: 'Arkadaşlık İstekleri',
+      noFriendRequests: 'Bekleyen arkadaşlık isteği yok',
       errors: {
         usernameRequired: 'Kullanıcı adı gerekli',
         passwordRequired: 'Şifre gerekli',

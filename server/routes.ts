@@ -732,7 +732,7 @@ export function registerRoutes(app: Express): Server {
     clientTracking: true,
   });
 
-  // WebSocket session middleware setup
+  // WebSocket session parser setup
   const sessionParser = session(sessionSettings);
 
   // WebSocket connection handler
@@ -788,7 +788,7 @@ export function registerRoutes(app: Express): Server {
         lastPing: Date.now(),
       });
 
-      // Send initial success message
+      // Send success message
       ws.send(JSON.stringify({
         type: 'connection_established',
         userId: user.id,
@@ -825,7 +825,7 @@ export function registerRoutes(app: Express): Server {
                   if (user.ws.readyState === WebSocket.OPEN) {
                     user.ws.send(JSON.stringify({
                       type: 'user_joined',
-                      userId,
+                      userId: userId,
                       username: currentUser.user.username
                     }));
                   }
@@ -851,7 +851,7 @@ export function registerRoutes(app: Express): Server {
                 break;
               }
 
-              // Forward voice data to all users in the same channel
+              // Forward voice data to other users in the same channel
               const channelUsers = Array.from(connectedUsers.values())
                 .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
 
@@ -870,6 +870,14 @@ export function registerRoutes(app: Express): Server {
               }
               break;
 
+            case 'ping':
+              const userConnection = connectedUsers.get(userId);
+              if (userConnection) {
+                userConnection.lastPing = Date.now();
+                ws.send(JSON.stringify({ type: 'pong' }));
+              }
+              break;
+
             default:
               console.log('Unknown message type:', data.type);
           }
@@ -881,7 +889,7 @@ export function registerRoutes(app: Express): Server {
       // Handle connection close
       ws.on('close', () => {
         console.log('WebSocket connection closed:', {
-          userId,
+          userId: userId,
           username: user.username
         });
 
@@ -912,7 +920,7 @@ export function registerRoutes(app: Express): Server {
         if (user.ws.readyState === WebSocket.OPEN) {
           user.ws.send(JSON.stringify({
             type: 'user_left',
-            userId,
+            userId: userId,
             username: userConnection.user.username
           }));
         }
@@ -920,7 +928,7 @@ export function registerRoutes(app: Express): Server {
     }
   }
 
-  // Cleanup inactive connections every 30 seconds
+  // Clean up inactive connections every 30 seconds
   setInterval(() => {
     const now = Date.now();
     for (const [userId, connection] of connectedUsers) {
