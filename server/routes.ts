@@ -838,6 +838,7 @@ export function registerRoutes(app: Express): Server {
                 ws.send(JSON.stringify({ type: 'pong' }));
               }
               break;
+
             case 'voice_data':
               if (!data.channelId) {
                 console.error('Missing channelId in voice data message');
@@ -858,7 +859,7 @@ export function registerRoutes(app: Express): Server {
                       data: data.data
                     }));
                   } catch (error) {
-                    console.error('Error sendingvoice data to user', {
+                    console.error('Error sending voice data to user', {
                       userId: user.user.id,
                       error: handleError(error)
                     });
@@ -977,25 +978,15 @@ export function registerRoutes(app: Express): Server {
               console.log('Unknown message type', {
                 timestamp: new Date().toISOString(),
                 userId,
-                type: data.type
+                messageType: data.type
               });
-
           }
         } catch (error) {
-          console.error('Error processing message', {
-            timestamp: new Date().toISOString(),
-            userId,
-            error: handleError(error),
-            rawMessage: message.toString()
-          });
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Invalid message format'
-          }));
+          console.error('Failed to handle WebSocket message:', error);
         }
       });
 
-      // Handle connection close
+      // Handle WebSocket close
       ws.on('close', () => {
         console.log('WebSocket connection closed', {
           timestamp: new Date().toISOString(),
@@ -1003,82 +994,37 @@ export function registerRoutes(app: Express): Server {
           username: user.username
         });
 
-        const closingUser = connectedUsers.get(userId);
-        if (closingUser?.currentChannel) {
-          // Notify other users in the channel about the user disconnecting
+        const userConnection = connectedUsers.get(userId);
+        if (userConnection?.currentChannel) {
+          const channelId = userConnection.currentChannel;
           const remainingUsers = Array.from(connectedUsers.values())
-            .filter(conn =>
-              conn.currentChannel === closingUser.currentChannel &&
-              conn.user.id !== userId
-            );
+            .filter(conn => conn.currentChannel === channelId && conn.user.id !== userId);
 
+          // Notify remaining users about the user leaving
           for (const user of remainingUsers) {
             if (user.ws.readyState === WebSocket.OPEN) {
               try {
                 user.ws.send(JSON.stringify({
                   type: 'user_left',
                   userId,
-                  username: closingUser.user.username,
-                  channelId: closingUser.currentChannel,
-                  reason: 'disconnected'
+                  username: userConnection.user.username,
+                  channelId
                 }));
               } catch (error) {
                 console.error('Error sending disconnect notification:', error);
               }
             }
           }
-
-          // Force refresh channel members for remaining users
-          for (const user of remainingUsers) {
-            if (user.ws.readyState === WebSocket.OPEN) {
-              try {
-                user.ws.send(JSON.stringify({
-                  type: 'member_update',
-                  channelId: closingUser.currentChannel
-                }));
-              } catch (error) {
-                console.error('Error sending member_update notification:', error);
-              }
-            }
-          }
         }
 
-        connectedUsers.delete(userId);
-      });
-
-      // Handle errors
-      ws.on('error', (error) => {
-        console.error('WebSocket connection error', {
-          timestamp: new Date().toISOString(),
-          userId,
-          error: handleError(error)
-        });
         connectedUsers.delete(userId);
       });
 
     } catch (error) {
-      console.error('WebSocket connection setup error', {
-        timestamp: new Date().toISOString(),
-        error: handleError(error)
-      });
+      console.error('WebSocket connection error:', error);
       ws.close();
     }
   });
-
-  // Cleanup inactive connections every 30 seconds
-  setInterval(() => {
-    const now = Date.now();
-    for (const [userId, connection] of connectedUsers) {
-      // Close connection if no ping received in last 60 seconds
-      if (now - connection.lastPing > 60000) {
-        console.log(`Cleaning up inactive connection for user ${userId}`);
-        if (connection.ws.readyState === WebSocket.OPEN) {
-          connection.ws.close();
-        }
-        connectedUsers.delete(userId);
-      }
-    }
-  }, 30000);
 
   return httpServer;
 }

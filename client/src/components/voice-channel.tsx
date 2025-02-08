@@ -53,6 +53,23 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     refetchOnReconnect: true
   });
 
+  const requestAudioPermissions = useCallback(async () => {
+    console.log('Requesting audio permissions...');
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('Audio permissions granted');
+      setAudioPermissionGranted(true);
+      return true;
+    } catch (error) {
+      console.error('Audio permission error:', error);
+      toast({
+        description: t('voice.permissionDenied'),
+        variant: "destructive",
+      });
+      return false;
+    }
+  }, [toast, t]);
+
   const setupAudioStream = useCallback(async () => {
     if (!selectedInputDevice || !isJoined || !audioPermissionGranted) {
       console.log('Audio stream setup conditions not met:', {
@@ -120,22 +137,36 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     }
   }, [selectedInputDevice, isJoined, audioPermissionGranted, channel.id, isMuted, toast, t]);
 
-  const requestAudioPermissions = useCallback(async () => {
-    console.log('Requesting audio permissions...');
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      console.log('Audio permissions granted');
-      setAudioPermissionGranted(true);
-      return true;
-    } catch (error) {
-      console.error('Audio permission error:', error);
-      toast({
-        description: t('voice.permissionDenied'),
-        variant: "destructive",
-      });
-      return false;
+  const handleLeaveChannel = useCallback(async () => {
+    console.log('Leaving channel...');
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'leave_channel',
+        channelId: channel.id,
+        userId: user?.id
+      }));
     }
-  }, [toast, t]);
+
+    if (stream.current) {
+      stream.current.getTracks().forEach(track => track.stop());
+      stream.current = null;
+    }
+
+    if (audioContext.current?.state !== 'closed') {
+      await audioContext.current?.close();
+    }
+
+    setIsJoined(false);
+    setWsConnected(false);
+    setRetryCount(0);
+    setAudioPermissionGranted(false);
+
+    await refetchMembers();
+    playLeaveSound();
+
+    console.log('Channel left successfully');
+  }, [channel.id, user?.id, refetchMembers, playLeaveSound]);
 
   const connectWebSocket = useCallback(async () => {
     if (!isJoined || !user?.id || wsRef.current?.readyState === WebSocket.OPEN || retryCount >= maxRetries) {
@@ -248,37 +279,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       });
     }
   }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers, playJoinSound, playLeaveSound]);
-
-  const handleLeaveChannel = useCallback(async () => {
-    console.log('Leaving channel...');
-
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'leave_channel',
-        channelId: channel.id,
-        userId: user?.id
-      }));
-    }
-
-    if (stream.current) {
-      stream.current.getTracks().forEach(track => track.stop());
-      stream.current = null;
-    }
-
-    if (audioContext.current?.state !== 'closed') {
-      await audioContext.current?.close();
-    }
-
-    setIsJoined(false);
-    setWsConnected(false);
-    setRetryCount(0);
-    setAudioPermissionGranted(false);
-
-    await refetchMembers();
-    playLeaveSound();
-
-    console.log('Channel left successfully');
-  }, [channel.id, user?.id, refetchMembers, playLeaveSound]);
 
   const handleJoinLeave = useCallback(async () => {
     if (isJoined) {
