@@ -27,6 +27,13 @@ export function useWebSocket(): WebSocketManager {
   const reconnectAttemptRef = useRef(0);
 
   const connect = useCallback(() => {
+    // Check authentication first
+    const user = queryClient.getQueryData(['/api/user']);
+    if (!user) {
+      console.log('Not attempting WebSocket connection - user not authenticated');
+      return;
+    }
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       console.log('WebSocket already connected');
       return;
@@ -59,13 +66,15 @@ export function useWebSocket(): WebSocketManager {
         setConnectionStatus('disconnected');
         wsRef.current = null;
 
-        if (reconnectAttemptRef.current < maxReconnectAttempts) {
+        // Only attempt to reconnect if we're authenticated
+        const currentUser = queryClient.getQueryData(['/api/user']);
+        if (currentUser && reconnectAttemptRef.current < maxReconnectAttempts) {
           const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000);
           reconnectAttemptRef.current++;
 
           console.log(`Attempting to reconnect... (Attempt ${reconnectAttemptRef.current}/${maxReconnectAttempts})`);
           reconnectTimeoutRef.current = setTimeout(connect, timeout);
-        } else {
+        } else if (currentUser) {
           toast({
             title: t('error.connectionLost'),
             description: t('error.refreshPage'),
@@ -77,11 +86,14 @@ export function useWebSocket(): WebSocketManager {
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         if (reconnectAttemptRef.current === 0) {
-          toast({
-            title: t('error.connectionError'),
-            description: t('error.tryAgainLater'),
-            variant: 'destructive'
-          });
+          const currentUser = queryClient.getQueryData(['/api/user']);
+          if (currentUser) {
+            toast({
+              title: t('error.connectionError'),
+              description: t('error.tryAgainLater'),
+              variant: 'destructive'
+            });
+          }
         }
       };
 
@@ -101,46 +113,25 @@ export function useWebSocket(): WebSocketManager {
             });
           }
 
+          // Handle system messages first
+          if (message.type === 'CONNECTED') {
+            console.log('WebSocket connection confirmed:', message.data);
+            return;
+          }
+
+          // Handle other message types
           switch (message.type) {
             case 'FRIEND_REQUEST':
-              console.log('Friend request received:', message.data);
-              refreshFriendshipData();
-              toast({
-                title: t('friends.newRequest'),
-                description: t('friends.requestReceived', { username: message.data.sender?.username }),
-                variant: 'default'
-              });
-              break;
-
             case 'FRIEND_REQUEST_ACCEPTED':
-              console.log('Friend request accepted:', message.data);
-              refreshFriendshipData();
-              toast({
-                title: t('friends.requestAccepted'),
-                description: t('friends.nowFriends', { username: message.data.username }),
-                variant: 'default'
-              });
-              break;
-
             case 'FRIEND_REQUEST_REJECTED':
-              console.log('Friend request rejected:', message.data);
-              refreshFriendshipData();
-              toast({
-                title: t('friends.requestRejected'),
-                description: t('friends.requestRejectedDesc', { username: message.data.username }),
-                variant: 'default'
-              });
-              break;
-
             case 'FRIENDSHIP_REMOVED':
-              console.log('Friendship removed:', message.data);
-              refreshFriendshipData();
-              toast({
-                title: t('friends.removed'),
-                description: t('friends.removedDesc', { username: message.data.username }),
-                variant: 'default'
-              });
+              handleFriendshipEvent(message);
               break;
+            case 'WEBRTC_SIGNAL':
+              console.log('Received WebRTC signal:', message.data);
+              break;
+            default:
+              console.log('Unhandled message type:', message.type);
           }
         } catch (error) {
           console.error('Error processing WebSocket message:', error);
@@ -151,6 +142,38 @@ export function useWebSocket(): WebSocketManager {
       setConnectionStatus('disconnected');
     }
   }, [queryClient, toast, t, refreshFriendshipData]);
+
+  const handleFriendshipEvent = useCallback((message: any) => {
+    console.log('Handling friendship event:', message.type, message.data);
+    refreshFriendshipData();
+
+    const messageConfig = {
+      'FRIEND_REQUEST': {
+        title: t('friends.newRequest'),
+        description: t('friends.requestReceived', { username: message.data.sender?.username })
+      },
+      'FRIEND_REQUEST_ACCEPTED': {
+        title: t('friends.requestAccepted'),
+        description: t('friends.nowFriends', { username: message.data.username })
+      },
+      'FRIEND_REQUEST_REJECTED': {
+        title: t('friends.requestRejected'),
+        description: t('friends.requestRejectedDesc', { username: message.data.username })
+      },
+      'FRIENDSHIP_REMOVED': {
+        title: t('friends.removed'),
+        description: t('friends.removedDesc', { username: message.data.username })
+      }
+    }[message.type];
+
+    if (messageConfig) {
+      toast({
+        title: messageConfig.title,
+        description: messageConfig.description,
+        variant: 'default'
+      });
+    }
+  }, [refreshFriendshipData, t, toast]);
 
   const on = useCallback((event: string, handler: WebSocketEventHandler) => {
     if (!eventHandlersRef.current.has(event)) {
@@ -171,8 +194,13 @@ export function useWebSocket(): WebSocketManager {
     }
   }, []);
 
+  // Only attempt to connect if we're authenticated
   useEffect(() => {
-    connect();
+    const user = queryClient.getQueryData(['/api/user']);
+    if (user) {
+      connect();
+    }
+
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -181,7 +209,7 @@ export function useWebSocket(): WebSocketManager {
         wsRef.current.close();
       }
     };
-  }, [connect]);
+  }, [connect, queryClient]);
 
   return {
     connectionStatus,

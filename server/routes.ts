@@ -235,23 +235,32 @@ export function registerRoutes(app: Express): Server {
       // Get channel and check if it's a voice channel
       const channel = await storage.getChannel(channelId);
       if (!channel || !channel.isVoice) {
-        return res.status(400).json({ error: "Invalid channel" });
+        return res.status(400).json({ error: "Invalid channel or not a voice channel" });
       }
 
       // Check if both users are members of the channel
       const members = await storage.getServerMembers(channel.serverId);
       const isValidConnection = members.some(m => m.id === targetUserId) &&
-                                members.some(m => m.id === req.user!.id);
+                              members.some(m => m.id === req.user!.id);
 
       if (!isValidConnection) {
         console.log('Invalid connection attempt between users:', req.user.id, targetUserId);
         return res.status(403).json({ error: "Invalid connection attempt" });
       }
 
-      // In a real implementation, you would use WebSocket or another real-time solution
-      // For now, we just acknowledge the signal
-      console.log('Successfully processed signal');
-      res.json({ success: true });
+      // Forward the signal to the target user via WebSocket
+      const targetWs = clients.get(targetUserId);
+      if (targetWs?.readyState === WebSocket.OPEN) {
+        sendWebSocketMessage(targetWs, 'WEBRTC_SIGNAL', {
+          fromUserId: req.user.id,
+          signal,
+          channelId
+        });
+        res.json({ success: true });
+      } else {
+        console.log('Target user not connected:', targetUserId);
+        res.status(404).json({ error: "Target user not connected" });
+      }
     } catch (error) {
       console.error('WebRTC signaling error:', error);
       res.status(500).json({ message: "Failed to relay signal" });
@@ -416,21 +425,50 @@ export function registerRoutes(app: Express): Server {
       const server = await storage.getServer(parseInt(req.params.serverId));
       if (!server) return res.sendStatus(404);
 
-      // Sadece sunucu sahibi davet gönderebilir
+      // Check if user has permission to send invites
       if (server.ownerId !== req.user.id) {
-        return res.sendStatus(403);
+        return res.status(403).json({ message: "Only server owner can send invites" });
+      }
+
+      // Check if user is already a member of the server
+      const members = await storage.getServerMembers(server.id);
+      if (members.some(member => member.id === req.body.userId)) {
+        return res.status(400).json({ message: "User is already a member of this server" });
+      }
+
+      // Check if there's already a pending invite
+      const existingInvite = await storage.getServerInviteByUserAndServer(req.body.userId, server.id);
+      if (existingInvite) {
+        return res.status(400).json({ message: "Invite already sent to this user" });
       }
 
       const invite = await storage.createServerInvite(
-        parseInt(req.params.serverId),
+        server.id,
         req.user.id,
         req.body.userId
       );
 
+      // Send notification to the invited user via WebSocket
+      const targetWs = clients.get(req.body.userId);
+      if (targetWs?.readyState === WebSocket.OPEN) {
+        sendWebSocketMessage(targetWs, 'SERVER_INVITE', {
+          invite,
+          server: {
+            id: server.id,
+            name: server.name,
+            ownerId: server.ownerId
+          },
+          sender: {
+            id: req.user.id,
+            username: req.user.username
+          }
+        });
+      }
+
       res.status(201).json(invite);
     } catch (error) {
       console.error('Create server invite error:', handleError(error));
-      res.status(400).json({ error: handleError(error) });
+      res.status(500).json({ message: "Failed to send server invite" });
     }
   });
 
@@ -823,7 +861,7 @@ export function registerRoutes(app: Express): Server {
 
       res.json(data);
     } catch (error) {
-      console.error('YouTube search error:', handleError(error));
+            console.error('YouTube search error:', handleError(error));
       res.status(400).json({ error: handleError(error) });
     }
   });
@@ -855,7 +893,7 @@ export function registerRoutes(app: Express): Server {
       await storage.acceptFriendRequest(friendshipId);
 
       // Send notification to the sender
-      const senderWs = clients.get(friendship.senderId);
+      const senderWs= clients.get(friendship.senderId);
       if (senderWs?.readyState === WebSocket.OPEN) {
         sendWebSocketMessage(senderWs, "FRIEND_REQUEST_ACCEPTED", {
           friendshipId,          userId: req.user.id,
