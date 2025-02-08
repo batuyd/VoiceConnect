@@ -34,8 +34,9 @@ export function useWebSocket() {
             });
             break;
           case 'FRIEND_REQUEST_ACCEPTED':
-            // Arkadaşlık isteği kabul edildiğinde friends listesini güncelle
+            // Arkadaşlık isteği kabul edildiğinde friends listesini ve requests'i güncelle
             queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
 
             // Kullanıcıya toast bildirimi göster
             toast({

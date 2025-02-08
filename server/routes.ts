@@ -744,7 +744,9 @@ export function registerRoutes(app: Express): Server {
             data: {
               friendshipId,
               userId: req.user.id,
-              username: req.user.username
+              username: req.user.username,
+              senderId: friendship.senderId,
+              receiverId: friendship.receiverId
             }
           }));
         } catch (wsError) {

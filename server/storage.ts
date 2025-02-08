@@ -194,10 +194,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async acceptFriendRequest(friendshipId: number): Promise<void> {
-    await db
-      .update(friendships)
-      .set({ status: 'accepted' })
-      .where(eq(friendships.id, friendshipId));
+    console.log(`Accepting friend request: ${friendshipId}`);
+
+    try {
+      const [friendship] = await db
+        .update(friendships)
+        .set({ status: 'accepted' })
+        .where(eq(friendships.id, friendshipId))
+        .returning();
+
+      if (!friendship) {
+        throw new Error('Friendship request not found');
+      }
+
+      console.log('Friend request accepted:', friendship);
+    } catch (error) {
+      console.error('Error accepting friend request:', error);
+      throw error;
+    }
   }
 
   async rejectFriendRequest(friendshipId: number): Promise<void> {
@@ -983,7 +997,7 @@ interface IStorage {
 
   createServerInvite(serverId: number, inviterId: number, inviteeId: number): Promise<ServerInvite>;
   getServerInvite(code: string): Promise<ServerInvite | undefined>;
-  getServerInvitesByUser(userId: number): Promise<ServerInvite[]>;
+  getServerInvInvitesByUser(userId: number): Promise<ServerInvite[]>;
   joinServerWithInvite(code: string, userId: number): Promise<void>;
   acceptServerInvite(inviteId: number): Promise<void>;
   rejectServerInvite(inviteId: number): Promise<void>;
