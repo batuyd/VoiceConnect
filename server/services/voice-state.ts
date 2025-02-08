@@ -1,5 +1,5 @@
-import { MongoClient, Collection } from 'mongodb';
-import Redis from 'ioredis';
+import { MongoClient, Collection, MongoClientOptions } from 'mongodb';
+import { Redis } from 'ioredis';
 
 interface VoiceState {
   userId: number;
@@ -33,48 +33,104 @@ class VoiceStateManager {
   private voiceConnections!: Collection<VoiceConnection>;
   private redis: Redis;
   private mongoClient: MongoClient;
+  private isConnected: boolean = false;
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 10;
+  private healthCheckInterval?: NodeJS.Timeout;
 
   constructor() {
-    // MongoDB connection
-    this.mongoClient = new MongoClient(process.env.MONGODB_URI || 'mongodb://localhost:27017');
-
-    // Redis connection with options
-    const redisOptions: Redis.RedisOptions = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      password: process.env.REDIS_PASSWORD,
-      retryStrategy: (times) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-      }
+    const mongoOptions: MongoClientOptions = {
+      ssl: true,
+      tls: true,
+      tlsAllowInvalidCertificates: true,
+      retryWrites: true,
+      connectTimeoutMS: 10000,
+      serverSelectionTimeoutMS: 10000,
+      maxPoolSize: 50,
+      minPoolSize: 10,
+      maxIdleTimeMS: 30000,
+      socketTimeoutMS: 360000,
+      family: 4
     };
 
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017';
+    console.log('Connecting to MongoDB with URI:', mongoUri.replace(/:[^:]*@/, ':****@'));
+    this.mongoClient = new MongoClient(mongoUri, mongoOptions);
+
+    const redisOptions = {
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      password: process.env.REDIS_PASSWORD,
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times: number) => {
+        if (times > this.maxReconnectAttempts) {
+          console.error('Max Redis reconnection attempts reached');
+          return null;
+        }
+        const delay = Math.min(1000 * Math.pow(2, times), 30000);
+        console.log(`Retrying Redis connection in ${delay}ms...`);
+        return delay;
+      },
+      reconnectOnError: (err: Error) => {
+        const targetError = 'READONLY';
+        if (err.message.includes(targetError)) {
+          return true;
+        }
+        return false;
+      },
+      enableReadyCheck: true,
+      connectTimeout: 10000,
+      keepAlive: 30000,
+      family: 4,
+      db: 0
+    };
+
+    console.log('Connecting to Redis at:', process.env.REDIS_HOST || 'localhost');
     this.redis = new Redis(redisOptions);
 
-    // Handle Redis connection events
     this.redis.on('connect', () => {
       console.log('Redis connected successfully');
+      this.isConnected = true;
+      this.reconnectAttempts = 0;
     });
 
     this.redis.on('error', (error) => {
       console.error('Redis connection error:', error);
+      this.isConnected = false;
     });
 
-    this.initialize();
+    this.redis.on('close', () => {
+      console.log('Redis connection closed');
+      this.isConnected = false;
+    });
+
+    this.initialize().catch(error => {
+      console.error('Failed to initialize voice state manager:', error);
+    });
+    this.startHealthCheck();
   }
 
   private async initialize() {
     try {
+      console.log('Initializing MongoDB connection...');
       await this.mongoClient.connect();
+      console.log('MongoDB connected successfully');
+
       const db = this.mongoClient.db('voice_chat');
       this.voiceStates = db.collection<VoiceState>('voice_states');
       this.voiceConnections = db.collection<VoiceConnection>('voice_connections');
 
-      // Create indexes
-      await this.voiceStates.createIndex({ userId: 1 });
-      await this.voiceStates.createIndex({ channelId: 1 });
-      await this.voiceConnections.createIndex({ userId: 1 });
-      await this.voiceConnections.createIndex({ channelId: 1 });
+      try {
+        await Promise.all([
+          this.voiceStates.createIndex({ userId: 1 }),
+          this.voiceStates.createIndex({ channelId: 1 }),
+          this.voiceConnections.createIndex({ userId: 1 }),
+          this.voiceConnections.createIndex({ channelId: 1 })
+        ]);
+        console.log('MongoDB indexes created successfully');
+      } catch (indexError) {
+        console.warn('Index creation warning:', indexError);
+      }
 
       console.log('Voice state manager initialized successfully');
     } catch (error) {
@@ -83,18 +139,73 @@ class VoiceStateManager {
     }
   }
 
+  private startHealthCheck() {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+
+    this.healthCheckInterval = setInterval(async () => {
+      try {
+        if (!this.isConnected) {
+          await this.reconnect();
+        }
+
+        await this.redis.ping();
+        await this.mongoClient.db().admin().ping();
+
+      } catch (error) {
+        console.error('Health check failed:', error);
+        this.isConnected = false;
+      }
+    }, 30000); 
+  }
+
+  private async reconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached');
+      return;
+    }
+
+    this.reconnectAttempts++;
+    console.log(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+
+    try {
+      await this.initialize();
+      this.isConnected = true;
+      this.reconnectAttempts = 0;
+      console.log('Reconnected successfully');
+    } catch (error) {
+      console.error('Reconnection failed:', error);
+    }
+  }
+
   async updateVoiceState(state: VoiceState): Promise<void> {
     try {
+      if (!this.isConnected) {
+        await this.reconnect();
+      }
+
       await this.voiceStates.updateOne(
         { userId: state.userId },
         { $set: { ...state, timestamp: Date.now() } },
         { upsert: true }
       );
 
-      // Update real-time state in Redis
       const channelKey = `voice:channel:${state.channelId}`;
-      await this.redis.hset(channelKey, state.userId.toString(), JSON.stringify(state));
-      await this.redis.expire(channelKey, 3600); // 1 hour TTL
+      let retries = 0;
+      while (retries < 3) {
+        try {
+          await this.redis.multi()
+            .hset(channelKey, state.userId.toString(), JSON.stringify(state))
+            .expire(channelKey, 3600)
+            .exec();
+          break;
+        } catch (error) {
+          retries++;
+          if (retries === 3) throw error;
+          await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+        }
+      }
     } catch (error) {
       console.error('Failed to update voice state:', error);
       throw error;
@@ -103,27 +214,44 @@ class VoiceStateManager {
 
   async getChannelVoiceStates(channelId: number): Promise<VoiceState[]> {
     try {
-      // Try fast read from Redis first
-      const channelKey = `voice:channel:${channelId}`;
-      const cachedStates = await this.redis.hgetall(channelKey);
-
-      if (Object.keys(cachedStates).length > 0) {
-        return Object.values(cachedStates).map(state => JSON.parse(state) as VoiceState);
+      if (!this.isConnected) {
+        await this.reconnect();
       }
 
-      // Cache miss - read from MongoDB
+      let retries = 0;
+      while (retries < 3) {
+        try {
+          const channelKey = `voice:channel:${channelId}`;
+          const cachedStates = await this.redis.hgetall(channelKey);
+
+          if (Object.keys(cachedStates).length > 0) {
+            return Object.values(cachedStates).map(state => JSON.parse(state));
+          }
+          break;
+        } catch (error) {
+          retries++;
+          if (retries === 3) break;
+          await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+        }
+      }
+
       const states = await this.voiceStates
         .find({ channelId })
         .sort({ timestamp: -1 })
         .toArray();
 
-      // Cache in Redis
+      const channelKey = `voice:channel:${channelId}`;
       const multi = this.redis.multi();
       states.forEach(state => {
         multi.hset(channelKey, state.userId.toString(), JSON.stringify(state));
       });
       multi.expire(channelKey, 3600);
-      await multi.exec();
+
+      try {
+        await multi.exec();
+      } catch (error) {
+        console.warn('Redis caching failed:', error);
+      }
 
       return states;
     } catch (error) {
@@ -136,7 +264,6 @@ class VoiceStateManager {
     try {
       await this.voiceConnections.insertOne(connection);
 
-      // Store connection state in Redis
       const connectionKey = `voice:connection:${connection.userId}`;
       await this.redis.set(connectionKey, JSON.stringify(connection), 'EX', 3600);
     } catch (error) {
@@ -168,8 +295,13 @@ class VoiceStateManager {
 
   async cleanup(): Promise<void> {
     try {
-      await this.mongoClient.close();
-      await this.redis.quit();
+      if (this.healthCheckInterval) {
+        clearInterval(this.healthCheckInterval);
+      }
+      await Promise.all([
+        this.mongoClient.close(),
+        this.redis.quit()
+      ]);
     } catch (error) {
       console.error('Failed to cleanup voice state manager:', error);
       throw error;
