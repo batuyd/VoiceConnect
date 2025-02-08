@@ -129,6 +129,20 @@ export function registerRoutes(app: Express): Server {
         console.log('Target user WebSocket not found or not open:', targetUser.id);
       }
 
+      // Gönderen kullanıcıya da bildirim gönder
+      const senderWs = clients.get(req.user.id);
+      if (senderWs && senderWs.readyState === WebSocket.OPEN) {
+        try {
+          senderWs.send(JSON.stringify({
+            type: 'FRIEND_REQUEST_SENT',
+            data: friendship
+          }));
+          console.log('WebSocket friend request sent notification sent to sender:', req.user.id);
+        } catch (wsError) {
+          console.error('WebSocket send error:', wsError);
+        }
+      }
+
       res.status(201).json(friendship);
     } catch (error: any) {
       console.error('Add friend error:', error);

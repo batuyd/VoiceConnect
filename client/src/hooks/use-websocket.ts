@@ -47,8 +47,14 @@ export function useWebSocket() {
             queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             toast({
               title: t('friend.newRequest'),
-              description: t('friend.requestReceived', message.data.sender.username),
+              description: t('friend.requestReceived', { username: message.data.sender.username }),
             });
+            break;
+
+          case 'FRIEND_REQUEST_SENT':
+            console.log('Friend request sent confirmation:', message.data);
+            // Gönderilen arkadaşlık isteğini listede göster
+            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             break;
 
           case 'FRIEND_REQUEST_ACCEPTED':
@@ -58,7 +64,7 @@ export function useWebSocket() {
             queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             toast({
               title: t('friend.requestAccepted'),
-              description: t('friend.nowFriends', message.data.username),
+              description: t('friend.nowFriends', { username: message.data.username }),
             });
             break;
 
@@ -67,7 +73,7 @@ export function useWebSocket() {
             queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             toast({
               title: t('friend.requestRejected'),
-              description: t('friend.requestRejectedDesc', message.data.username),
+              description: t('friend.requestRejectedDesc', { username: message.data.username }),
             });
             break;
 
@@ -76,7 +82,7 @@ export function useWebSocket() {
             queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
             toast({
               title: t('friend.removed'),
-              description: t('friend.removedDesc', message.data.username),
+              description: t('friend.removedDesc', { username: message.data.username }),
             });
             break;
         }
