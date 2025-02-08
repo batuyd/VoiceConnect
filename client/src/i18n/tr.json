@@ -53,65 +53,12 @@
       "title": "Hediyeler & Başarılar"
     }
   },
-  "auth": {
-    "login": "Giriş Yap",
-    "register": "Kayıt Ol",
-    "username": "Kullanıcı Adı",
-    "password": "Şifre",
-    "phone": "Telefon Numarası",
-    "welcomeTitle": "Platformumuza Hoş Geldiniz",
-    "welcomeDescription": "Topluluğumuza katılın, paylaşın ve gerçek zamanlı olarak diğerleriyle iletişim kurun.",
-    "errors": {
-      "usernameRequired": "Kullanıcı adı zorunludur",
-      "usernameTooShort": "Kullanıcı adı en az 3 karakter olmalıdır",
-      "passwordRequired": "Şifre zorunludur",
-      "passwordTooShort": "Şifre en az 6 karakter olmalıdır",
-      "emailRequired": "E-posta adresi zorunludur",
-      "invalidEmail": "Geçerli bir e-posta adresi girin",
-      "phoneRequired": "Telefon numarası zorunludur",
-      "invalidPhone": "Geçerli bir telefon numarası girin",
-      "registrationFailed": "Kayıt işlemi başarısız oldu. Lütfen tekrar deneyin.",
-      "loginFailed": "Geçersiz kullanıcı adı veya şifre",
-      "logoutFailed": "Çıkış yapılamadı"
-    },
-    "loginSuccess": "Başarıyla giriş yapıldı",
-    "registrationSuccess": "Kayıt işlemi başarılı",
-    "logoutSuccess": "Başarıyla çıkış yapıldı",
-    "invalidCredentials": "Geçersiz kullanıcı adı veya şifre"
-  },
-  "error": {
-    "connectionLost": "Bağlantı Kesildi",
-    "refreshPage": "Yeniden bağlanmak için sayfayı yenileyin",
-    "connectionError": "Bağlantı Hatası",
-    "tryAgainLater": "Lütfen daha sonra tekrar deneyin"
-  },
   "settings": {
     "title": "Ayarlar",
     "general": "Genel",
     "language": "Dil",
-    "theme": {
-      "title": "Tema Ayarları",
-      "light": "Aydınlık",
-      "dark": "Karanlık",
-      "system": "Sistem"
-    },
-    "audio": {
-      "title": "Ses Ayarları",
-      "input": "Mikrofon",
-      "output": "Hoparlör",
-      "volume": "Ses Seviyesi",
-      "selectInput": "Mikrofon seçin",
-      "selectOutput": "Hoparlör seçin",
-      "defaultDevice": "Varsayılan Cihaz",
-      "test": "Sesi Test Et",
-      "quality": "Ses Kalitesi",
-      "selectQuality": "Kalite seçin",
-      "qualityLow": "Düşük",
-      "qualityMedium": "Orta",
-      "qualityHigh": "Yüksek"
-    },
     "effects": {
-      "title": "Efekt Ayarları",
+      "title": "Efektler",
       "voice": "Ses Efekti",
       "selectVoice": "Efekt seçin",
       "voiceNone": "Normal",
@@ -125,6 +72,31 @@
       "noiseSuppressionLow": "Düşük",
       "noiseSuppressionMedium": "Orta",
       "noiseSuppressionHigh": "Yüksek"
+    },
+    "theme": {
+      "title": "Tema",
+      "light": "Aydınlık",
+      "dark": "Karanlık",
+      "system": "Sistem"
+    },
+    "audio": {
+      "title": "Ses Ayarları",
+      "input": "Mikrofon",
+      "output": "Hoparlör",
+      "volume": "Ses Seviyesi",
+      "selectInput": "Mikrofon seçin",
+      "selectOutput": "Hoparlör seçin",
+      "defaultDevice": "Varsayılan Cihaz",
+      "test": "Ses Testi",
+      "inputDevice": "Mikrofon",
+      "outputDevice": "Hoparlör",
+      "inputVolume": "Mikrofon Seviyesi",
+      "outputVolume": "Hoparlör Seviyesi",
+      "quality": "Ses Kalitesi",
+      "selectQuality": "Kalite seçin",
+      "qualityLow": "Düşük",
+      "qualityMedium": "Orta",
+      "qualityHigh": "Yüksek"
     }
   },
   "audio": {
