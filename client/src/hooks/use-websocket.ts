@@ -14,6 +14,21 @@ interface WebSocketManager {
   send: (message: any) => void;
 }
 
+type WebSocketMessageType = 
+  | 'FRIEND_REQUEST'
+  | 'FRIEND_REQUEST_ACCEPTED'
+  | 'FRIEND_REQUEST_REJECTED'
+  | 'FRIENDSHIP_REMOVED';
+
+interface WebSocketMessageConfig {
+  title: string;
+  description: string;
+}
+
+type MessageConfigMap = {
+  [K in WebSocketMessageType]: WebSocketMessageConfig;
+};
+
 export function useWebSocket(): WebSocketManager {
   const wsRef = useRef<WebSocket | null>(null);
   const eventHandlersRef = useRef<Map<string, Set<WebSocketEventHandler>>>(new Map());
@@ -27,7 +42,6 @@ export function useWebSocket(): WebSocketManager {
   const reconnectAttemptRef = useRef(0);
 
   const connect = useCallback(() => {
-    // Check authentication first
     const user = queryClient.getQueryData(['/api/user']);
     if (!user) {
       console.log('Not attempting WebSocket connection - user not authenticated');
@@ -66,7 +80,6 @@ export function useWebSocket(): WebSocketManager {
         setConnectionStatus('disconnected');
         wsRef.current = null;
 
-        // Only attempt to reconnect if we're authenticated
         const currentUser = queryClient.getQueryData(['/api/user']);
         if (currentUser && reconnectAttemptRef.current < maxReconnectAttempts) {
           const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000);
@@ -113,25 +126,28 @@ export function useWebSocket(): WebSocketManager {
             });
           }
 
-          // Handle system messages first
-          if (message.type === 'CONNECTED') {
-            console.log('WebSocket connection confirmed:', message.data);
-            return;
-          }
+          const messageConfig: MessageConfigMap = {
+            'FRIEND_REQUEST': {
+              title: t('friends.newRequest'),
+              description: t('friends.requestReceived', { username: message.data.sender?.username })
+            },
+            'FRIEND_REQUEST_ACCEPTED': {
+              title: t('friends.requestAccepted'),
+              description: t('friends.nowFriends', { username: message.data.username })
+            },
+            'FRIEND_REQUEST_REJECTED': {
+              title: t('friends.requestRejected'),
+              description: t('friends.requestRejectedDesc', { username: message.data.username })
+            },
+            'FRIENDSHIP_REMOVED': {
+              title: t('friends.removed'),
+              description: t('friends.removedDesc', { username: message.data.username })
+            }
+          };
 
-          // Handle other message types
-          switch (message.type) {
-            case 'FRIEND_REQUEST':
-            case 'FRIEND_REQUEST_ACCEPTED':
-            case 'FRIEND_REQUEST_REJECTED':
-            case 'FRIENDSHIP_REMOVED':
-              handleFriendshipEvent(message);
-              break;
-            case 'WEBRTC_SIGNAL':
-              console.log('Received WebRTC signal:', message.data);
-              break;
-            default:
-              console.log('Unhandled message type:', message.type);
+          if (message.type in messageConfig) {
+            const config = messageConfig[message.type as WebSocketMessageType];
+            handleFriendshipEvent(message, config);
           }
         } catch (error) {
           console.error('Error processing WebSocket message:', error);
@@ -143,37 +159,16 @@ export function useWebSocket(): WebSocketManager {
     }
   }, [queryClient, toast, t, refreshFriendshipData]);
 
-  const handleFriendshipEvent = useCallback((message: any) => {
+  const handleFriendshipEvent = useCallback((message: any, config: WebSocketMessageConfig) => {
     console.log('Handling friendship event:', message.type, message.data);
     refreshFriendshipData();
 
-    const messageConfig = {
-      'FRIEND_REQUEST': {
-        title: t('friends.newRequest'),
-        description: t('friends.requestReceived', { username: message.data.sender?.username })
-      },
-      'FRIEND_REQUEST_ACCEPTED': {
-        title: t('friends.requestAccepted'),
-        description: t('friends.nowFriends', { username: message.data.username })
-      },
-      'FRIEND_REQUEST_REJECTED': {
-        title: t('friends.requestRejected'),
-        description: t('friends.requestRejectedDesc', { username: message.data.username })
-      },
-      'FRIENDSHIP_REMOVED': {
-        title: t('friends.removed'),
-        description: t('friends.removedDesc', { username: message.data.username })
-      }
-    }[message.type];
-
-    if (messageConfig) {
-      toast({
-        title: messageConfig.title,
-        description: messageConfig.description,
-        variant: 'default'
-      });
-    }
-  }, [refreshFriendshipData, t, toast]);
+    toast({
+      title: config.title,
+      description: config.description,
+      variant: 'default'
+    });
+  }, [refreshFriendshipData, toast]);
 
   const on = useCallback((event: string, handler: WebSocketEventHandler) => {
     if (!eventHandlersRef.current.has(event)) {
@@ -194,7 +189,6 @@ export function useWebSocket(): WebSocketManager {
     }
   }, []);
 
-  // Only attempt to connect if we're authenticated
   useEffect(() => {
     const user = queryClient.getQueryData(['/api/user']);
     if (user) {

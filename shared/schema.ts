@@ -135,6 +135,7 @@ export const coinProducts = pgTable("coin_products", {
   price: decimal("price").notNull(),
   bonus: decimal("bonus").default("0"),
   isPopular: boolean("is_popular").default(false),
+  icon: text("icon").notNull().default("coin"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -253,7 +254,9 @@ export const insertMessageSchema = createInsertSchema(messages);
 export const insertReactionSchema = createInsertSchema(reactions);
 export const insertUserCoinsSchema = createInsertSchema(userCoins);
 export const insertCoinTransactionSchema = createInsertSchema(coinTransactions);
-export const insertCoinProductSchema = createInsertSchema(coinProducts);
+export const insertCoinProductSchema = createInsertSchema(coinProducts).extend({
+  icon: z.string().min(1, "Icon is required")
+});
 export const insertUserAchievementSchema = createInsertSchema(userAchievements);
 export const insertGiftSchema = createInsertSchema(gifts);
 export const insertUserLevelSchema = createInsertSchema(userLevels);

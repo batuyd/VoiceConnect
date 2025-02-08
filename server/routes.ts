@@ -7,6 +7,13 @@ import { storage } from "./storage";
 import session from 'express-session';
 import ytdl from 'ytdl-core';
 
+declare module 'ws' {
+  interface WebSocket {
+    isAlive?: boolean;
+    userId?: number;
+  }
+}
+
 interface WebSocketClient extends WebSocket {
   isAlive: boolean;
   userId?: number;
@@ -17,7 +24,7 @@ function handleError(error: unknown): string {
   return String(error);
 }
 
-function sendWebSocketMessage(ws: WebSocketClient | undefined, type: string, data: any) {
+function sendWebSocketMessage(ws: WebSocket | undefined, type: string, data: any) {
   if (ws?.readyState === WebSocket.OPEN) {
     try {
       ws.send(JSON.stringify({ type, data }));
@@ -31,28 +38,21 @@ function sendWebSocketMessage(ws: WebSocketClient | undefined, type: string, dat
 }
 
 export function registerRoutes(app: Express): Server {
-  const sessionMiddleware = session({
-    ...sessionSettings,
-    resave: false,
-    saveUninitialized: false
-  });
-
-  app.use(sessionMiddleware);
-  setupAuth(app);
+  const sessionMiddleware = setupAuth(app);
 
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
   setMaxListeners(20);
 
-  const clients = new Map<number, WebSocketClient>();
+  const clients = new Map<number, WebSocket>();
 
-  function heartbeat(this: WebSocketClient) {
+  function heartbeat(this: WebSocket) {
     this.isAlive = true;
   }
 
   const interval = setInterval(() => {
-    wss.clients.forEach((ws: WebSocketClient) => {
+    wss.clients.forEach((ws: WebSocket) => {
       if (ws.isAlive === false) {
         if (ws.userId) {
           clients.delete(ws.userId);
@@ -65,7 +65,7 @@ export function registerRoutes(app: Express): Server {
     });
   }, 30000);
 
-  wss.on('connection', async (ws: WebSocketClient, req: any) => {
+  wss.on('connection', async (ws: WebSocket, req: any) => {
     try {
       ws.isAlive = true;
       ws.on('pong', heartbeat);
