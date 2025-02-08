@@ -2,15 +2,20 @@ import { useRef } from 'react';
 
 export function useSoundEffects() {
   const audioContext = useRef<AudioContext | null>(null);
-  const cooldownRef = useRef<boolean>(false);
+  const lastPlayedTime = useRef<number>(0);
+  const minTimeBetweenSounds = 2000; // minimum 2 seconds between sounds
 
-  const playSoundWithCooldown = (frequency: number) => {
-    if (cooldownRef.current) return;
-    cooldownRef.current = true;
+  const playSound = (frequency: number) => {
+    const now = Date.now();
+    if (now - lastPlayedTime.current < minTimeBetweenSounds) {
+      return;
+    }
 
     if (!audioContext.current) {
       audioContext.current = new AudioContext();
     }
+
+    lastPlayedTime.current = now;
 
     const oscillator = audioContext.current.createOscillator();
     const gainNode = audioContext.current.createGain();
@@ -24,19 +29,14 @@ export function useSoundEffects() {
 
     oscillator.start();
     oscillator.stop(audioContext.current.currentTime + 0.5);
-
-    // Reset cooldown after 1 second
-    setTimeout(() => {
-      cooldownRef.current = false;
-    }, 1000);
   };
 
   const playJoinSound = () => {
-    playSoundWithCooldown(440); // A4 note
+    playSound(440); // A4 note
   };
 
   const playLeaveSound = () => {
-    playSoundWithCooldown(330); // E4 note
+    playSound(330); // E4 note
   };
 
   return {
