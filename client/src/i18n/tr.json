@@ -53,6 +53,7 @@
     "title": "Ayarlar",
     "language": "Dil",
     "theme": {
+      "title": "Tema",
       "light": "Açık Tema",
       "dark": "Koyu Tema",
       "system": "Sistem Teması"
@@ -65,7 +66,11 @@
       "selectInput": "Mikrofon seçin",
       "selectOutput": "Hoparlör seçin",
       "defaultDevice": "Varsayılan Cihaz",
-      "test": "Sesi Test Et"
+      "test": "Sesi Test Et",
+      "inputDevice": "Mikrofon",
+      "outputDevice": "Hoparlör",
+      "inputVolume": "Mikrofon Seviyesi",
+      "outputVolume": "Hoparlör Seviyesi"
     }
   },
   "audio": {
@@ -78,5 +83,11 @@
     "initializationError": "Ses ayarları başlatılırken hata oluştu",
     "notInitialized": "Ses ayarları henüz başlatılmadı",
     "testSoundError": "Test sesi çalınırken hata oluştu"
+  },
+  "notifications": {
+    "success": "Başarılı",
+    "error": "Hata",
+    "warning": "Uyarı",
+    "info": "Bilgi"
   }
 }

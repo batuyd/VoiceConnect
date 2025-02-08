@@ -53,6 +53,7 @@
     "title": "Settings",
     "language": "Language",
     "theme": {
+      "title": "Theme",
       "light": "Light Theme",
       "dark": "Dark Theme",
       "system": "System Theme"
@@ -65,7 +66,11 @@
       "selectInput": "Select microphone",
       "selectOutput": "Select speaker",
       "defaultDevice": "Default Device",
-      "test": "Test Sound"
+      "test": "Test Sound",
+      "inputDevice": "Microphone",
+      "outputDevice": "Speaker",
+      "inputVolume": "Microphone Volume",
+      "outputVolume": "Speaker Volume"
     }
   },
   "audio": {
@@ -78,5 +83,11 @@
     "initializationError": "Error initializing audio settings",
     "notInitialized": "Audio settings not initialized yet",
     "testSoundError": "Error playing test sound"
+  },
+  "notifications": {
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Information"
   }
 }
