@@ -117,16 +117,12 @@ export function setupAuth(app: Express) {
         avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(validatedData.username)}`
       });
 
-      try {
-        const { subject, html } = emailTemplates.welcomeEmail(validatedData.username);
-        await sendEmail({
-          to: validatedData.email,
-          subject,
-          html
-        });
-      } catch (error) {
-        console.error('Welcome email error:', error);
-      }
+      const { subject, html } = emailTemplates.welcomeEmail(validatedData.username);
+      sendEmail({
+        to: validatedData.email,
+        subject,
+        html
+      });
 
       req.login(user, (err) => {
         if (err) {

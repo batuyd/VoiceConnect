@@ -7,16 +7,20 @@ import { storage } from "./storage";
 import session from 'express-session';
 import ytdl from 'ytdl-core';
 
+interface WebSocketClient extends WebSocket {
+  isAlive: boolean;
+  userId?: number;
+}
+
 function handleError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
 }
 
-function sendWebSocketMessage(ws: WebSocket | undefined, type: string, data: any) {
+function sendWebSocketMessage(ws: WebSocketClient | undefined, type: string, data: any) {
   if (ws?.readyState === WebSocket.OPEN) {
     try {
       ws.send(JSON.stringify({ type, data }));
-      console.log(`WebSocket message sent (${type}):`, data);
       return true;
     } catch (error) {
       console.error(`WebSocket send error (${type}):`, error);
@@ -27,15 +31,10 @@ function sendWebSocketMessage(ws: WebSocket | undefined, type: string, data: any
 }
 
 export function registerRoutes(app: Express): Server {
-  // Session ayarlarını güncelle
   const sessionMiddleware = session({
     ...sessionSettings,
-    resave: true, // Oturum süresini yenile
-    rolling: true, // Her istekte oturum süresini sıfırla
-    cookie: {
-      ...sessionSettings.cookie,
-      maxAge: 24 * 60 * 60 * 1000 // 24 saat
-    }
+    resave: false,
+    saveUninitialized: false
   });
 
   app.use(sessionMiddleware);
@@ -46,14 +45,30 @@ export function registerRoutes(app: Express): Server {
 
   setMaxListeners(20);
 
-  const clients = new Map<number, WebSocket>();
+  const clients = new Map<number, WebSocketClient>();
 
-  wss.on('connection', async (ws: WebSocket, req: any) => {
-    let pingInterval: NodeJS.Timeout | undefined;
-    let lastPong = Date.now();
+  function heartbeat(this: WebSocketClient) {
+    this.isAlive = true;
+  }
 
+  const interval = setInterval(() => {
+    wss.clients.forEach((ws: WebSocketClient) => {
+      if (ws.isAlive === false) {
+        if (ws.userId) {
+          clients.delete(ws.userId);
+        }
+        return ws.terminate();
+      }
+
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+
+  wss.on('connection', async (ws: WebSocketClient, req: any) => {
     try {
-      console.log('New WebSocket connection attempt');
+      ws.isAlive = true;
+      ws.on('pong', heartbeat);
 
       // Session parsing
       await new Promise<void>((resolve, reject) => {
@@ -74,7 +89,7 @@ export function registerRoutes(app: Express): Server {
       }
 
       const userId = req.session.passport.user;
-      console.log('WebSocket connected for user:', userId);
+      ws.userId = userId;
 
       const existingWs = clients.get(userId);
       if (existingWs) {
@@ -85,37 +100,35 @@ export function registerRoutes(app: Express): Server {
 
       clients.set(userId, ws);
 
-      pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          if (Date.now() - lastPong > 30000) {
-            console.log('No pong response, closing connection for user:', userId);
-            ws.terminate();
-            return;
-          }
-          ws.ping();
-        } else {
-          if (pingInterval) clearInterval(pingInterval);
-        }
-      }, 15000);
-
       ws.on('close', (code: number, reason: string) => {
         console.log(`WebSocket disconnected for user: ${userId}, code: ${code}, reason: ${reason}`);
         clients.delete(userId);
-        if (pingInterval) clearInterval(pingInterval);
       });
 
       ws.on('error', (error) => {
         console.error('WebSocket error for user:', userId, error);
         clients.delete(userId);
-        if (pingInterval) clearInterval(pingInterval);
         if (ws.readyState === WebSocket.OPEN) {
           ws.close(1011, 'Internal Server Error');
         }
       });
 
-      ws.on('pong', () => {
-        lastPong = Date.now();
-        console.log('Received pong from user:', userId);
+      ws.on('message', async (message: string) => {
+        try {
+          const data = JSON.parse(message.toString());
+
+          switch (data.type) {
+            case 'ping':
+              sendWebSocketMessage(ws, 'pong', { timestamp: Date.now() });
+              break;
+
+            default:
+              console.log('Unknown message type:', data.type);
+          }
+        } catch (error) {
+          console.error('Error processing message:', error);
+          sendWebSocketMessage(ws, 'error', { message: 'Invalid message format' });
+        }
       });
 
       sendWebSocketMessage(ws, 'CONNECTED', { 
@@ -125,11 +138,14 @@ export function registerRoutes(app: Express): Server {
 
     } catch (error) {
       console.error('WebSocket connection error:', error);
-      if (pingInterval) clearInterval(pingInterval);
       if (ws.readyState === WebSocket.OPEN) {
         ws.close(1011, 'Internal Server Error');
       }
     }
+  });
+
+  wss.on('close', () => {
+    clearInterval(interval);
   });
 
   // Friend request routes
@@ -837,18 +853,15 @@ export function registerRoutes(app: Express): Server {
 
       await storage.acceptFriendRequest(friendshipId);
 
-      // İsteği gönderen kullanıcıya bildirim gönder
+      // Send notification to the sender
       const senderWs = clients.get(friendship.senderId);
       if (senderWs?.readyState === WebSocket.OPEN) {
-        senderWs.send(JSON.stringify({
-          type: 'FRIEND_REQUEST_ACCEPTED',
-          data: {
-            friendshipId,
-            userId: req.user.id,
-            username: req.user.username,
-            senderId: friendship.senderId,            receiverId: friendship.receiverId
-          }
-        }));
+        sendWebSocketMessage(senderWs, "FRIEND_REQUEST_ACCEPTED", {
+          friendshipId,          userId: req.user.id,
+          username: req.user.username,
+          senderId: friendship.senderId,
+          receiverId: friendship.receiverId
+        });
       }
 
       res.sendStatus(200);

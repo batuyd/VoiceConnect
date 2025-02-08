@@ -1,16 +1,33 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
 import { Language, translations } from '@/lib/languages';
+import { useToast } from '@/hooks/use-toast';
 
 type LanguageContextType = {
   language: Language;
   setLanguage: (lang: Language) => void;
-  t: (key: keyof typeof translations['en'] | string) => string;
+  t: (key: string, params?: Record<string, string | number>) => string;
 };
 
 const LanguageContext = createContext<LanguageContextType | null>(null);
 
+const getFallbackTranslation = (key: string, language: Language) => {
+  const keys = key.split('.');
+  let current: any = translations['en'];
+
+  for (const k of keys) {
+    if (current[k] === undefined) {
+      console.warn(`Translation missing for key: ${key} in language: ${language}`);
+      return key;
+    }
+    current = current[k];
+  }
+
+  return current;
+};
+
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguage] = useState<Language>(() => {
+  const { toast } = useToast();
+  const [language, setLanguageState] = useState<Language>(() => {
     try {
       const savedLang = localStorage.getItem('language');
       return (savedLang as Language) || 'en';
@@ -19,25 +36,44 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  const t = (path: string) => {
+  const setLanguage = useCallback((lang: Language) => {
+    try {
+      setLanguageState(lang);
+      localStorage.setItem('language', lang);
+    } catch (error) {
+      console.error('Failed to save language preference:', error);
+      toast({
+        variant: 'destructive',
+        title: translations[language].error.title,
+        description: translations[language].error.languagePreference,
+      });
+    }
+  }, [language, toast]);
+
+  const t = useCallback((path: string, params?: Record<string, string | number>): string => {
     try {
       const keys = path.split('.');
       let current: any = translations[language];
 
       for (const key of keys) {
         if (current[key] === undefined) {
-          console.warn(`Translation missing for key: ${path} in language: ${language}`);
           // Fallback to English if translation is missing
-          current = translations['en'];
-          for (const fallbackKey of keys) {
-            if (current[fallbackKey] === undefined) {
-              return path; // Return the key itself if no translation found
-            }
-            current = current[fallbackKey];
-          }
-          break;
+          return getFallbackTranslation(path, language);
         }
         current = current[key];
+      }
+
+      if (typeof current !== 'string') {
+        console.warn(`Translation key ${path} does not resolve to a string`);
+        return path;
+      }
+
+      // Replace parameters in the translation string
+      if (params) {
+        return Object.entries(params).reduce(
+          (str, [key, value]) => str.replace(`{${key}}`, String(value)),
+          current
+        );
       }
 
       return current;
@@ -45,20 +81,13 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       console.error(`Translation error for key: ${path}`, error);
       return path;
     }
-  };
+  }, [language]);
 
   return (
     <LanguageContext.Provider 
       value={{ 
         language, 
-        setLanguage: (lang: Language) => {
-          setLanguage(lang);
-          try {
-            localStorage.setItem('language', lang);
-          } catch (error) {
-            console.error('Failed to save language preference:', error);
-          }
-        }, 
+        setLanguage,
         t 
       }}
     >

@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/hooks/use-language";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { User, ServerInvite } from "@shared/schema";
@@ -14,41 +14,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-
-const setupWebSocket = () => {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-  console.log("Trying to connect WebSocket to:", wsUrl);
-
-  const ws = new WebSocket(wsUrl);
-
-  ws.onopen = () => {
-    console.log("WebSocket connection established");
-    // Send authentication message
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'authenticate' }));
-    }
-  };
-
-  ws.onclose = (event) => {
-    console.log("WebSocket connection closed:", event.code, event.reason);
-  };
-
-  ws.onerror = (error) => {
-    console.error("WebSocket connection error:", error);
-  };
-
-  return ws;
-};
+import { useWebSocket } from "@/hooks/use-websocket";
 
 export function UserList({ serverId }: { serverId: number }) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
-  const wsRef = useRef<WebSocket | null>(null);
+  const { on, off, connectionStatus } = useWebSocket();
 
   const { data: users = [] } = useQuery<User[]>({
     queryKey: [`/api/servers/${serverId}/members`],
@@ -61,102 +35,41 @@ export function UserList({ serverId }: { serverId: number }) {
   useEffect(() => {
     if (!currentUser) return;
 
-    console.log("Setting up WebSocket for user:", currentUser.id);
-
-    // WebSocket bağlantısını kur
-    const ws = setupWebSocket();
-    wsRef.current = ws;
-
-    // Mesaj işleme
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("WebSocket message received:", data);
-
-        switch (data.type) {
-          case "friend_request":
-            toast({
-              title: t("friends.newRequest"),
-              description: `${data.from.username} ${t("friends.requestReceived")}`,
-            });
-            queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
-            break;
-
-          case "friend_request_accepted":
-            toast({
-              title: t("friends.requestAccepted"),
-              description: `${data.by.username} ${t("friends.requestAcceptedBy")}`,
-            });
-            queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
-            break;
-
-          default:
-            console.log("Unknown message type:", data.type);
-        }
-      } catch (error) {
-        console.error("Error processing WebSocket message:", error);
-      }
+    // WebSocket event handlers
+    const handleFriendRequest = (data: any) => {
+      toast({
+        title: t("friends.newRequest"),
+        description: t("friends.requestReceived", { username: data.sender?.username }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
     };
+
+    const handleFriendRequestAccepted = (data: any) => {
+      toast({
+        title: t("friends.requestAccepted"),
+        description: t("friends.requestAcceptedBy", { username: data.username }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+    };
+
+    // Subscribe to WebSocket events
+    on("FRIEND_REQUEST", handleFriendRequest);
+    on("FRIEND_REQUEST_ACCEPTED", handleFriendRequestAccepted);
 
     // Cleanup
     return () => {
-      console.log("Cleaning up WebSocket connection");
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.close();
-      }
+      off("FRIEND_REQUEST", handleFriendRequest);
+      off("FRIEND_REQUEST_ACCEPTED", handleFriendRequestAccepted);
     };
-  }, [currentUser, toast, t]);
+  }, [currentUser, on, off, toast, t]);
 
-  // WebSocket yeniden bağlanma mantığı
-  useEffect(() => {
-    const reconnectInterval = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.CLOSED) {
-        console.log("Attempting to reconnect WebSocket...");
-        const ws = setupWebSocket();
-        wsRef.current = ws;
-      }
-    }, 5000); // Her 5 saniyede bir kontrol et
-
-    return () => clearInterval(reconnectInterval);
-  }, []);
-
-  const acceptInviteMutation = useMutation({
-    mutationFn: async (inviteId: number) => {
-      const res = await apiRequest("POST", `/api/invites/${inviteId}/accept`);
-      if (!res.ok) throw new Error("Failed to accept invite");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invites"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
-      toast({
-        title: t('server.inviteAccepted'),
-        description: t('server.inviteAcceptedDesc'),
-      });
-    },
+  // Mock user status - in a real app, this would come from the server
+  const mockStatus = (userId: number) => ({
+    online: userId % 2 === 0,
+    inVoice: userId % 3 === 0,
+    muted: userId % 4 === 0,
   });
-
-  const rejectInviteMutation = useMutation({
-    mutationFn: async (inviteId: number) => {
-      const res = await apiRequest("POST", `/api/invites/${inviteId}/reject`);
-      if (!res.ok) throw new Error("Failed to reject invite");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invites"] });
-      toast({
-        title: t('server.inviteRejected'),
-        description: t('server.inviteRejectedDesc'),
-      });
-    },
-  });
-
-  const mockStatus = (userId: number) => {
-    return {
-      online: userId % 2 === 0,
-      inVoice: userId % 3 === 0,
-      muted: userId % 4 === 0,
-    };
-  };
 
   return (
     <div className="w-full md:w-64 bg-gray-800 p-4">
@@ -181,20 +94,51 @@ export function UserList({ serverId }: { serverId: number }) {
               <div className="space-y-4">
                 {invites.map((invite) => (
                   <div key={invite.id} className="flex items-center justify-between gap-4 p-2 bg-gray-700 rounded">
-                    <span>{t('server.inviteFrom')} Server {invite.serverId}</span>
+                    <span>{t('server.inviteFrom', { server: invite.serverId })}</span>
                     <div className="flex gap-2">
                       <Button
                         size="sm"
-                        onClick={() => acceptInviteMutation.mutate(invite.id)}
-                        disabled={acceptInviteMutation.isPending}
+                        onClick={async () => {
+                          try {
+                            await apiRequest("POST", `/api/invites/${invite.id}/accept`);
+                            queryClient.invalidateQueries({ queryKey: ["/api/invites"] });
+                            queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
+                            toast({
+                              title: t('server.inviteAccepted'),
+                              description: t('server.inviteAcceptedDesc'),
+                            });
+                          } catch (error) {
+                            console.error('Accept invite error:', error);
+                            toast({
+                              variant: 'destructive',
+                              title: t('server.error'),
+                              description: t('server.inviteAcceptError'),
+                            });
+                          }
+                        }}
                       >
                         {t('server.accept')}
                       </Button>
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={() => rejectInviteMutation.mutate(invite.id)}
-                        disabled={rejectInviteMutation.isPending}
+                        onClick={async () => {
+                          try {
+                            await apiRequest("POST", `/api/invites/${invite.id}/reject`);
+                            queryClient.invalidateQueries({ queryKey: ["/api/invites"] });
+                            toast({
+                              title: t('server.inviteRejected'),
+                              description: t('server.inviteRejectedDesc'),
+                            });
+                          } catch (error) {
+                            console.error('Reject invite error:', error);
+                            toast({
+                              variant: 'destructive',
+                              title: t('server.error'),
+                              description: t('server.inviteRejectError'),
+                            });
+                          }
+                        }}
                       >
                         {t('server.reject')}
                       </Button>

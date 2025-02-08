@@ -70,9 +70,8 @@
       "invalidEmail": "Geçerli bir e-posta adresi girin",
       "phoneRequired": "Telefon numarası zorunludur",
       "invalidPhone": "Geçerli bir telefon numarası girin",
-      "registrationFailed": "Kayıt işlemi başarısız oldu. Lütfen tekrar deneyin.",
       "loginFailed": "Geçersiz kullanıcı adı veya şifre",
-      "logoutFailed": "Çıkış yapılamadı"
+      "registrationFailed": "Kayıt işlemi başarısız oldu. Lütfen tekrar deneyin."
     },
     "loginSuccess": "Başarıyla giriş yapıldı",
     "registrationSuccess": "Kayıt işlemi başarılı",
@@ -87,7 +86,6 @@
   },
   "settings": {
     "title": "Ayarlar",
-    "general": "Genel",
     "language": "Dil",
     "theme": {
       "title": "Tema Ayarları",
@@ -104,6 +102,10 @@
       "selectOutput": "Hoparlör seçin",
       "defaultDevice": "Varsayılan Cihaz",
       "test": "Sesi Test Et",
+      "inputDevice": "Mikrofon",
+      "outputDevice": "Hoparlör",
+      "inputVolume": "Mikrofon Seviyesi",
+      "outputVolume": "Hoparlör Seviyesi",
       "quality": "Ses Kalitesi",
       "selectQuality": "Kalite seçin",
       "qualityLow": "Düşük",
@@ -145,5 +147,29 @@
     "error": "Hata",
     "warning": "Uyarı",
     "info": "Bilgi"
+  },
+  "channel": {
+    "joinVoice": "Sesli Kanala Katıl",
+    "voiceChannelDesc": "Sesli sohbete katılmak için tıklayın",
+    "selectChannel": "Bir Kanal Seçin",
+    "channelDesc": "Sohbete başlamak için bir kanal seçin"
+  },
+  "server": {
+    "channels": "Kanallar",
+    "textChannels": "METİN KANALLARI",
+    "voiceChannels": "SESLİ KANALLAR",
+    "createServer": "Yeni Sunucu Oluştur",
+    "serverName": "Sunucu Adı",
+    "createChannel": "Yeni Kanal Oluştur",
+    "channelName": "Kanal Adı",
+    "channelNamePlaceholder": "Kanal adını girin",
+    "voiceChannel": "Sesli Kanal",
+    "members": "Üyeler",
+    "join": "Katıl",
+    "leave": "Ayrıl",
+    "invite": "Arkadaşları Davet Et",
+    "generateInvite": "Davet Linki Oluştur",
+    "selectFriend": "Arkadaş Seç",
+    "sendInvite": "Davet Gönder"
   }
 }
