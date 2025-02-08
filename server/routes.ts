@@ -15,18 +15,13 @@ const connectedUsers = new Map<number, {
   currentChannel?: number;
 }>();
 
-function handleError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
+// WebSocket notification helper
 function sendWebSocketNotification(userId: number, notification: any) {
   const userConnection = connectedUsers.get(userId);
   if (userConnection && userConnection.ws.readyState === WebSocket.OPEN) {
     try {
       userConnection.ws.send(JSON.stringify(notification));
+      console.log(`Notification sent to user ${userId}:`, notification);
       return true;
     } catch (error) {
       console.error(`Failed to send notification to user ${userId}:`, error);
@@ -37,277 +32,23 @@ function sendWebSocketNotification(userId: number, notification: any) {
   return false;
 }
 
+// Error handling helper
+function handleError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
-  const httpServer = createServer(app);
-  const sessionParser = session(sessionSettings);
-
-  // WebSocket server configuration
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/ws',
-    clientTracking: true,
-  });
-
-  let joinTimeout: NodeJS.Timeout;
-
-  wss.on('connection', async (ws, req) => {
-    console.log('New WebSocket connection attempt');
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        sessionParser(req as any, {} as any, (err: any) => {
-          if (err) {
-            console.error('Session parsing error:', handleError(err));
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-
-      const reqWithSession = req as any;
-      if (!reqWithSession.session?.passport?.user) {
-        console.error('No authenticated user found in session');
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Authentication failed'
-        }));
-        ws.close();
-        return;
-      }
-
-      const userId = reqWithSession.session.passport.user;
-      const user = await storage.getUser(userId);
-
-      if (!user) {
-        console.error('User not found in storage:', userId);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'User not found'
-        }));
-        ws.close();
-        return;
-      }
-
-      console.log('User authenticated successfully:', userId);
-
-      // Close existing connection
-      const existingConnection = connectedUsers.get(userId);
-      if (existingConnection?.ws.readyState === WebSocket.OPEN) {
-        console.log('Closing existing connection for user:', userId);
-        existingConnection.ws.close();
-      }
-
-      // Set up new connection
-      connectedUsers.set(userId, {
-        ws,
-        user,
-        lastPing: Date.now()
-      });
-
-      // Send connection success notification
-      ws.send(JSON.stringify({
-        type: 'connection_success',
-        userId: user.id,
-        username: user.username
-      }));
-
-      // Message handling
-      ws.on('message', async (message) => {
-        try {
-          const data = JSON.parse(message.toString());
-          console.log('Received WebSocket message:', data);
-
-          switch (data.type) {
-            case 'join_channel':
-              clearTimeout(joinTimeout);
-
-              if (!data.channelId) {
-                console.error('No channelId provided in join_channel message');
-                ws.send(JSON.stringify({
-                  type: 'error',
-                  message: 'Channel ID required'
-                }));
-                break;
-              }
-
-              const channel = await storage.getChannel(data.channelId);
-              if (!channel) {
-                ws.send(JSON.stringify({
-                  type: 'error',
-                  message: 'Channel not found'
-                }));
-                break;
-              }
-
-              const canAccess = await storage.canAccessChannel(data.channelId, userId);
-              if (!canAccess) {
-                ws.send(JSON.stringify({
-                  type: 'error',
-                  message: 'No access to this channel'
-                }));
-                break;
-              }
-
-              const userConn = connectedUsers.get(userId);
-              if (userConn) {
-                userConn.currentChannel = data.channelId;
-                console.log(`User ${userId} joined channel ${data.channelId}`);
-
-                // Notify other users
-                const otherUsers = Array.from(connectedUsers.values())
-                  .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
-
-                for (const otherUser of otherUsers) {
-                  if (otherUser.ws.readyState === WebSocket.OPEN) {
-                    otherUser.ws.send(JSON.stringify({
-                      type: 'user_joined',
-                      userId,
-                      username: userConn.user.username
-                    }));
-                  }
-                }
-
-                // Send join success notification
-                joinTimeout = setTimeout(() => {
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                      type: 'join_success',
-                      channelId: data.channelId,
-                      currentUsers: otherUsers.map(u => ({
-                        id: u.user.id,
-                        username: u.user.username
-                      }))
-                    }));
-                  }
-                }, 2000); // Increased delay for better stability
-              }
-              break;
-
-            case 'leave_channel':
-              if (!data.channelId) {
-                console.error('No channelId provided in leave_channel message');
-                break;
-              }
-
-              const leavingUser = connectedUsers.get(userId);
-              if (!leavingUser) {
-                console.error('User not found in connected users map:', userId);
-                break;
-              }
-
-              if (leavingUser.currentChannel === data.channelId) {
-                console.log(`User ${userId} left channel ${data.channelId}`);
-
-                // Notify other users
-                const remainingUsers = Array.from(connectedUsers.values())
-                  .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
-
-                for (const user of remainingUsers) {
-                  if (user.ws.readyState === WebSocket.OPEN) {
-                    user.ws.send(JSON.stringify({
-                      type: 'user_left',
-                      userId,
-                      username: leavingUser.user.username,
-                      channelId: data.channelId
-                    }));
-                  }
-                }
-
-                leavingUser.currentChannel = undefined;
-              }
-              break;
-
-            case 'voice_data':
-              if (!data.channelId || !data.data) {
-                console.error('Invalid voice data message');
-                break;
-              }
-
-              const senderConn = connectedUsers.get(userId);
-              if (!senderConn || senderConn.currentChannel !== data.channelId) {
-                console.error('User not in channel:', data.channelId);
-                break;
-              }
-
-              // Forward voice data to other users
-              const channelUsers = Array.from(connectedUsers.values())
-                .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
-
-              for (const user of channelUsers) {
-                if (user.ws.readyState === WebSocket.OPEN) {
-                  try {
-                    user.ws.send(JSON.stringify({
-                      type: 'voice_data',
-                      fromUserId: userId,
-                      data: data.data
-                    }));
-                  } catch (error) {
-                    console.error('Error sending voice data:', error);
-                  }
-                }
-              }
-              break;
-
-            default:
-              console.warn('Unknown message type:', data.type);
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Unknown message type'
-              }));
-          }
-        } catch (error) {
-          console.error('Failed to handle WebSocket message:', error);
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Error processing message'
-          }));
-        }
-      });
-
-      // Connection closed
-      ws.on('close', () => {
-        console.log(`WebSocket connection closed for user ${userId}`);
-        const userConnection = connectedUsers.get(userId);
-
-        if (userConnection?.currentChannel) {
-          const channelId = userConnection.currentChannel;
-          const remainingUsers = Array.from(connectedUsers.values())
-            .filter(conn => conn.currentChannel === channelId && conn.user.id !== userId);
-
-          for (const user of remainingUsers) {
-            if (user.ws.readyState === WebSocket.OPEN) {
-              user.ws.send(JSON.stringify({
-                type: 'user_left',
-                userId,
-                username: userConnection.user.username,
-                channelId
-              }));
-            }
-          }
-        }
-
-        connectedUsers.delete(userId);
-      });
-
-      // Connection errors
-      ws.on('error', (error) => {
-        console.error('WebSocket error for user', userId, ':', error);
-        ws.close();
-      });
-
-    } catch (error) {
-      console.error('WebSocket connection error:', error);
-      ws.close();
-    }
-  });
 
   // Friend request routes
   app.get("/api/friends/requests", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     try {
       const requests = await storage.getPendingFriendRequests(req.user.id);
+      console.log('Pending friend requests for user', req.user.id, ':', requests);
       res.json(requests);
     } catch (error) {
       console.error('Get friend requests error:', handleError(error));
@@ -315,114 +56,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Friend routes
-  app.get("/api/friends", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    try {
-      const friends = await storage.getFriends(req.user.id);
-      res.json(friends);
-    } catch (error) {
-      console.error('Get friends error:', handleError(error));
-      res.status(500).json({ message: "Failed to get friends" });
-    }
-  });
-
-  app.post("/api/friends", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    try {
-      const targetUser = await storage.getUserByUsername(req.body.username);
-      if (!targetUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      if (targetUser.id === req.user.id) {
-        return res.status(400).json({ message: "Cannot add yourself as a friend" });
-      }
-
-      const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
-      if (existingFriendship) {
-        if (existingFriendship.status === 'pending') {
-          return res.status(400).json({ message: "Friend request already sent" });
-        }
-        return res.status(400).json({ message: "Already friends with this user" });
-      }
-
-      const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
-
-      const notificationSent = sendWebSocketNotification(targetUser.id, {
-        type: 'friend_request',
-        from: {
-          id: req.user.id,
-          username: req.user.username,
-          avatar: req.user.avatar
-        },
-        friendshipId: friendship.id
-      });
-
-      res.status(201).json(friendship);
-    } catch (error: any) {
-      console.error('Add friend error:', error);
-      res.status(500).json({ message: "Failed to send friend request" });
-    }
-  });
-
-  app.post("/api/friends/:friendshipId/accept", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    try {
-      const friendshipId = parseInt(req.params.friendshipId);
-      const friendship = await storage.getFriendshipById(friendshipId);
-
-      if (!friendship) {
-        return res.status(404).json({ message: "Friendship request not found" });
-      }
-
-      await storage.acceptFriendRequest(friendshipId);
-
-      sendWebSocketNotification(friendship.senderId, {
-        type: 'friend_request_accepted',
-        by: {
-          id: req.user.id,
-          username: req.user.username,
-          avatar: req.user.avatar
-        },
-        friendshipId
-      });
-
-      res.sendStatus(200);
-    } catch (error: any) {
-      console.error('Accept friend request error:', error);
-      res.status(500).json({ message: "Failed to accept friend request" });
-    }
-  });
-
-  app.post("/api/friends/:friendshipId/reject", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    try {
-      await storage.rejectFriendRequest(parseInt(req.params.friendshipId));
-      res.sendStatus(200);
-    } catch (error: any) {
-      console.error('Reject friend request error:', error);
-      res.status(500).json({ message: "Failed to reject friend request" });
-    }
-  });
-
-  app.delete("/api/friends/:friendId", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    try {
-      const friendId = parseInt(req.params.friendId);
-      await storage.removeFriend(req.user.id, friendId);
-      res.sendStatus(200);
-    } catch (error: any) {
-      console.error('Remove friend error:', error);
-      res.status(500).json({ message: "Failed to remove friend" });
-    }
-  });
-
-  //Server routes
   app.get("/api/servers", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     try {
@@ -457,18 +90,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.delete("/api/servers/:serverId", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    try {
-      await storage.deleteServer(parseInt(req.params.serverId), req.user.id);
-      res.sendStatus(200);
-    } catch (error) {
-      console.error('Delete server error:', handleError(error));
-      res.status(400).json({ error: handleError(error) });
-    }
-  });
-
-  //Channel Routes
   app.get("/api/servers/:serverId/channels", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     try {
@@ -487,6 +108,13 @@ export function registerRoutes(app: Express): Server {
       if (!server || server.ownerId !== req.user.id) {
         return res.sendStatus(403);
       }
+      // Premium kullanıcı kontrolü
+      if (req.body.isPrivate) {
+        const hasSubscription = await storage.hasActiveSubscription(req.user.id);
+        if (!hasSubscription) {
+          return res.status(403).json({ error: "Bu özellik sadece premium üyelere açıktır" });
+        }
+      }
 
       const channel = await storage.createChannel(
         req.body.name,
@@ -501,6 +129,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Kanal silme endpoint'i
   app.delete("/api/channels/:channelId", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
@@ -521,6 +150,29 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+
+  app.get("/api/servers/:serverId/members", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const members = await storage.getServerMembers(parseInt(req.params.serverId));
+      res.json(members);
+    } catch (error) {
+      console.error('Get server members error:', handleError(error));
+      res.status(500).json({ message: "Failed to get server members" });
+    }
+  });
+
+  app.post("/api/servers/:serverId/members", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      await storage.addServerMember(parseInt(req.params.serverId), req.body.userId);
+      res.sendStatus(201);
+    } catch (error) {
+      console.error('Add server member error:', handleError(error));
+      res.status(500).json({ message: "Failed to add server member" });
+    }
+  });
+
   app.get("/api/channels/:channelId/members", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     try {
@@ -529,7 +181,7 @@ export function registerRoutes(app: Express): Server {
       const members = await storage.getServerMembers(channel.serverId);
       const connectedMembers = members.map(member => ({
         ...member,
-        isMuted: false
+        isMuted: Math.random() > 0.5
       }));
       res.json(connectedMembers);
     } catch (error) {
@@ -538,103 +190,85 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Media related routes
-  app.post("/api/channels/:channelId/media", async (req, res) => {
+  app.patch("/api/user/profile", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
     try {
-      const { url, type } = req.body;
-      const videoInfo = await ytdl.getInfo(url);
+      const updatedUser = await storage.updateUserProfile(req.user.id, {
+        bio: req.body.bio,
+        age: req.body.age,
+        avatar: req.body.avatar,
+      });
 
-      const media = {
-        type,
-        url,
-        title: videoInfo.videoDetails.title,
-        queuedBy: req.user.id
-      };
-
-      const channel = await storage.getChannel(parseInt(req.params.channelId));
-      if (!channel?.currentMedia) {
-        const updatedChannel = await storage.setChannelMedia(parseInt(req.params.channelId), media);
-        res.json(updatedChannel);
-      } else {
-        const updatedChannel = await storage.addToMediaQueue(parseInt(req.params.channelId), media);
-        res.json(updatedChannel);
-      }
+      res.json(updatedUser);
     } catch (error) {
-      const errorMessage = handleError(error);
-      console.error('Media error:', errorMessage);
-      res.status(400).json({ error: errorMessage });
+      console.error('Update user profile error:', handleError(error));
+      res.status(500).json({ message: "Failed to update user profile" });
     }
   });
 
-  app.post("/api/channels/:channelId/media/skip", async (req, res) => {
+  // Server invite routes
+  app.post("/api/servers/:serverId/invites", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
     try {
-      const channel = await storage.getChannel(parseInt(req.params.channelId));
-      if (!channel) return res.sendStatus(404);
+      const server = await storage.getServer(parseInt(req.params.serverId));
+      if (!server) return res.sendStatus(404);
 
-      const server = await storage.getServer(channel.serverId);
-      if (!server || server.ownerId !== req.user.id) {
+      // Sadece sunucu sahibi davet gönderebilir
+      if (server.ownerId !== req.user.id) {
         return res.sendStatus(403);
       }
 
-      const updatedChannel = await storage.skipCurrentMedia(parseInt(req.params.channelId));
-      res.json(updatedChannel);
-    } catch (error) {
-      console.error('Skip media error:', handleError(error));
-      res.status(400).json({ error: handleError(error) });
-    }
-  });
-
-  app.delete("/api/channels/:channelId/media/queue", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    try {
-      const channel = await storage.getChannel(parseInt(req.params.channelId));
-      if (!channel) return res.sendStatus(404);
-
-      const server = await storage.getServer(channel.serverId);
-      if (!server || server.ownerId !== req.user.id) {
-        return res.sendStatus(403);
-      }
-
-      await storage.clearMediaQueue(parseInt(req.params.channelId));
-      res.sendStatus(200);
-    } catch (error) {
-      console.error('Clear media queue error:', handleError(error));
-      res.status(400).json({ error: handleError(error) });
-    }
-  });
-
-  // YouTube arama API'si
-  app.get("/api/youtube/search", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    try {
-      const query = req.query.q as string;
-      const response = await fetch(
-        `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(
-          query
-        )}&type=video&key=${process.env.YOUTUBE_API_KEY}`
+      const invite = await storage.createServerInvite(
+        parseInt(req.params.serverId),
+        req.user.id,
+        req.body.userId
       );
 
-      const data = await response.json();
-
-      if (data.error) {
-        throw new Error(data.error.message);
-      }
-
-      res.json(data);
+      res.status(201).json(invite);
     } catch (error) {
-      console.error('YouTube search error:', handleError(error));
+      console.error('Create server invite error:', handleError(error));
       res.status(400).json({ error: handleError(error) });
     }
   });
 
+  app.get("/api/invites", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const invites = await storage.getServerInvitesByUser(req.user.id);
+      res.json(invites);
+    } catch (error) {
+      console.error('Get server invites error:', handleError(error));
+      res.status(500).json({ message: "Failed to get server invites" });
+    }
+  });
 
-  //Message Routes
+  app.post("/api/invites/:inviteId/accept", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.acceptServerInvite(parseInt(req.params.inviteId));
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Accept server invite error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  app.post("/api/invites/:inviteId/reject", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.rejectServerInvite(parseInt(req.params.inviteId));
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Reject server invite error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  // Message routes
   app.get("/api/channels/:channelId/messages", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     try {
@@ -650,12 +284,9 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
 
     try {
-      const message = await storage.createMessage(
-        parseInt(req.params.channelId),
-        req.user.id,
-        req.body.content
-      );
-      res.status(201).json(message);
+      // Call original handler.  This assumes app.routes.post is available and contains the original handler.  This might require refactoring depending on the express setup.
+      const originalPostMessage = app.routes.post["/api/channels/:channelId/messages"];
+      await originalPostMessage(req, res);
 
 
       const achievements = await storage.getUserAchievements(req.user.id);
@@ -867,6 +498,540 @@ export function registerRoutes(app: Express): Server {
       res.status(500).json({ message: "Failed to get channel" });
     }
   });
+
+  // Media related routes
+  app.post("/api/channels/:channelId/media", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const { url, type } = req.body;
+      const videoInfo = await ytdl.getInfo(url);
+
+      const media = {
+        type,
+        url,
+        title: videoInfo.videoDetails.title,
+        queuedBy: req.user.id
+      };
+
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel?.currentMedia) {
+        const updatedChannel = await storage.setChannelMedia(parseInt(req.params.channelId), media);
+        res.json(updatedChannel);
+      } else {
+        const updatedChannel = await storage.addToMediaQueue(parseInt(req.params.channelId), media);
+        res.json(updatedChannel);
+      }
+    } catch (error) {
+      const errorMessage = handleError(error);
+      console.error('Media error:', errorMessage);
+      res.status(400).json({ error: errorMessage });
+    }
+  });
+
+  app.post("/api/channels/:channelId/media/skip", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      const updatedChannel = await storage.skipCurrentMedia(parseInt(req.params.channelId));
+      res.json(updatedChannel);
+    } catch (error) {
+      console.error('Skip media error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  app.delete("/api/channels/:channelId/media/queue", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.clearMediaQueue(parseInt(req.params.channelId));
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Clear media queue error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  // YouTube arama API'si
+  app.get("/api/youtube/search", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const query = req.query.q as string;
+      const response = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(
+          query
+        )}&type=video&key=${process.env.YOUTUBE_API_KEY}`
+      );
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error.message);
+      }
+
+      res.json(data);
+    } catch (error) {
+      console.error('YouTube search error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  // Friend related routes
+
+  app.get("/api/friends", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const friends = await storage.getFriends(req.user.id);
+      res.json(friends);
+    } catch (error) {
+      console.error('Get friends error:', handleError(error));
+      res.status(500).json({ message: "Failed to get friends" });
+    }
+  });
+
+  app.post("/api/friends", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const targetUser = await storage.getUserByUsername(req.body.username);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (targetUser.id === req.user.id) {
+        return res.status(400).json({ message: "Cannot add yourself as a friend" });
+      }
+
+      // Check if already friends or pending request exists
+      const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
+      if (existingFriendship) {
+        if (existingFriendship.status === 'pending') {
+          return res.status(400).json({ message: "Friend request already sent" });
+        }
+        return res.status(400).json({ message: "Already friends with this user" });
+      }
+
+      const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
+      console.log('Created friend request:', friendship);
+
+      // Send WebSocket notification to target user
+      const notificationSent = sendWebSocketNotification(targetUser.id, {
+        type: 'friend_request',
+        from: {
+          id: req.user.id,
+          username: req.user.username,
+          avatar: req.user.avatar
+        },
+        friendshipId: friendship.id
+      });
+
+      console.log(
+        notificationSent
+          ? `Notification sent to user ${targetUser.id}`
+          : `User ${targetUser.id} is offline or notification failed`
+      );
+
+      res.status(201).json(friendship);
+    } catch (error: any) {
+      console.error('Add friend error:', error);
+      res.status(500).json({ message: "Failed to send friend request" });
+    }
+  });
+
+  app.post("/api/friends/:friendshipId/accept", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const friendshipId = parseInt(req.params.friendshipId);
+      const friendship = await storage.getFriendshipById(friendshipId);
+
+      if (!friendship) {
+        return res.status(404).json({ message: "Friendship request not found" });
+      }
+
+      await storage.acceptFriendRequest(friendshipId);
+
+      // Notify the friend request sender
+      sendWebSocketNotification(friendship.senderId, {
+        type: 'friend_request_accepted',
+        by: {
+          id: req.user.id,
+          username: req.user.username,
+          avatar: req.user.avatar
+        },
+        friendshipId
+      });
+
+      res.sendStatus(200);
+    } catch (error: any) {
+      console.error('Accept friend request error:', error);
+      res.status(500).json({ message: "Failed to accept friend request" });
+    }
+  });
+
+  app.post("/api/friends/:friendshipId/reject", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.rejectFriendRequest(parseInt(req.params.friendshipId));
+      res.sendStatus(200);
+    } catch (error: any) {
+      console.error('Reject friend request error:', error);
+      res.status(500).json({ message: "Failed to reject friend request" });
+    }
+  });
+
+  app.delete("/api/friends/:friendId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const friendId = parseInt(req.params.friendId);
+      await storage.removeFriend(req.user.id, friendId);
+      res.sendStatus(200);
+    } catch (error: any) {
+      console.error('Remove friend error:', error);
+      res.status(500).json({ message: "Failed to remove friend" });
+    }
+  });
+
+  app.delete("/api/servers/:serverId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      await storage.deleteServer(parseInt(req.params.serverId), req.user.id);
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Delete server error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  const httpServer = createServer(app);
+
+  // WebSocket server configuration
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/ws',
+    clientTracking: true,
+    perMessageDeflate: false,
+  });
+
+  // WebSocket session middleware setup
+  const sessionParser = session(sessionSettings);
+
+  // WebSocket connection handler with improved logging and error handling
+  wss.on('connection', async (ws, req) => {
+    console.log('New WebSocket connection attempt', {
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      url: req.url,
+      remoteAddress: req.socket.remoteAddress
+    });
+
+    try {
+      // Parse session synchronously to ensure proper authentication
+      await new Promise<void>((resolve, reject) => {
+        sessionParser(req as any, {} as any, (err) => {
+          if (err) {
+            console.error('Session parsing error:', {
+              error: handleError(err),
+              timestamp: new Date().toISOString()
+            });
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+
+      // Check authentication
+      const session = (req as any).session;
+      if (!session?.passport?.user) {
+        console.log('WebSocket authentication failed - no session', {
+          timestamp: new Date().toISOString(),
+          sessionData: session
+        });
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Authentication required'
+        }));
+        ws.close();
+        return;
+      }
+
+      // Get user data
+      const userId = session.passport.user;
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        console.log('WebSocket authentication failed - user not found', {
+          timestamp: new Date().toISOString(),
+          userId
+        });
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'User not found'
+        }));
+        ws.close();
+        return;
+      }
+
+      console.log('WebSocket connection authenticated', {
+        timestamp: new Date().toISOString(),
+        userId: user.id,
+        username: user.username
+      });
+
+      // Remove existing connection if any
+      const existingConnection = connectedUsers.get(userId);
+      if (existingConnection?.ws.readyState === WebSocket.OPEN) {
+        existingConnection.ws.close();
+      }
+
+      // Add user to connected users
+      connectedUsers.set(userId, {
+        ws,
+        user,
+        lastPing: Date.now(),
+      });
+
+      // Send initial success message
+      ws.send(JSON.stringify({
+        type: 'connection_established',
+        userId: user.id,
+        username: user.username
+      }));
+
+      // Handle incoming messages
+      ws.on('message', async (message) => {
+        try {
+          const data = JSON.parse(message.toString());
+          console.log('WebSocket message received', {
+            timestamp: new Date().toISOString(),
+            userId,
+            messageType: data.type,
+            data
+          });
+
+          switch (data.type) {
+            case 'ping':
+              const userConn = connectedUsers.get(userId);
+              if (userConn) {
+                userConn.lastPing = Date.now();
+                ws.send(JSON.stringify({ type: 'pong' }));
+              }
+              break;
+            case 'voice_data':
+              if (!data.channelId) {
+                console.error('Missing channelId in voice data message');
+                break;
+              }
+
+              // Get all users in the same channel
+              const channelUsers = Array.from(connectedUsers.values())
+                .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
+
+              // Forward voice data to all other users in the channel
+              for (const user of channelUsers) {
+                if (user.ws.readyState === WebSocket.OPEN) {
+                  try {
+                    user.ws.send(JSON.stringify({
+                      type: 'voice_data',
+                      fromUserId: userId,
+                      data: data.data
+                    }));
+                  } catch (error) {
+                    console.error('Error sendingvoice data to user', {
+                      userId: user.user.id,
+                      error: handleError(error)
+                    });
+                  }
+                }
+              }
+              break;
+
+            case 'join_channel':
+              if (!data.channelId) {
+                console.error('Missing channelId in join channel message');
+                break;
+              }
+
+              const currentUser = connectedUsers.get(userId);
+              if (currentUser) {
+                currentUser.currentChannel = data.channelId;
+                // Notify other users in the channel
+                const otherUsers = Array.from(connectedUsers.values())
+                  .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
+
+                for (const user of otherUsers) {
+                  if (user.ws.readyState === WebSocket.OPEN) {
+                    user.ws.send(JSON.stringify({
+                      type: 'user_joined',
+                      userId,
+                      username: currentUser.user.username
+                    }));
+                  }
+                }
+              }
+              break;
+            case 'leave_channel':
+              if (!data.channelId) {
+                console.error('Missing channelId in leave channel message');
+                break;
+              }
+
+              const leavingUser = connectedUsers.get(userId);
+              if (leavingUser) {
+                const previousChannel = leavingUser.currentChannel;
+                leavingUser.currentChannel = undefined;
+
+                if (previousChannel) {
+                  console.log('User leaving channel:', {
+                    userId,
+                    username: leavingUser.user.username,
+                    channelId: previousChannel
+                  });
+
+                  // Notify other users in the channel about the user leaving
+                  const remainingUsers = Array.from(connectedUsers.values())
+                    .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
+
+                  for (const user of remainingUsers) {
+                    if (user.ws.readyState === WebSocket.OPEN) {
+                      try {
+                        user.ws.send(JSON.stringify({
+                          type: 'user_left',
+                          userId,
+                          username: leavingUser.user.username,
+                          channelId: previousChannel
+                        }));
+                      } catch (error) {
+                        console.error('Error sending user_left notification:', error);
+                      }
+                    }
+                  }
+
+                  // Force refresh channel members for all remaining users
+                  remainingUsers.forEach(user => {
+                    if (user.ws.readyState === WebSocket.OPEN) {
+                      try {
+                        user.ws.send(JSON.stringify({
+                          type: 'member_update',
+                          channelId: previousChannel
+                        }));
+                      } catch (error) {
+                        console.error('Error sending member_update notification:', error);
+                      }
+                    }
+                  });
+                }
+              }
+              break;
+            default:
+              console.log('Unknown message type', {
+                timestamp: new Date().toISOString(),
+                userId,
+                type: data.type
+              });
+
+          }
+        } catch (error) {
+          console.error('Error processing message', {
+            timestamp: new Date().toISOString(),
+            userId,
+            error: handleError(error),
+            rawMessage: message.toString()
+          });
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid message format'
+          }));
+        }
+      });
+
+      // Handle connection close
+      ws.on('close', () => {
+        console.log('WebSocket connection closed', {
+          timestamp: new Date().toISOString(),
+          userId,
+          username: user.username
+        });
+
+        const closingUser = connectedUsers.get(userId);
+        if (closingUser?.currentChannel) {
+          // Notify other users in the channel about the user disconnecting
+          const remainingUsers = Array.from(connectedUsers.values())
+            .filter(conn =>
+              conn.currentChannel === closingUser.currentChannel &&
+              conn.user.id !== userId
+            );
+
+          for (const user of remainingUsers) {
+            if (user.ws.readyState === WebSocket.OPEN) {
+              user.ws.send(JSON.stringify({
+                type: 'user_left',
+                userId,
+                username: closingUser.user.username,
+                channelId: closingUser.currentChannel,
+                reason: 'disconnected'
+              }));
+            }
+          }
+        }
+
+        connectedUsers.delete(userId);
+      });
+
+      // Handle errors
+      ws.on('error', (error) => {
+        console.error('WebSocket connection error', {
+          timestamp: new Date().toISOString(),
+          userId,
+          error: handleError(error)
+        });
+        connectedUsers.delete(userId);
+      });
+
+    } catch (error) {
+      console.error('WebSocket connection setup error', {
+        timestamp: new Date().toISOString(),
+        error: handleError(error)
+      });
+      ws.close();
+    }
+  });
+
+  // Cleanup inactive connections every 30 seconds
+  setInterval(() => {
+    const now = Date.now();
+    for (const [userId, connection] of connectedUsers) {
+      // Close connection if no ping received in last 60 seconds
+      if (now - connection.lastPing > 60000) {
+        console.log(`Cleaning up inactive connection for user ${userId}`);
+        if (connection.ws.readyState === WebSocket.OPEN) {
+          connection.ws.close();
+        }
+        connectedUsers.delete(userId);
+      }
+    }
+  }, 30000);
 
   return httpServer;
 }

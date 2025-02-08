@@ -29,21 +29,11 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   const [isSearching, setIsSearching] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-  const [connectionErrors, setConnectionErrors] = useState(0);
   const maxRetries = 3;
-  const maxConnectionErrors = 3;
 
   const connectWebSocket = useCallback(() => {
-    if (ws?.readyState === WebSocket.OPEN || retryCount >= maxRetries || connectionErrors >= maxConnectionErrors) {
-      console.log('MediaControls: Skipping WebSocket connection', {
-        isOpen: ws?.readyState === WebSocket.OPEN,
-        retryCount,
-        connectionErrors
-      });
-      return;
-    }
+    if (ws?.readyState === WebSocket.OPEN || retryCount >= maxRetries) return;
 
-    console.log('MediaControls: Attempting WebSocket connection');
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws`;
 
@@ -51,9 +41,8 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
       const socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
-        console.log('MediaControls: WebSocket connected');
+        console.log('MediaControls WebSocket connected');
         setRetryCount(0);
-        setConnectionErrors(0);
         socket.send(JSON.stringify({
           type: 'join_channel',
           channelId
@@ -61,9 +50,9 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
       };
 
       socket.onclose = () => {
-        console.log('MediaControls: WebSocket disconnected');
+        console.log('MediaControls WebSocket disconnected');
         setWs(null);
-        if (retryCount < maxRetries && connectionErrors < maxConnectionErrors) {
+        if (retryCount < maxRetries) {
           const timeout = Math.min(1000 * Math.pow(2, retryCount), 5000);
           setTimeout(() => {
             setRetryCount(prev => prev + 1);
@@ -72,14 +61,7 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
       };
 
       socket.onerror = (error) => {
-        console.error('MediaControls: WebSocket error:', error);
-        setConnectionErrors(prev => prev + 1);
-        if (connectionErrors >= maxConnectionErrors) {
-          toast({
-            description: t('media.connectionError'),
-            variant: "destructive",
-          });
-        }
+        console.error('MediaControls WebSocket error:', error);
       };
 
       socket.onmessage = (event) => {
@@ -93,43 +75,37 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
             }));
           }
         } catch (error) {
-          console.error('MediaControls: Failed to parse WebSocket message:', error);
-          setConnectionErrors(prev => prev + 1);
+          console.error('Failed to parse WebSocket message:', error);
         }
       };
 
       setWs(socket);
     } catch (error) {
-      console.error('MediaControls: Failed to create WebSocket connection:', error);
-      setConnectionErrors(prev => prev + 1);
-      if (retryCount < maxRetries && connectionErrors < maxConnectionErrors) {
+      console.error('Failed to create WebSocket connection:', error);
+      if (retryCount < maxRetries) {
         const timeout = Math.min(1000 * Math.pow(2, retryCount), 5000);
         setTimeout(() => {
           setRetryCount(prev => prev + 1);
         }, timeout);
       }
     }
-  }, [channelId, retryCount, connectionErrors, ws, toast, t]);
+  }, [channelId, retryCount, ws]);
 
   useEffect(() => {
-    if (!ws && connectionErrors < maxConnectionErrors) {
-      connectWebSocket();
-    }
+    connectWebSocket();
 
     return () => {
       if (ws) {
         ws.close();
       }
     };
-  }, [connectWebSocket, ws, connectionErrors]);
+  }, [connectWebSocket, retryCount]);
 
   const { data: channel } = useQuery<Channel>({
     queryKey: ['/api/channels', channelId],
   });
 
   const searchYouTube = async (query: string) => {
-    if (!query.trim()) return;
-
     setIsSearching(true);
     try {
       const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`);
@@ -137,11 +113,6 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
         throw new Error(t('media.searchError'));
       }
       const data = await res.json();
-
-      if (data.error) {
-        throw new Error(data.error.message);
-      }
-
       setSearchResults(data.items.map((item: any) => ({
         id: item.id.videoId,
         title: item.snippet.title,
@@ -150,10 +121,9 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
       })));
     } catch (error) {
       toast({
-        description: error instanceof Error ? error.message : t('media.searchError'),
+        description: t('media.searchError'),
         variant: "destructive",
       });
-      setSearchResults([]);
     } finally {
       setIsSearching(false);
     }
@@ -162,10 +132,6 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   const playMediaMutation = useMutation({
     mutationFn: async ({ url, type }: { url: string, type: "music" | "video" }) => {
       const res = await apiRequest("POST", `/api/channels/${channelId}/media`, { url, type });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || t('media.addError'));
-      }
       return res.json();
     },
     onSuccess: (updatedChannel: Channel) => {
@@ -187,45 +153,22 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
   const skipMediaMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/channels/${channelId}/media/skip`);
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || t('media.skipError'));
-      }
       return res.json();
     },
     onSuccess: (updatedChannel: Channel) => {
       queryClient.setQueryData(['/api/channels', channelId], updatedChannel);
     },
-    onError: (error: Error) => {
-      toast({
-        description: error.message,
-        variant: "destructive",
-      });
-    },
   });
 
   const clearQueueMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("DELETE", `/api/channels/${channelId}/media/queue`);
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || t('media.clearError'));
-      }
+      await apiRequest("DELETE", `/api/channels/${channelId}/media/queue`);
     },
     onSuccess: () => {
       queryClient.setQueryData(['/api/channels', channelId], (oldData: any) => ({
         ...oldData,
         mediaQueue: []
       }));
-      toast({
-        description: t('media.queueCleared'),
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        description: error.message,
-        variant: "destructive",
-      });
     },
   });
 
@@ -242,7 +185,6 @@ export function MediaControls({ channelId, isVoiceChannel }: MediaControlsProps)
                 variant="secondary"
                 className="w-full flex items-center justify-center hover:bg-gray-600/50"
                 size="sm"
-                disabled={connectionErrors >= maxConnectionErrors}
               >
                 {isVoiceChannel ? (
                   <>
