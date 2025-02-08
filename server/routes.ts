@@ -23,17 +23,29 @@ export function registerRoutes(app: Express): Server {
 
   wss.on('connection', (ws: WebSocket, req: any) => {
     try {
+      console.log('New WebSocket connection attempt');
+
       if (!req.session?.passport?.user) {
+        console.log('WebSocket connection rejected: No authenticated user');
         ws.close();
         return;
       }
 
       const userId = req.session.passport.user;
+      console.log('WebSocket connected for user:', userId);
+
       clients.set(userId, ws);
 
       ws.on('close', () => {
+        console.log('WebSocket disconnected for user:', userId);
         clients.delete(userId);
       });
+
+      // Send initial connection success message
+      ws.send(JSON.stringify({
+        type: 'CONNECTED',
+        data: { userId }
+      }));
     } catch (error) {
       console.error('WebSocket connection error:', error);
       ws.close();
@@ -80,16 +92,27 @@ export function registerRoutes(app: Express): Server {
       // WebSocket üzerinden hedef kullanıcıya bildirim gönder
       const targetWs = clients.get(targetUser.id);
       if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-        targetWs.send(JSON.stringify({
-          type: 'FRIEND_REQUEST',
-          data: {
-            ...friendship,
-            sender: {
-              id: req.user.id,
-              username: req.user.username
+        try {
+          targetWs.send(JSON.stringify({
+            type: 'FRIEND_REQUEST',
+            data: {
+              id: friendship.id,
+              senderId: req.user.id,
+              receiverId: targetUser.id,
+              status: friendship.status,
+              createdAt: friendship.createdAt,
+              sender: {
+                id: req.user.id,
+                username: req.user.username
+              }
             }
-          }
-        }));
+          }));
+          console.log('WebSocket friend request notification sent to user:', targetUser.id);
+        } catch (wsError) {
+          console.error('WebSocket send error:', wsError);
+        }
+      } else {
+        console.log('Target user WebSocket not found or not open:', targetUser.id);
       }
 
       res.status(201).json(friendship);
@@ -230,7 +253,6 @@ export function registerRoutes(app: Express): Server {
       res.status(400).json({ error: handleError(error) });
     }
   });
-
 
 
   app.get("/api/servers/:serverId/members", async (req, res) => {
@@ -816,8 +838,7 @@ export function registerRoutes(app: Express): Server {
     try {
       await storage.deleteServer(parseInt(req.params.serverId), req.user.id);
       res.sendStatus(200);
-    } catch (error) {
-      console.error('Delete server error:', handleError(error));
+    } catch (error) {      console.error('Delete server error:', handleError(error));
       res.status(400).json({ error: handleError(error) });
     }
   });

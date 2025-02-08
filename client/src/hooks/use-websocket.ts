@@ -10,18 +10,29 @@ export function useWebSocket() {
   const { t } = useLanguage();
 
   useEffect(() => {
+    console.log('Setting up WebSocket connection...');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
+    ws.onopen = () => {
+      console.log('WebSocket connection established');
+    };
+
     ws.onmessage = (event) => {
       try {
+        console.log('WebSocket message received:', event.data);
         const message = JSON.parse(event.data);
 
         switch (message.type) {
+          case 'CONNECTED':
+            console.log('WebSocket connection confirmed for user:', message.data.userId);
+            break;
+
           case 'FRIEND_REQUEST':
+            console.log('Friend request received:', message.data);
             // Friend request bildirimi geldiğinde friend requests query'sini invalidate et
             queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
 
@@ -33,6 +44,7 @@ export function useWebSocket() {
               }),
             });
             break;
+
           case 'FRIEND_REQUEST_ACCEPTED':
             // Arkadaşlık isteği kabul edildiğinde friends listesini ve requests'i güncelle
             queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
@@ -46,6 +58,7 @@ export function useWebSocket() {
               }),
             });
             break;
+
           case 'FRIENDSHIP_REMOVED':
             // Arkadaşlık silindiğinde friends listesini güncelle
             queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
@@ -60,8 +73,13 @@ export function useWebSocket() {
       console.error('WebSocket error:', error);
     };
 
+    ws.onclose = () => {
+      console.log('WebSocket connection closed');
+    };
+
     return () => {
       if (wsRef.current) {
+        console.log('Cleaning up WebSocket connection');
         wsRef.current.close();
       }
     };
