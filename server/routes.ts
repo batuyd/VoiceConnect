@@ -103,44 +103,40 @@ export function registerRoutes(app: Express): Server {
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
       console.log('Created friend request:', friendship);
 
-      // WebSocket üzerinden hedef kullanıcıya bildirim gönder
+      // Hedef kullanıcıya bildirim gönder
       const targetWs = clients.get(targetUser.id);
-      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-        try {
-          targetWs.send(JSON.stringify({
-            type: 'FRIEND_REQUEST',
-            data: {
-              id: friendship.id,
-              senderId: req.user.id,
-              receiverId: targetUser.id,
-              status: friendship.status,
-              createdAt: friendship.createdAt,
-              sender: {
-                id: req.user.id,
-                username: req.user.username
-              }
+      if (targetWs?.readyState === WebSocket.OPEN) {
+        targetWs.send(JSON.stringify({
+          type: 'FRIEND_REQUEST',
+          data: {
+            id: friendship.id,
+            senderId: req.user.id,
+            receiverId: targetUser.id,
+            status: friendship.status,
+            createdAt: friendship.createdAt,
+            sender: {
+              id: req.user.id,
+              username: req.user.username
             }
-          }));
-          console.log('WebSocket friend request notification sent to user:', targetUser.id);
-        } catch (wsError) {
-          console.error('WebSocket send error:', wsError);
-        }
-      } else {
-        console.log('Target user WebSocket not found or not open:', targetUser.id);
+          }
+        }));
+        console.log('WebSocket friend request notification sent to user:', targetUser.id);
       }
 
       // Gönderen kullanıcıya da bildirim gönder
       const senderWs = clients.get(req.user.id);
-      if (senderWs && senderWs.readyState === WebSocket.OPEN) {
-        try {
-          senderWs.send(JSON.stringify({
-            type: 'FRIEND_REQUEST_SENT',
-            data: friendship
-          }));
-          console.log('WebSocket friend request sent notification sent to sender:', req.user.id);
-        } catch (wsError) {
-          console.error('WebSocket send error:', wsError);
-        }
+      if (senderWs?.readyState === WebSocket.OPEN) {
+        senderWs.send(JSON.stringify({
+          type: 'FRIEND_REQUEST_SENT',
+          data: {
+            ...friendship,
+            sender: {
+              id: req.user.id,
+              username: req.user.username
+            }
+          }
+        }));
+        console.log('WebSocket friend request sent notification sent to sender:', req.user.id);
       }
 
       res.status(201).json(friendship);
@@ -785,23 +781,19 @@ export function registerRoutes(app: Express): Server {
 
       await storage.acceptFriendRequest(friendshipId);
 
-      // WebSocket üzerinden arkadaşlık durumunun güncellendiğini bildirme
-      const targetWs = clients.get(friendship.senderId);
-      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-        try {
-          targetWs.send(JSON.stringify({
-            type: 'FRIEND_REQUEST_ACCEPTED',
-            data: {
-              friendshipId,
-              userId: req.user.id,
-              username: req.user.username,
-              senderId: friendship.senderId,
-              receiverId: friendship.receiverId
-            }
-          }));
-        } catch (wsError) {
-          console.error('WebSocket send error:', wsError);
-        }
+      // İsteği gönderen kullanıcıya bildirim gönder
+      const senderWs = clients.get(friendship.senderId);
+      if (senderWs?.readyState === WebSocket.OPEN) {
+        senderWs.send(JSON.stringify({
+          type: 'FRIEND_REQUEST_ACCEPTED',
+          data: {
+            friendshipId,
+            userId: req.user.id,
+            username: req.user.username,
+            senderId: friendship.senderId,
+            receiverId: friendship.receiverId
+          }
+        }));
       }
 
       res.sendStatus(200);
@@ -822,25 +814,21 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).json({ message: "Friendship request not found" });
       }
 
-      await storage.rejectFriendRequest(parseInt(req.params.friendshipId));
+      await storage.rejectFriendRequest(friendshipId);
 
-      // WebSocket üzerinden arkadaşlık isteğinin reddedildiğini bildirme
-      const targetWs = clients.get(friendship.senderId);
-      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-        try {
-          targetWs.send(JSON.stringify({
-            type: 'FRIEND_REQUEST_REJECTED',
-            data: {
-              friendshipId,
-              userId: req.user.id,
-              username: req.user.username,
-              senderId: friendship.senderId,
-              receiverId: friendship.receiverId
-            }
-          }));
-        } catch (wsError) {
-          console.error('WebSocket send error:', wsError);
-        }
+      // İsteği gönderen kullanıcıya bildirim gönder
+      const senderWs = clients.get(friendship.senderId);
+      if (senderWs?.readyState === WebSocket.OPEN) {
+        senderWs.send(JSON.stringify({
+          type: 'FRIEND_REQUEST_REJECTED',
+          data: {
+            friendshipId,
+            userId: req.user.id,
+            username: req.user.username,
+            senderId: friendship.senderId,
+            receiverId: friendship.receiverId
+          }
+        }));
       }
 
       res.sendStatus(200);
