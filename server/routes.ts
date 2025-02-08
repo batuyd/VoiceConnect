@@ -294,18 +294,16 @@ export function registerRoutes(app: Express): Server {
 
     try {
       const channelId = parseInt(req.params.channelId);
-      const message = await storage.createMessage({
-        content: req.body.content,
-        channelId: channelId,
-        userId: req.user.id
-      });
+      const message = await storage.createMessage(
+        channelId,
+        req.user.id,
+        req.body.content
+      );
 
       const achievements = await storage.getUserAchievements(req.user.id);
       const messageAchievement = achievements.find(a => a.type === "messages");
       if (messageAchievement) {
         await storage.updateUserAchievement(req.user.id, "messages", messageAchievement.progress + 1);
-      } else {
-        await storage.createUserAchievement(req.user.id, "messages", 1);
       }
 
       res.status(201).json(message);

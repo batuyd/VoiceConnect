@@ -385,17 +385,20 @@ export class DatabaseStorage implements IStorage {
     return insertedMessage;
   }
   async getMessages(channelId: number): Promise<MessageWithReactions[]> {
-    const messages = await db.select().from(messages).where(eq(messages.channelId, channelId)).orderBy(messages.createdAt);
+    const messagesResult = await db.select().from(messages).where(eq(messages.channelId, channelId)).orderBy(messages.createdAt);
+
     return Promise.all(
-      messages.map(async message => {
+      messagesResult.map(async message => {
         const [user] = await db.select().from(users).where(eq(users.id, message.userId));
-        const reactions = await db.select().from(reactions).where(eq(reactions.messageId, message.id));
+        const reactionsResult = await db.select().from(reactions).where(eq(reactions.messageId, message.id));
+
         const reactionsWithUsers = await Promise.all(
-          reactions.map(async reaction => ({
+          reactionsResult.map(async reaction => ({
             ...reaction,
             user: (await this.getUser(reaction.userId))!
           }))
         );
+
         return {
           ...message,
           user: user!,
