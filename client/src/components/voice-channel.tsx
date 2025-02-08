@@ -35,6 +35,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionErrors, setConnectionErrors] = useState(0);
   const [audioInitialized, setAudioInitialized] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
@@ -96,6 +97,9 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   }, []);
 
   const handleLeaveChannel = useCallback(async () => {
+    if (isDisconnecting) return;
+    setIsDisconnecting(true);
+
     console.log('Leaving channel:', channel.id);
     clearTimeout(reconnectTimeoutRef.current);
     clearTimeout(setupTimeoutRef.current);
@@ -130,9 +134,10 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     setAudioInitialized(false);
     retryCount.current = 0;
     setConnectionErrors(0);
+    setIsDisconnecting(false);
 
     playLeaveSound();
-  }, [channel.id, playLeaveSound, cleanupAudioResources]);
+  }, [channel.id, playLeaveSound, cleanupAudioResources, isDisconnecting]);
 
   const setupAudioStream = useCallback(async () => {
     if (!selectedInputDevice || !isJoined || !audioPermissionGranted || !wsConnected || !channel.id) {
@@ -151,75 +156,42 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       return;
     }
 
+    if (!stream.current || !audioContext.current || !gainNode.current) {
+      console.log('Audio resources not properly initialized');
+      return;
+    }
+
+    console.log('Setting up media recorder with existing audio stream');
+
     try {
-      console.log('Setting up audio stream with device:', selectedInputDevice);
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: { exact: selectedInputDevice },
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+      const recorder = new MediaRecorder(stream.current, {
+        mimeType: 'audio/webm;codecs=opus'
       });
 
-      stream.current = mediaStream;
-
-      if (!audioContext.current) {
-        audioContext.current = new AudioContext();
-      }
-
-      const source = audioContext.current.createMediaStreamSource(mediaStream);
-      gainNode.current = audioContext.current.createGain();
-      gainNode.current.gain.value = isMuted ? 0 : 1;
-      source.connect(gainNode.current);
-      gainNode.current.connect(audioContext.current.destination);
-
-      console.log('Audio context setup complete');
-      setAudioInitialized(true);
-
-      // Delay starting the media recorder to ensure stable connection
-      setupTimeoutRef.current = setTimeout(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          console.log('Starting media recorder');
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN && !isMuted) {
           try {
-            const recorder = new MediaRecorder(mediaStream, {
-              mimeType: 'audio/webm;codecs=opus'
-            });
-
-            recorder.ondataavailable = (event) => {
-              if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN && !isMuted) {
-                try {
-                  wsRef.current.send(JSON.stringify({
-                    type: 'voice_data',
-                    channelId: channel.id,
-                    data: event.data
-                  }));
-                } catch (error) {
-                  console.error('Error sending voice data:', error);
-                  if (error instanceof Error && error.message.includes('closed')) {
-                    handleLeaveChannel();
-                  }
-                }
-              }
-            };
-
-            mediaRecorderRef.current = recorder;
-            recorder.start(100);
+            wsRef.current.send(JSON.stringify({
+              type: 'voice_data',
+              channelId: channel.id,
+              data: event.data
+            }));
           } catch (error) {
-            console.error('Error starting media recorder:', error);
-            toast({
-              description: t('voice.deviceError'),
-              variant: "destructive",
-            });
-            setConnectionErrors(prev => prev + 1);
+            console.error('Error sending voice data:', error);
+            if (error instanceof Error && error.message.includes('closed')) {
+              handleLeaveChannel();
+            }
           }
         }
-      }, 2500); // Increased delay for more stable audio initialization
+      };
 
+      mediaRecorderRef.current = recorder;
+      recorder.start(100);
+      console.log('Media recorder started successfully');
     } catch (error) {
-      console.error('Audio setup error:', error);
+      console.error('Error setting up media recorder:', error);
       toast({
-        description: t('voice.deviceAccessError'),
+        description: t('voice.deviceError'),
         variant: "destructive",
       });
       setConnectionErrors(prev => prev + 1);
@@ -242,13 +214,14 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   ]);
 
   const connectWebSocket = useCallback(async () => {
-    if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries || connectionErrors >= maxConnectionErrors) {
+    if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries || connectionErrors >= maxConnectionErrors || isDisconnecting) {
       console.log('Skipping WebSocket connection:', {
         isJoined,
         userId: user?.id,
         isConnecting,
         retryCount: retryCount.current,
-        connectionErrors
+        connectionErrors,
+        isDisconnecting
       });
       return;
     }
@@ -268,6 +241,11 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (!isJoined) {
+          ws.close();
+          return;
+        }
+
         console.log('WebSocket connected, joining channel:', channel.id);
         setWsConnected(true);
         setIsConnecting(false);
@@ -276,6 +254,11 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
         // Delay joining to ensure stable connection
         joinTimeoutRef.current = setTimeout(() => {
+          if (!isJoined) {
+            ws.close();
+            return;
+          }
+
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'join_channel',
@@ -286,6 +269,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       };
 
       ws.onclose = () => {
+        if (isDisconnecting) return;
+
         console.log('WebSocket disconnected');
         clearTimeout(joinTimeoutRef.current);
         setWsConnected(false);
@@ -295,7 +280,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
           const timeout = Math.min(1000 * Math.pow(2, retryCount.current), 5000);
           retryCount.current++;
           reconnectTimeoutRef.current = setTimeout(() => {
-            if (isJoined) {
+            if (isJoined && !isDisconnecting) {
               connectWebSocket();
             }
           }, timeout);
@@ -305,6 +290,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       };
 
       ws.onerror = (error) => {
+        if (isDisconnecting) return;
+
         console.error('WebSocket error:', error);
         clearTimeout(joinTimeoutRef.current);
         setConnectionErrors(prev => prev + 1);
@@ -312,6 +299,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       };
 
       ws.onmessage = async (event) => {
+        if (!isJoined || isDisconnecting) return;
+
         try {
           const data = JSON.parse(event.data);
           console.log('Received WebSocket message:', data);
@@ -380,7 +369,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     playJoinSound,
     playLeaveSound,
     toast,
-    handleLeaveChannel
+    handleLeaveChannel,
+    isDisconnecting
   ]);
 
   const requestAudioPermissions = useCallback(async () => {
@@ -408,16 +398,60 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       const hasPermission = await requestAudioPermissions();
       if (hasPermission) {
         setIsJoined(true);
-        playJoinSound();
+        setAudioPermissionGranted(true);
+        try {
+          // Initialize audio first
+          const mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: { exact: selectedInputDevice },
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          });
+
+          stream.current = mediaStream;
+          audioContext.current = new AudioContext();
+          const source = audioContext.current.createMediaStreamSource(mediaStream);
+          gainNode.current = audioContext.current.createGain();
+          gainNode.current.gain.value = isMuted ? 0 : 1;
+          source.connect(gainNode.current);
+          gainNode.current.connect(audioContext.current.destination);
+          setAudioInitialized(true);
+
+          // Then establish WebSocket connection
+          connectWebSocket();
+          playJoinSound();
+        } catch (error) {
+          console.error('Failed to initialize audio:', error);
+          toast({
+            description: t('voice.deviceError'),
+            variant: "destructive",
+          });
+          setIsJoined(false);
+          setAudioPermissionGranted(false);
+          await cleanupAudioResources();
+        }
       }
     }
-  }, [isJoined, handleLeaveChannel, requestAudioPermissions, playJoinSound]);
+  }, [
+    isJoined,
+    handleLeaveChannel,
+    requestAudioPermissions,
+    selectedInputDevice,
+    isMuted,
+    connectWebSocket,
+    playJoinSound,
+    cleanupAudioResources,
+    toast,
+    t
+  ]);
 
   useEffect(() => {
-    if (isJoined && !wsConnected && !isConnecting) {
+    if (isJoined && !wsConnected && !isConnecting && !isDisconnecting) {
       connectWebSocket();
     }
-  }, [isJoined, wsConnected, isConnecting, connectWebSocket]);
+  }, [isJoined, wsConnected, isConnecting, connectWebSocket, isDisconnecting]);
 
   useEffect(() => {
     if (gainNode.current) {
