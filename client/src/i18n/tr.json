@@ -26,6 +26,33 @@
     "noRequests": "Arkadaşlık isteği yok",
     "empty": "Henüz arkadaşınız yok"
   },
+  "profile": {
+    "title": "Profil Ayarları",
+    "avatarUrl": "Profil Resmi URL",
+    "nickname": "Takma Ad",
+    "status": "Durum",
+    "statusPlaceholder": "Aklından ne geçiyor?",
+    "bio": "Hakkında",
+    "age": "Yaş",
+    "socialLinks": "Sosyal Medya Bağlantıları",
+    "discord": "Discord",
+    "twitter": "Twitter",
+    "instagram": "Instagram",
+    "website": "Web Sitesi",
+    "privacy": "Gizlilik Ayarları",
+    "privateProfile": "Özel Profil",
+    "showLastSeen": "Son Görülme Zamanını Göster",
+    "saveChanges": "Değişiklikleri Kaydet",
+    "updateSuccess": "Profil Güncellendi",
+    "profileUpdated": "Profiliniz başarıyla güncellendi",
+    "updateError": "Güncelleme Başarısız",
+    "level": {
+      "title": "Seviye & Deneyim"
+    },
+    "gifts": {
+      "title": "Hediyeler & Başarılar"
+    }
+  },
   "auth": {
     "login": "Giriş Yap",
     "register": "Kayıt Ol",

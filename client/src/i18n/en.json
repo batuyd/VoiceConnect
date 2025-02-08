@@ -26,6 +26,33 @@
     "noRequests": "No friend requests",
     "empty": "You don't have any friends yet"
   },
+  "profile": {
+    "title": "Profile Settings",
+    "avatarUrl": "Avatar URL",
+    "nickname": "Nickname",
+    "status": "Status",
+    "statusPlaceholder": "What's on your mind?",
+    "bio": "Bio",
+    "age": "Age",
+    "socialLinks": "Social Links",
+    "discord": "Discord",
+    "twitter": "Twitter",
+    "instagram": "Instagram",
+    "website": "Website",
+    "privacy": "Privacy Settings",
+    "privateProfile": "Private Profile",
+    "showLastSeen": "Show Last Seen",
+    "saveChanges": "Save Changes",
+    "updateSuccess": "Profile Updated",
+    "profileUpdated": "Your profile has been updated successfully",
+    "updateError": "Update Failed",
+    "level": {
+      "title": "Level & Experience"
+    },
+    "gifts": {
+      "title": "Gifts & Achievements"
+    }
+  },
   "auth": {
     "login": "Login",
     "register": "Register",
