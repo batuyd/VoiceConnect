@@ -54,13 +54,33 @@ export function ChannelList({
 
   const createChannelMutation = useMutation({
     mutationFn: async (data: typeof newChannel) => {
-      const res = await apiRequest("POST", `/api/servers/${serverId}/channels`, data);
-      return res.json();
+      try {
+        const res = await apiRequest("POST", `/api/servers/${serverId}/channels`, data);
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.message || "Failed to create channel");
+        }
+        return res.json();
+      } catch (error: any) {
+        console.error('Create channel error:', error);
+        throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/servers/${serverId}/channels`] });
       setIsOpen(false);
       setNewChannel({ name: "", isVoice: false });
+      toast({
+        title: t('server.channelCreated'),
+        description: t('server.channelCreatedDesc'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('server.channelError'),
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -96,6 +116,60 @@ export function ChannelList({
         <div className="flex gap-2">
           {isOwner && (
             <>
+              <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{t('server.createChannel')}</DialogTitle>
+                  </DialogHeader>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!newChannel.name.trim()) {
+                        toast({
+                          title: t('server.error'),
+                          description: t('server.channelNameRequired'),
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      createChannelMutation.mutate(newChannel);
+                    }}
+                    className="space-y-4"
+                  >
+                    <div>
+                      <Label htmlFor="channelName">{t('server.channelName')}</Label>
+                      <Input
+                        id="channelName"
+                        value={newChannel.name}
+                        onChange={(e) => setNewChannel(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder={t('server.channelNamePlaceholder')}
+                      />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="isVoice"
+                        checked={newChannel.isVoice}
+                        onCheckedChange={(checked) => 
+                          setNewChannel(prev => ({ ...prev, isVoice: checked }))
+                        }
+                      />
+                      <Label htmlFor="isVoice">{t('server.voiceChannel')}</Label>
+                    </div>
+                    <Button 
+                      type="submit" 
+                      disabled={createChannelMutation.isPending || !newChannel.name.trim()}
+                    >
+                      {t('server.createChannel')}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+
               <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
                 <DialogTrigger asChild>
                   <Button variant="ghost" size="icon">
@@ -138,48 +212,6 @@ export function ChannelList({
                       disabled={!selectedFriendId || inviteFriendMutation.isPending}
                     >
                       {t('server.sendInvite')}
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
-
-              <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>{t('server.createChannel')}</DialogTitle>
-                  </DialogHeader>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      createChannelMutation.mutate(newChannel);
-                    }}
-                    className="space-y-4"
-                  >
-                    <div>
-                      <Label htmlFor="channelName">{t('server.channelName')}</Label>
-                      <Input
-                        id="channelName"
-                        value={newChannel.name}
-                        onChange={(e) => setNewChannel(prev => ({ ...prev, name: e.target.value }))}
-                      />
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        id="isVoice"
-                        checked={newChannel.isVoice}
-                        onCheckedChange={(checked) => 
-                          setNewChannel(prev => ({ ...prev, isVoice: checked }))
-                        }
-                      />
-                      <Label htmlFor="isVoice">{t('server.voiceChannel')}</Label>
-                    </div>
-                    <Button type="submit" disabled={createChannelMutation.isPending}>
-                      {t('server.createChannel')}
                     </Button>
                   </form>
                 </DialogContent>

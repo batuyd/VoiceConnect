@@ -48,7 +48,7 @@ export function registerRoutes(app: Express): Server {
 
       // Check if both users are members of the channel
       const members = await storage.getServerMembers(channel.serverId);
-      const isValidConnection = members.some(m => m.id === targetUserId) && 
+      const isValidConnection = members.some(m => m.id === targetUserId) &&
                               members.some(m => m.id === req.user!.id);
 
       if (!isValidConnection) {
@@ -116,22 +116,21 @@ export function registerRoutes(app: Express): Server {
     try {
       const server = await storage.getServer(parseInt(req.params.serverId));
       if (!server || server.ownerId !== req.user.id) {
-        return res.sendStatus(403);
+        return res.status(403).json({ message: "Only server owner can create channels" });
       }
-      // Premium kullanıcı kontrolü
-      if (req.body.isPrivate) {
-        const hasSubscription = await storage.hasActiveSubscription(req.user.id);
-        if (!hasSubscription) {
-          return res.status(403).json({ error: "Bu özellik sadece premium üyelere açıktır" });
-        }
+
+      if (!req.body.name || typeof req.body.name !== 'string' || !req.body.name.trim()) {
+        return res.status(400).json({ message: "Channel name is required" });
       }
 
       const channel = await storage.createChannel(
-        req.body.name,
+        req.body.name.trim(),
         parseInt(req.params.serverId),
-        req.body.isVoice,
-        req.body.isPrivate
+        req.body.isVoice || false,
+        req.body.isPrivate || false
       );
+
+      console.log('Created channel:', channel);
       res.status(201).json(channel);
     } catch (error) {
       console.error('Create channel error:', handleError(error));
