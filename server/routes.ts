@@ -82,7 +82,13 @@ export function registerRoutes(app: Express): Server {
       if (targetWs && targetWs.readyState === WebSocket.OPEN) {
         targetWs.send(JSON.stringify({
           type: 'FRIEND_REQUEST',
-          data: friendship
+          data: {
+            ...friendship,
+            sender: {
+              id: req.user.id,
+              username: req.user.username
+            }
+          }
         }));
       }
 
@@ -115,7 +121,7 @@ export function registerRoutes(app: Express): Server {
       // Check if both users are members of the channel
       const members = await storage.getServerMembers(channel.serverId);
       const isValidConnection = members.some(m => m.id === targetUserId) &&
-                              members.some(m => m.id === req.user!.id);
+                                members.some(m => m.id === req.user!.id);
 
       if (!isValidConnection) {
         console.log('Invalid connection attempt between users:', req.user.id, targetUserId);
@@ -728,6 +734,23 @@ export function registerRoutes(app: Express): Server {
       }
 
       await storage.acceptFriendRequest(friendshipId);
+
+      // WebSocket üzerinden arkadaşlık durumunun güncellendiğini bildirme
+      const targetWs = clients.get(friendship.senderId);
+      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+        try {
+          targetWs.send(JSON.stringify({
+            type: 'FRIEND_REQUEST_ACCEPTED',
+            data: {
+              friendshipId,
+              userId: req.user.id,
+              username: req.user.username
+            }
+          }));
+        } catch (wsError) {
+          console.error('WebSocket send error:', wsError);
+        }
+      }
 
       res.sendStatus(200);
     } catch (error: any) {

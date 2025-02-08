@@ -170,12 +170,12 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq(users.id, senderId));
 
+    // Send email notification to receiver
     const [receiver] = await db
       .select()
       .from(users)
       .where(eq(users.id, receiverId));
 
-    // Send email notification to receiver
     if (receiver && receiver.email) {
       const { subject, html } = emailTemplates.friendRequest(sender.username);
       await sendEmail({
@@ -189,7 +189,7 @@ export class DatabaseStorage implements IStorage {
 
     return {
       ...friendship,
-      sender,
+      sender
     };
   }
 
@@ -821,8 +821,26 @@ export class DatabaseStorage implements IStorage {
     }
   }
   async getFriendshipById(friendshipId: number): Promise<Friendship | undefined> {
-    const [friendship] = await db.select({ friendship: friendships, sender: users }).from(friendships).innerJoin(users, eq(users.id, friendships.senderId)).where(eq(friendships.id, friendshipId));
-    return friendship;
+    const [result] = await db
+      .select({
+        id: friendships.id,
+        senderId: friendships.senderId,
+        receiverId: friendships.receiverId,
+        status: friendships.status,
+        createdAt: friendships.createdAt,
+        sender: users
+      })
+      .from(friendships)
+      .innerJoin(users, eq(users.id, friendships.senderId))
+      .where(eq(friendships.id, friendshipId));
+
+    if (!result) return undefined;
+
+    const { sender, ...friendship } = result;
+    return {
+      ...friendship,
+      sender
+    };
   }
 
   async deleteServer(serverId: number, userId: number): Promise<void> {

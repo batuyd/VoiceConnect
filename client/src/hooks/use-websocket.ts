@@ -33,6 +33,18 @@ export function useWebSocket() {
               }),
             });
             break;
+          case 'FRIEND_REQUEST_ACCEPTED':
+            // Arkadaşlık isteği kabul edildiğinde friends listesini güncelle
+            queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
+
+            // Kullanıcıya toast bildirimi göster
+            toast({
+              title: t('friend.requestAccepted'),
+              description: t('friend.nowFriends', { 
+                username: message.data.username 
+              }),
+            });
+            break;
           case 'FRIENDSHIP_REMOVED':
             // Arkadaşlık silindiğinde friends listesini güncelle
             queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
