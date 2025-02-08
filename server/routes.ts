@@ -92,28 +92,28 @@ export function registerRoutes(app: Express): Server {
 
       console.log('User authenticated successfully:', userId);
 
-      // Varolan bağlantıyı kapat
+      // Close existing connection
       const existingConnection = connectedUsers.get(userId);
       if (existingConnection?.ws.readyState === WebSocket.OPEN) {
         console.log('Closing existing connection for user:', userId);
         existingConnection.ws.close();
       }
 
-      // Yeni bağlantıyı ayarla
+      // Set up new connection
       connectedUsers.set(userId, {
         ws,
         user,
         lastPing: Date.now()
       });
 
-      // Başarılı bağlantı bildirimi
+      // Send connection success notification
       ws.send(JSON.stringify({
         type: 'connection_success',
         userId: user.id,
         username: user.username
       }));
 
-      // Mesaj işleme
+      // Message handling
       ws.on('message', async (message) => {
         try {
           const data = JSON.parse(message.toString());
@@ -155,7 +155,7 @@ export function registerRoutes(app: Express): Server {
                 userConn.currentChannel = data.channelId;
                 console.log(`User ${userId} joined channel ${data.channelId}`);
 
-                // Diğer kullanıcılara bildir
+                // Notify other users
                 const otherUsers = Array.from(connectedUsers.values())
                   .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
 
@@ -169,7 +169,7 @@ export function registerRoutes(app: Express): Server {
                   }
                 }
 
-                // Başarılı katılma bildirimi
+                // Send join success notification
                 joinTimeout = setTimeout(() => {
                   if (ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
@@ -181,7 +181,7 @@ export function registerRoutes(app: Express): Server {
                       }))
                     }));
                   }
-                }, 500);
+                }, 2000); // Increased delay for better stability
               }
               break;
 
@@ -200,7 +200,7 @@ export function registerRoutes(app: Express): Server {
               if (leavingUser.currentChannel === data.channelId) {
                 console.log(`User ${userId} left channel ${data.channelId}`);
 
-                // Diğer kullanıcılara bildir
+                // Notify other users
                 const remainingUsers = Array.from(connectedUsers.values())
                   .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
 
@@ -231,7 +231,7 @@ export function registerRoutes(app: Express): Server {
                 break;
               }
 
-              // Ses verisini diğer kullanıcılara ilet
+              // Forward voice data to other users
               const channelUsers = Array.from(connectedUsers.values())
                 .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
 
@@ -266,7 +266,7 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      // Bağlantı kapandığında
+      // Connection closed
       ws.on('close', () => {
         console.log(`WebSocket connection closed for user ${userId}`);
         const userConnection = connectedUsers.get(userId);
@@ -291,7 +291,7 @@ export function registerRoutes(app: Express): Server {
         connectedUsers.delete(userId);
       });
 
-      // Bağlantı hataları
+      // Connection errors
       ws.on('error', (error) => {
         console.error('WebSocket error for user', userId, ':', error);
         ws.close();

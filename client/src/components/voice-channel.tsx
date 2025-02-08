@@ -46,6 +46,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const maxConnectionErrors = 3;
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const setupTimeoutRef = useRef<NodeJS.Timeout>();
+  const joinTimeoutRef = useRef<NodeJS.Timeout>();
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
@@ -56,6 +57,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const cleanupAudioResources = useCallback(async () => {
     console.log('Cleaning up audio resources');
     clearTimeout(setupTimeoutRef.current);
+    clearTimeout(joinTimeoutRef.current);
 
     try {
       if (mediaRecorderRef.current?.state === 'recording') {
@@ -97,6 +99,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     console.log('Leaving channel:', channel.id);
     clearTimeout(reconnectTimeoutRef.current);
     clearTimeout(setupTimeoutRef.current);
+    clearTimeout(joinTimeoutRef.current);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       try {
@@ -211,7 +214,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
             setConnectionErrors(prev => prev + 1);
           }
         }
-      }, 1500); // Increased delay to ensure more stable connection
+      }, 2500); // Increased delay for more stable audio initialization
 
     } catch (error) {
       console.error('Audio setup error:', error);
@@ -264,8 +267,6 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      let joinTimeout: NodeJS.Timeout;
-
       ws.onopen = () => {
         console.log('WebSocket connected, joining channel:', channel.id);
         setWsConnected(true);
@@ -274,19 +275,19 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         retryCount.current = 0;
 
         // Delay joining to ensure stable connection
-        joinTimeout = setTimeout(() => {
+        joinTimeoutRef.current = setTimeout(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'join_channel',
               channelId: channel.id
             }));
           }
-        }, 1000);
+        }, 2000); // Increased to match server timeout
       };
 
       ws.onclose = () => {
         console.log('WebSocket disconnected');
-        clearTimeout(joinTimeout);
+        clearTimeout(joinTimeoutRef.current);
         setWsConnected(false);
         wsRef.current = null;
 
@@ -305,7 +306,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        clearTimeout(joinTimeout);
+        clearTimeout(joinTimeoutRef.current);
         setConnectionErrors(prev => prev + 1);
         setIsConnecting(false);
       };
@@ -428,6 +429,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     return () => {
       clearTimeout(reconnectTimeoutRef.current);
       clearTimeout(setupTimeoutRef.current);
+      clearTimeout(joinTimeoutRef.current);
       if (isJoined) {
         handleLeaveChannel();
       }
