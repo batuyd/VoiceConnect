@@ -9,7 +9,7 @@ async function throwIfResNotOk(res: Response) {
     } catch {
       // If JSON parsing fails, use the status text
     }
-    throw new Error(`${res.status}: ${errorMessage}`);
+    throw new Error(errorMessage);
   }
 }
 
@@ -35,7 +35,7 @@ export const getQueryFn = <TData = unknown>({
   on401,
 }: {
   on401: UnauthorizedBehavior;
-}): QueryFunction<TData, [string]> => {
+}): QueryFunction<TData, readonly [string]> => {
   return async ({ queryKey: [url] }) => {
     const res = await fetch(url, {
       credentials: "include",
