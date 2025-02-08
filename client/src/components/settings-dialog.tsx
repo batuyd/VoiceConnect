@@ -13,7 +13,7 @@ import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 
 export function SettingsDialog() {
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const {
@@ -35,8 +35,8 @@ export function SettingsDialog() {
     } catch (error) {
       console.error('Test sound failed:', error);
       toast({
-        title: 'Ses Testi Başarısız',
-        description: 'Ses testi çalınamadı. Lütfen ses ayarlarınızı kontrol edin.',
+        title: t('audio.testFailed'),
+        description: t('audio.testFailedDesc'),
         variant: 'destructive',
       });
     }
@@ -55,13 +55,14 @@ export function SettingsDialog() {
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Ayarlar</DialogTitle>
+          <DialogTitle>{t('settings.title')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-6">
+          {/* Language Settings */}
           <div>
             <div className="flex items-center gap-2 mb-4">
               <Globe className="h-4 w-4" />
-              <h4 className="font-medium">Dil Ayarları</h4>
+              <h4 className="font-medium">{t('settings.language')}</h4>
             </div>
             <RadioGroup
               value={language}
@@ -81,8 +82,9 @@ export function SettingsDialog() {
 
           <Separator />
 
+          {/* Theme Settings */}
           <div>
-            <h4 className="font-medium mb-4">Tema Ayarları</h4>
+            <h4 className="font-medium mb-4">{t('settings.theme')}</h4>
             <RadioGroup
               value={theme}
               onValueChange={(value) => setTheme(value as "light" | "dark" | "system")}
@@ -92,21 +94,21 @@ export function SettingsDialog() {
                 <RadioGroupItem value="light" id="light" />
                 <Label htmlFor="light" className="flex items-center gap-2">
                   <Sun className="h-4 w-4" />
-                  Açık Tema
+                  {t('settings.theme.light')}
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="dark" id="dark" />
                 <Label htmlFor="dark" className="flex items-center gap-2">
                   <Moon className="h-4 w-4" />
-                  Koyu Tema
+                  {t('settings.theme.dark')}
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="system" id="system" />
                 <Label htmlFor="system" className="flex items-center gap-2">
                   <Monitor className="h-4 w-4" />
-                  Sistem Teması
+                  {t('settings.theme.system')}
                 </Label>
               </div>
             </RadioGroup>
@@ -114,24 +116,25 @@ export function SettingsDialog() {
 
           <Separator />
 
+          {/* Audio Settings */}
           <div>
-            <h4 className="font-medium mb-4">Ses Ayarları</h4>
+            <h4 className="font-medium mb-4">{t('settings.audio.title')}</h4>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Giriş Cihazı</Label>
+                <Label>{t('settings.audio.input')}</Label>
                 <Select
                   value={selectedInputDevice}
                   onValueChange={setSelectedInputDevice}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Mikrofon seçin" />
+                    <SelectValue placeholder={t('settings.audio.selectInput')} />
                   </SelectTrigger>
                   <SelectContent>
                     {audioDevices
                       .filter(device => device.kind === 'audioinput')
                       .map(device => (
                         <SelectItem key={device.deviceId} value={device.deviceId}>
-                          {device.label || `Mikrofon ${device.deviceId.slice(0, 5)}...`}
+                          {device.label || t('settings.audio.defaultDevice')}
                         </SelectItem>
                       ))}
                   </SelectContent>
@@ -139,20 +142,20 @@ export function SettingsDialog() {
               </div>
 
               <div className="space-y-2">
-                <Label>Çıkış Cihazı</Label>
+                <Label>{t('settings.audio.output')}</Label>
                 <Select
                   value={selectedOutputDevice}
                   onValueChange={setSelectedOutputDevice}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Hoparlör seçin" />
+                    <SelectValue placeholder={t('settings.audio.selectOutput')} />
                   </SelectTrigger>
                   <SelectContent>
                     {audioDevices
                       .filter(device => device.kind === 'audiooutput')
                       .map(device => (
                         <SelectItem key={device.deviceId} value={device.deviceId}>
-                          {device.label || `Hoparlör ${device.deviceId.slice(0, 5)}...`}
+                          {device.label || t('settings.audio.defaultDevice')}
                         </SelectItem>
                       ))}
                   </SelectContent>
@@ -160,7 +163,7 @@ export function SettingsDialog() {
               </div>
 
               <div className="space-y-2">
-                <Label>Ses Seviyesi</Label>
+                <Label>{t('settings.audio.volume')}</Label>
                 <div className="flex items-center space-x-2">
                   <Volume2 className="h-4 w-4 text-gray-400" />
                   <Slider

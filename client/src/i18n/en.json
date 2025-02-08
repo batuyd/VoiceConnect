@@ -20,12 +20,38 @@
     "removeFriend": "Remove Friend",
     "pending": "Pending Request",
     "accept": "Accept",
-    "reject": "Reject"
+    "reject": "Reject",
+    "list": "Friends",
+    "requests": "Requests",
+    "noRequests": "No friend requests"
   },
   "error": {
     "connectionLost": "Connection Lost",
     "refreshPage": "Please refresh the page to reconnect",
     "connectionError": "Connection Error",
     "tryAgainLater": "Please try again later"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "theme": {
+      "light": "Light Theme",
+      "dark": "Dark Theme",
+      "system": "System Theme"
+    },
+    "audio": {
+      "title": "Audio Settings",
+      "input": "Input Device",
+      "output": "Output Device",
+      "volume": "Volume",
+      "selectInput": "Select microphone",
+      "selectOutput": "Select speaker",
+      "defaultDevice": "Default Device",
+      "test": "Test Sound"
+    }
+  },
+  "audio": {
+    "testFailed": "Sound Test Failed",
+    "testFailedDesc": "Failed to play test sound. Please check your audio settings."
   }
 }
