@@ -42,15 +42,31 @@ export function useWebSocket(): WebSocketManager {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+
       audioStreamRef.current = stream;
       setHasAudioPermission(true);
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Audio permission error:', error);
+
+      const errorMessage = error.name === 'NotAllowedError' 
+        ? t('error.microphonePermissionDenied')
+        : t('error.microphoneAccessError');
+
       toast({
         title: t('error.audioPermission'),
-        description: t('error.enableMicrophoneAccess'),
+        description: errorMessage,
         variant: 'destructive'
       });
       return false;
@@ -96,7 +112,6 @@ export function useWebSocket(): WebSocketManager {
         setConnectionStatus('disconnected');
         wsRef.current = null;
 
-        // Stop audio stream if it exists
         if (audioStreamRef.current) {
           audioStreamRef.current.getTracks().forEach(track => track.stop());
           audioStreamRef.current = null;
@@ -156,6 +171,11 @@ export function useWebSocket(): WebSocketManager {
     } catch (error) {
       console.error('Error setting up WebSocket:', error);
       setConnectionStatus('disconnected');
+      toast({
+        title: t('error.connectionError'),
+        description: t('error.tryAgainLater'),
+        variant: 'destructive'
+      });
     }
   }, [queryClient, toast, t, refreshFriendshipData]);
 
@@ -179,20 +199,30 @@ export function useWebSocket(): WebSocketManager {
   }, [connect, queryClient]);
 
   const joinVoiceChannel = useCallback(async (channelId: number) => {
+    console.log('Attempting to join voice channel:', channelId);
+
     if (!hasAudioPermission) {
+      console.log('Requesting audio permissions before joining voice channel');
       const granted = await requestAudioPermission();
-      if (!granted) return;
+      if (!granted) {
+        console.log('Failed to get audio permissions');
+        return;
+      }
     }
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('Sending join voice channel request');
       wsRef.current.send(JSON.stringify({
         type: 'join_voice_channel',
         channelId
       }));
+    } else {
+      console.warn('Cannot join voice channel - WebSocket not connected');
     }
   }, [hasAudioPermission, requestAudioPermission]);
 
   const leaveVoiceChannel = useCallback((channelId: number) => {
+    console.log('Leaving voice channel:', channelId);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'leave_voice_channel',
@@ -202,6 +232,7 @@ export function useWebSocket(): WebSocketManager {
   }, []);
 
   const toggleMute = useCallback((channelId: number, isMuted: boolean) => {
+    console.log('Toggling mute state:', { channelId, isMuted });
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'toggle_mute',

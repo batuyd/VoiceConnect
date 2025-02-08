@@ -21,8 +21,8 @@ export function useWebRTC(channelId: number) {
   const createPeer = useCallback(async (targetUserId: number, initiator: boolean): Promise<RTCPeerConnection> => {
     try {
       setIsInitializing(true);
+      console.log('Creating peer connection with user:', targetUserId);
 
-      // Request audio permissions first
       if (!localStreamRef.current) {
         try {
           console.log('Requesting user media with device:', selectedInputDevice);
@@ -57,14 +57,12 @@ export function useWebRTC(channelId: number) {
         ],
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require',
-        iceCandidatePoolSize: 0
+        rtcpMuxPolicy: 'require'
       };
 
       console.log('Creating RTCPeerConnection with config:', config);
       const peerConnection = new RTCPeerConnection(config);
 
-      // Add local tracks to the connection
       localStreamRef.current.getTracks().forEach(track => {
         if (localStreamRef.current) {
           console.log('Adding local track to peer connection:', track.kind, track.id);
@@ -72,7 +70,6 @@ export function useWebRTC(channelId: number) {
         }
       });
 
-      // Handle ICE candidates
       peerConnection.onicecandidate = async (event) => {
         if (event.candidate) {
           console.log('Got ICE candidate:', event.candidate);
@@ -99,7 +96,6 @@ export function useWebRTC(channelId: number) {
         }
       };
 
-      // Handle ICE connection state changes
       peerConnection.oniceconnectionstatechange = () => {
         console.log('ICE connection state changed:', peerConnection.iceConnectionState);
         switch (peerConnection.iceConnectionState) {
@@ -137,23 +133,15 @@ export function useWebRTC(channelId: number) {
         }
       };
 
-      // Handle connection state changes
       peerConnection.onconnectionstatechange = () => {
         console.log('Connection state changed:', peerConnection.connectionState);
         switch (peerConnection.connectionState) {
           case 'connected':
-            console.log('WebRTC peer connected');
             setIsConnected(true);
             setIsInitializing(false);
             break;
           case 'failed':
-            console.log('WebRTC peer connection failed');
-            setIsConnected(false);
-            setIsInitializing(false);
-            cleanupPeer(targetUserId);
-            break;
           case 'closed':
-            console.log('WebRTC peer connection closed');
             setIsConnected(false);
             setIsInitializing(false);
             cleanupPeer(targetUserId);
@@ -161,47 +149,45 @@ export function useWebRTC(channelId: number) {
         }
       };
 
-      // Handle negotiation needed
-      peerConnection.onnegotiationneeded = async () => {
-        if (!initiator) return;
+      if (initiator) {
+        peerConnection.onnegotiationneeded = async () => {
+          try {
+            console.log('Creating offer');
+            const offer = await peerConnection.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: false
+            });
 
-        try {
-          console.log('Creating offer');
-          const offer = await peerConnection.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: false
-          });
+            console.log('Setting local description:', offer.type);
+            await peerConnection.setLocalDescription(offer);
 
-          console.log('Setting local description:', offer.type);
-          await peerConnection.setLocalDescription(offer);
+            const response = await fetch(`/api/channels/${channelId}/signal`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                targetUserId,
+                signal: {
+                  type: 'offer',
+                  sdp: peerConnection.localDescription
+                }
+              })
+            });
 
-          const response = await fetch(`/api/channels/${channelId}/signal`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              targetUserId,
-              signal: {
-                type: 'offer',
-                sdp: peerConnection.localDescription
-              }
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to send offer');
+            if (!response.ok) {
+              throw new Error('Failed to send offer');
+            }
+          } catch (error) {
+            console.error('Offer error:', error);
+            toast({
+              title: t('voice.offerError'),
+              description: t('voice.connectionFailed'),
+              variant: 'destructive'
+            });
+            cleanupPeer(targetUserId);
           }
-        } catch (error) {
-          console.error('Offer error:', error);
-          toast({
-            title: t('voice.offerError'),
-            description: t('voice.connectionFailed'),
-            variant: 'destructive'
-          });
-          cleanupPeer(targetUserId);
-        }
-      };
+        };
+      }
 
-      // Handle remote stream
       peerConnection.ontrack = (event) => {
         console.log('Received remote track:', event.track.kind, event.track.id);
         const [remoteStream] = event.streams;
@@ -234,8 +220,8 @@ export function useWebRTC(channelId: number) {
 
       setPeers(prev => ({
         ...prev,
-        [targetUserId]: { 
-          connection: peerConnection, 
+        [targetUserId]: {
+          connection: peerConnection,
           stream: localStreamRef.current!
         }
       }));
@@ -248,7 +234,7 @@ export function useWebRTC(channelId: number) {
     }
   }, [channelId, selectedInputDevice, toast, t]);
 
-  const handleIncomingSignal = useCallback(async (userId: number, signal: RTCSessionDescriptionInit | RTCIceCandidateInit) => {
+  const handleIncomingSignal = useCallback(async (userId: number, signal: any) => {
     try {
       console.log('Handling incoming signal:', signal.type);
       let peerConnection = peers[userId]?.connection;
@@ -258,33 +244,31 @@ export function useWebRTC(channelId: number) {
         peerConnection = await createPeer(userId, false);
       }
 
-      if ('type' in signal) {
-        if (signal.type === 'offer') {
-          console.log('Processing offer');
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-          const answer = await peerConnection.createAnswer();
-          await peerConnection.setLocalDescription(answer);
+      if (signal.type === 'offer') {
+        console.log('Processing offer');
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
 
-          const response = await fetch(`/api/channels/${channelId}/signal`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              targetUserId: userId,
-              signal: {
-                type: 'answer',
-                sdp: peerConnection.localDescription
-              }
-            })
-          });
+        const response = await fetch(`/api/channels/${channelId}/signal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetUserId: userId,
+            signal: {
+              type: 'answer',
+              sdp: peerConnection.localDescription
+            }
+          })
+        });
 
-          if (!response.ok) {
-            throw new Error('Failed to send answer');
-          }
-        } else if (signal.type === 'answer') {
-          console.log('Processing answer');
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+        if (!response.ok) {
+          throw new Error('Failed to send answer');
         }
-      } else if ('candidate' in signal) {
+      } else if (signal.type === 'answer') {
+        console.log('Processing answer');
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+      } else if (signal.candidate) {
         console.log('Adding ICE candidate');
         await peerConnection.addIceCandidate(new RTCIceCandidate(signal));
       }
@@ -298,20 +282,17 @@ export function useWebRTC(channelId: number) {
     console.log('Cleaning up peer:', userId);
     const peerConnection = peers[userId];
     if (peerConnection) {
-      // Stop all tracks
       peerConnection.stream.getTracks().forEach(track => {
         console.log('Stopping track:', track.kind, track.id);
         track.stop();
       });
 
-      // Close audio element if it exists
       if (peerConnection.audioElement) {
         console.log('Closing audio element');
         peerConnection.audioElement.pause();
         peerConnection.audioElement.srcObject = null;
       }
 
-      // Close peer connection
       if (peerConnection.connection.connectionState !== 'closed') {
         peerConnection.connection.close();
       }

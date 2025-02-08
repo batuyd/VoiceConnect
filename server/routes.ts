@@ -41,51 +41,52 @@ function sendWebSocketMessage(ws: WebSocket | undefined, type: string, data: any
 
 export function registerRoutes(app: Express): Server {
   const sessionMiddleware = setupAuth(app);
-
   const httpServer = createServer(app);
+
   const wss = new WebSocketServer({ 
     server: httpServer, 
     path: '/ws',
     verifyClient: async (info, callback) => {
-      console.log('Verifying WebSocket client connection...');
       try {
         const cookies = parseCookie(info.req.headers.cookie || '');
         const sid = cookies['sid'];
 
         if (!sid) {
-          console.log('No session ID found in cookies');
-          callback(false, 401, 'Unauthorized');
+          console.warn('WebSocket connection rejected: No session cookie');
+          callback(false, 401, 'No session cookie');
           return;
         }
 
-        await new Promise<void>((resolve, reject) => {
-          sessionMiddleware(info.req, {} as any, (err: any) => {
-            if (err) {
-              console.error('Session middleware error:', err);
-              reject(err);
-              return;
+        // Create a Promise-based session verification
+        const sessionVerified = await new Promise<boolean>((resolve) => {
+          const req = info.req as any;
+          const res = {} as any;
+
+          sessionMiddleware(req, res, () => {
+            if (req.session?.passport?.user) {
+              resolve(true);
+            } else {
+              resolve(false);
             }
-            resolve();
           });
         });
 
-        if (!info.req.session?.passport?.user) {
-          console.log('No authenticated user found in session');
-          callback(false, 401, 'Unauthorized');
+        if (!sessionVerified) {
+          console.warn('WebSocket connection rejected: Invalid session');
+          callback(false, 401, 'Invalid session');
           return;
         }
 
-        console.log('Client verified successfully');
+        console.log('WebSocket client verified successfully');
         callback(true);
       } catch (error) {
-        console.error('Client verification error:', error);
-        callback(false, 500, 'Internal Server Error');
+        console.error('WebSocket verification error:', error);
+        callback(false, 500, 'Internal server error');
       }
     }
   });
 
   setMaxListeners(20);
-
   const clients = new Map<number, WebSocket>();
 
   function heartbeat(this: WebSocket) {
@@ -96,11 +97,11 @@ export function registerRoutes(app: Express): Server {
     wss.clients.forEach((ws: WebSocket) => {
       if (ws.isAlive === false) {
         if (ws.userId) {
+          console.log(`Terminating inactive connection for user: ${ws.userId}`);
           clients.delete(ws.userId);
         }
         return ws.terminate();
       }
-
       ws.isAlive = false;
       ws.ping();
     });
@@ -108,23 +109,23 @@ export function registerRoutes(app: Express): Server {
 
   wss.on('connection', async (ws: WebSocket, req: any) => {
     try {
+      console.log('New WebSocket connection established');
       ws.isAlive = true;
       ws.on('pong', heartbeat);
 
-
-      // Check authentication (moved from before the promise)
       if (!req.session?.passport?.user) {
-        console.log('WebSocket connection rejected: No authenticated user');
+        console.warn('WebSocket connection rejected: No authenticated user');
         ws.close(1008, 'Unauthorized');
         return;
       }
 
       const userId = req.session.passport.user;
       ws.userId = userId;
+      console.log(`WebSocket connected for user: ${userId}`);
 
       const existingWs = clients.get(userId);
       if (existingWs) {
-        console.log('Closing existing connection for user:', userId);
+        console.log(`Closing existing connection for user: ${userId}`);
         existingWs.close(1000, 'New connection established');
         clients.delete(userId);
       }
@@ -137,60 +138,20 @@ export function registerRoutes(app: Express): Server {
       });
 
       ws.on('error', (error) => {
-        console.error('WebSocket error for user:', userId, error);
+        console.error(`WebSocket error for user: ${userId}:`, error);
         clients.delete(userId);
       });
 
       ws.on('message', async (message: string) => {
         try {
           const data = JSON.parse(message.toString());
-          console.log('Received message from user:', userId, data);
+          console.log(`Received message from user ${userId}:`, data);
 
           switch (data.type) {
             case 'ping':
               sendWebSocketMessage(ws, 'pong', { timestamp: Date.now() });
               break;
-            case 'join_channel':
-              try {
-                const channelId = data.channelId;
-                console.log(`User ${userId} joining channel ${channelId}`);
 
-                const channel = await storage.getChannel(channelId);
-                if (!channel) {
-                  console.log(`Channel ${channelId} not found`);
-                  sendWebSocketMessage(ws, 'error', { message: 'Channel not found' });
-                  break;
-                }
-
-                const canAccess = await storage.canAccessChannel(channelId, userId);
-                if (!canAccess) {
-                  console.log(`User ${userId} denied access to channel ${channelId}`);
-                  sendWebSocketMessage(ws, 'error', { message: 'Access denied' });
-                  break;
-                }
-
-                const members = await storage.getServerMembers(channel.serverId);
-                const connectedMembers = members.map(member => ({
-                  ...member,
-                  isMuted: false 
-                }));
-
-                sendWebSocketMessage(ws, 'channel_joined', {
-                  channelId,
-                  members: connectedMembers,
-                  currentMedia: channel.currentMedia,
-                  mediaQueue: channel.mediaQueue
-                });
-
-                console.log(`User ${userId} successfully joined channel ${channelId}`);
-              } catch (error) {
-                console.error('Error handling join_channel:', error);
-                sendWebSocketMessage(ws, 'error', { 
-                  message: 'Failed to join channel',
-                  error: handleError(error)
-                });
-              }
-              break;
             case 'join_voice_channel':
               try {
                 const channelId = data.channelId;
@@ -292,6 +253,7 @@ export function registerRoutes(app: Express): Server {
                 });
               }
               break;
+
             default:
               console.log('Unknown message type:', data.type);
           }
@@ -915,7 +877,7 @@ export function registerRoutes(app: Express): Server {
       res.json(channel);
     } catch (error) {
       console.error('Get channel error:', handleError(error));
-      res.status(500).json({ message: "Failed to get channel" });
+      res.status(500).json({ message:"Failed to get channel" });
     }
   });
 
