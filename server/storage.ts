@@ -817,24 +817,27 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(friendships)
         .where(
-          or(
-            and(
-              eq(friendships.senderId, userId1),
-              eq(friendships.receiverId, userId2)
+          and(
+            or(
+              and(
+                eq(friendships.senderId, userId1),
+                eq(friendships.receiverId, userId2)
+              ),
+              and(
+                eq(friendships.senderId, userId2),
+                eq(friendships.receiverId, userId1)
+              )
             ),
-            and(
-              eq(friendships.senderId, userId2),
-              eq(friendships.receiverId, userId1)
-            )
+            eq(friendships.status, 'accepted')
           )
         );
 
       if (!existingFriendship) {
-        console.error(`No friendship found between users ${userId1} and ${userId2}`);
-        throw new Error('Friendship not found');
+        console.error(`No active friendship found between users ${userId1} and ${userId2}`);
+        throw new Error('Active friendship not found');
       }
 
-      console.log(`Found friendship:`, existingFriendship);
+      console.log(`Found friendship to remove:`, existingFriendship);
 
       const result = await db
         .delete(friendships)
@@ -842,7 +845,7 @@ export class DatabaseStorage implements IStorage {
         .returning();
 
       console.log(`Deleted friendship result:`, result);
-      console.log(`Friendship between ${userId1} and ${userId2} successfully deleted`);
+      console.log(`Friendship between ${userId1} and ${userId2} successfully removed`);
     } catch (error) {
       console.error('Error removing friend:', error);
       throw error;
@@ -941,6 +944,53 @@ export class DatabaseStorage implements IStorage {
       throw error;
     }
   }
+  async getFriendshipBetweenUsers(userId1: number, userId2: number): Promise<Friendship | undefined> {
+    try {
+      console.log(`Looking for friendship between users ${userId1} and ${userId2}`);
+
+      const [friendship] = await db
+        .select({
+          id: friendships.id,
+          senderId: friendships.senderId,
+          receiverId: friendships.receiverId,
+          status: friendships.status,
+          createdAt: friendships.createdAt,
+          sender: users
+        })
+        .from(friendships)
+        .innerJoin(users, eq(users.id, friendships.senderId))
+        .where(
+          and(
+            or(
+              and(
+                eq(friendships.senderId, userId1),
+                eq(friendships.receiverId, userId2)
+              ),
+              and(
+                eq(friendships.senderId, userId2),
+                eq(friendships.receiverId, userId1)
+              )
+            ),
+            eq(friendships.status, 'accepted')
+          )
+        );
+
+      if (!friendship) {
+        console.log('No active friendship found between users');
+        return undefined;
+      }
+
+      console.log('Found friendship:', friendship);
+      const { sender, ...friendshipData } = friendship;
+      return {
+        ...friendshipData,
+        sender
+      };
+    } catch (error) {
+      console.error('Error in getFriendshipBetweenUsers:', error);
+      throw error;
+    }
+  }
 }
 
 export const storage = new DatabaseStorage();
@@ -958,9 +1008,8 @@ interface Gift {
 interface GiftHistory {
   id: number;
   senderId: number;
-  receiverId: number;
-  giftId: number;
-  coinAmount: number;
+  receiverId: number;  giftId: number;
+coinAmount: number;
   message: string | null;
   createdAt: Date;
 }
@@ -1026,7 +1075,8 @@ interface IStorage {
   sessionStore: session.Store;
   updateUserProfile(
     userId: number,
-    data: {      bio?: string;
+    data: {
+      bio?: string;
       age?: number;
       avatar?: string;
       nickname?: string;
@@ -1102,4 +1152,5 @@ interface IStorage {
   removeFriend(userId1: number, userId2: number): Promise<void>;
   getFriendshipById(friendshipId: number): Promise<Friendship | undefined>;
   deleteServer(serverId: number, userId: number): Promise<void>;
+  getFriendshipBetweenUsers(userId1: number, userId2: number): Promise<Friendship | undefined>;
 }

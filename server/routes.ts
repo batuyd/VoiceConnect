@@ -848,6 +848,12 @@ export function registerRoutes(app: Express): Server {
 
       console.log(`Attempting to remove friendship between ${req.user.id} and ${friendId}`);
 
+      // Arkadaşlık ilişkisini kontrol et
+      const friendship = await storage.getFriendshipBetweenUsers(req.user.id, friendId);
+      if (!friendship) {
+        return res.status(404).json({ message: "Friendship not found" });
+      }
+
       await storage.removeFriend(req.user.id, friendId);
 
       // WebSocket üzerinden arkadaşlık durumunun güncellendiğini bildirme
