@@ -29,7 +29,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { selectedInputDevice } = useAudioSettings();
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [audioPermissionGranted, setAudioPermissionGranted] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const { isConnected, createPeer, cleanup } = useWebRTC(channel.id);
 
@@ -38,29 +38,41 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     enabled: isJoined
   });
 
-  const requestAudioPermissions = async () => {
+  const setupLocalStream = async () => {
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      setAudioPermissionGranted(true);
-      return true;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: false
+      });
+      setLocalStream(stream);
+      return stream;
     } catch (error) {
       console.error('Audio permission error:', error);
       toast({
         description: t('voice.permissionDenied'),
         variant: "destructive",
       });
-      return false;
+      return null;
     }
   };
 
   const handleJoinLeave = async () => {
     if (isJoined) {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
+      }
       cleanup();
       setIsJoined(false);
-      setAudioPermissionGranted(false);
+      setIsMuted(false);
     } else {
-      const hasPermission = await requestAudioPermissions();
-      if (hasPermission) {
+      const stream = await setupLocalStream();
+      if (stream) {
         // Initialize peer connections with existing members
         for (const member of channelMembers) {
           if (member.id !== user?.id) {
@@ -72,14 +84,25 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     }
   };
 
+  const toggleMute = () => {
+    if (localStream) {
+      localStream.getAudioTracks().forEach(track => {
+        track.enabled = isMuted; // Note: We flip the current state
+      });
+      setIsMuted(!isMuted);
+    }
+  };
+
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
       if (isJoined) {
         cleanup();
       }
     };
-  }, [isJoined, cleanup]);
+  }, [isJoined, cleanup, localStream]);
 
   return (
     <div className="space-y-2">
@@ -114,7 +137,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setIsMuted(!isMuted)}
+              onClick={toggleMute}
               className={isMuted ? "text-red-400" : "text-green-400"}
             >
               {isMuted ? t('voice.unmute') : t('voice.mute')}

@@ -96,16 +96,6 @@ export function useWebRTC(channelId: number) {
           audioElement.srcObject = remoteStream;
           audioElement.autoplay = true;
 
-          // Create audio context for volume control
-          const audioContext = new AudioContext();
-          const source = audioContext.createMediaStreamSource(remoteStream);
-          const gainNode = audioContext.createGain();
-          source.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-
-          // Set initial volume
-          gainNode.gain.value = 1.0;
-
           setPeers(prev => ({
             ...prev,
             [targetUserId]: {
