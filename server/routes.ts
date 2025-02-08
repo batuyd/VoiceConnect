@@ -832,10 +832,63 @@ export function registerRoutes(app: Express): Server {
 
           switch (data.type) {
             case 'ping':
-              const userConnection = connectedUsers.get(userId);
-              if (userConnection) {
-                userConnection.lastPing = Date.now();
+              const userConn = connectedUsers.get(userId);
+              if (userConn) {
+                userConn.lastPing = Date.now();
                 ws.send(JSON.stringify({ type: 'pong' }));
+              }
+              break;
+            case 'voice_data':
+              if (!data.channelId) {
+                console.error('Missing channelId in voice data message');
+                break;
+              }
+
+              // Get all users in the same channel
+              const channelUsers = Array.from(connectedUsers.values())
+                .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
+
+              // Forward voice data to all other users in the channel
+              for (const user of channelUsers) {
+                if (user.ws.readyState === WebSocket.OPEN) {
+                  try {
+                    user.ws.send(JSON.stringify({
+                      type: 'voice_data',
+                      fromUserId: userId,
+                      data: data.data
+                    }));
+                  } catch (error) {
+                    console.error('Error sending voice data to user', {
+                      userId: user.user.id,
+                      error: handleError(error)
+                    });
+                  }
+                }
+              }
+              break;
+
+            case 'join_channel':
+              if (!data.channelId) {
+                console.error('Missing channelId in join channel message');
+                break;
+              }
+
+              const currentUser = connectedUsers.get(userId);
+              if (currentUser) {
+                currentUser.currentChannel = data.channelId;
+                // Notify other users in the channel
+                const otherUsers = Array.from(connectedUsers.values())
+                  .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
+
+                for (const user of otherUsers) {
+                  if (user.ws.readyState === WebSocket.OPEN) {
+                    user.ws.send(JSON.stringify({
+                      type: 'user_joined',
+                      userId,
+                      username: currentUser.user.username
+                    }));
+                  }
+                }
               }
               break;
 
@@ -845,6 +898,7 @@ export function registerRoutes(app: Express): Server {
                 userId,
                 type: data.type
               });
+
           }
         } catch (error) {
           console.error('Error processing message', {

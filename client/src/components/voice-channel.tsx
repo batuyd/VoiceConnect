@@ -56,8 +56,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         stream.current.getTracks().forEach(track => track.stop());
       }
 
-      // Get new media stream with specified device
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+      // Get new media stream with specified device and enhanced audio settings
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: { exact: selectedInputDevice },
           echoCancellation: true,
@@ -66,18 +66,39 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         }
       });
 
+      stream.current = mediaStream;
+
       // Create audio context if not exists
       if (!audioContext.current || audioContext.current.state === 'closed') {
         audioContext.current = new AudioContext();
       }
 
-      stream.current = mediaStream;
+      // Set up audio processing
       const source = audioContext.current.createMediaStreamSource(mediaStream);
       gainNode.current = audioContext.current.createGain();
-
       source.connect(gainNode.current);
-      if (!isMuted) {
-        gainNode.current.connect(audioContext.current.destination);
+
+      // Don't connect to local audio output to prevent echo
+      // gainNode.current.connect(audioContext.current.destination);
+
+      // Send audio data through WebSocket
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const audioTrack = mediaStream.getAudioTracks()[0];
+        const mediaRecorder = new MediaRecorder(new MediaStream([audioTrack]), {
+          mimeType: 'audio/webm;codecs=opus'
+        });
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+              type: 'voice_data',
+              channelId: channel.id,
+              data: event.data
+            }));
+          }
+        };
+
+        mediaRecorder.start(100); // Send audio data every 100ms
       }
 
       console.log('Audio stream setup successful');
@@ -88,7 +109,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         variant: "destructive",
       });
     }
-  }, [selectedInputDevice, isJoined, audioPermissionGranted, isMuted, toast, t]);
+  }, [selectedInputDevice, isJoined, audioPermissionGranted, channel.id, toast, t]);
 
   const requestAudioPermissions = useCallback(async () => {
     try {
@@ -164,7 +185,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           }
         };
 
-        ws.onmessage = (event) => {
+        ws.onmessage = async (event) => {
           if (!mounted) return;
           try {
             const data = JSON.parse(event.data);
@@ -178,6 +199,24 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               });
             } else if (data.type === 'member_update') {
               refetchMembers();
+            } else if (data.type === 'voice_data' && data.fromUserId !== user.id) {
+              // Handle incoming voice data
+              const audioData = data.data;
+              const audioBlob = new Blob([audioData], { type: 'audio/webm;codecs=opus' });
+              const audioUrl = URL.createObjectURL(audioBlob);
+              const audio = new Audio(audioUrl);
+
+              // Play the audio
+              try {
+                await audio.play();
+                // Clean up after playing
+                audio.onended = () => {
+                  URL.revokeObjectURL(audioUrl);
+                };
+              } catch (error) {
+                console.error('Error playing audio:', error);
+                URL.revokeObjectURL(audioUrl);
+              }
             }
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
