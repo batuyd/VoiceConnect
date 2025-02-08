@@ -88,7 +88,6 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Cannot add yourself as a friend" });
       }
 
-      // Mevcut arkadaşlık durumunu kontrol et
       const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
       if (existingFriendship) {
         if (existingFriendship.status === 'accepted') {
@@ -109,11 +108,7 @@ export function registerRoutes(app: Express): Server {
         targetWs.send(JSON.stringify({
           type: 'FRIEND_REQUEST',
           data: {
-            id: friendship.id,
-            senderId: req.user.id,
-            receiverId: targetUser.id,
-            status: friendship.status,
-            createdAt: friendship.createdAt,
+            ...friendship,
             sender: {
               id: req.user.id,
               username: req.user.username
@@ -820,6 +815,21 @@ export function registerRoutes(app: Express): Server {
       const senderWs = clients.get(friendship.senderId);
       if (senderWs?.readyState === WebSocket.OPEN) {
         senderWs.send(JSON.stringify({
+          type: 'FRIEND_REQUEST_REJECTED',
+          data: {
+            friendshipId,
+            userId: req.user.id,
+            username: req.user.username,
+            senderId: friendship.senderId,
+            receiverId: friendship.receiverId
+          }
+        }));
+      }
+
+      // İsteği alan kullanıcıya da bildirim gönder
+      const receiverWs = clients.get(friendship.receiverId);
+      if (receiverWs?.readyState === WebSocket.OPEN) {
+        receiverWs.send(JSON.stringify({
           type: 'FRIEND_REQUEST_REJECTED',
           data: {
             friendshipId,

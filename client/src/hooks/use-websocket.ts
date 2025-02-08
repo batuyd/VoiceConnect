@@ -10,6 +10,12 @@ export function useWebSocket() {
   const { toast } = useToast();
   const { t } = useLanguage();
 
+  const refreshFriendshipData = useCallback(() => {
+    console.log('Refreshing friendship data...');
+    queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
+  }, [queryClient]);
+
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
@@ -26,14 +32,7 @@ export function useWebSocket() {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = undefined;
       }
-      // Bağlantı kurulduğunda tüm arkadaşlık verilerini yenile
       refreshFriendshipData();
-    };
-
-    const refreshFriendshipData = () => {
-      console.log('Refreshing friendship data...');
-      queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
     };
 
     ws.onmessage = (event) => {
@@ -49,7 +48,7 @@ export function useWebSocket() {
 
           case 'FRIEND_REQUEST':
             console.log('Friend request received:', message.data);
-            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
+            refreshFriendshipData();
             toast({
               title: t('friend.newRequest'),
               description: t('friend.requestReceived', { username: message.data.sender.username }),
@@ -104,7 +103,7 @@ export function useWebSocket() {
         connect();
       }, 5000);
     };
-  }, [queryClient, toast, t]);
+  }, [queryClient, toast, t, refreshFriendshipData]);
 
   useEffect(() => {
     connect();
