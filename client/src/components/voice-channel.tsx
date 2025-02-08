@@ -44,19 +44,18 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
-    enabled: isJoined
+    enabled: isJoined,
+    refetchInterval: 5000 // Her 5 saniyede bir üye listesini güncelle
   });
 
   const setupAudioStream = useCallback(async () => {
     if (!selectedInputDevice || !isJoined || !audioPermissionGranted) return;
 
     try {
-      // Cleanup existing stream if any
       if (stream.current) {
         stream.current.getTracks().forEach(track => track.stop());
       }
 
-      // Get new media stream with specified device and enhanced audio settings
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: { exact: selectedInputDevice },
@@ -68,20 +67,14 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
       stream.current = mediaStream;
 
-      // Create audio context if not exists
       if (!audioContext.current || audioContext.current.state === 'closed') {
         audioContext.current = new AudioContext();
       }
 
-      // Set up audio processing
       const source = audioContext.current.createMediaStreamSource(mediaStream);
       gainNode.current = audioContext.current.createGain();
       source.connect(gainNode.current);
 
-      // Don't connect to local audio output to prevent echo
-      // gainNode.current.connect(audioContext.current.destination);
-
-      // Send audio data through WebSocket
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         const audioTrack = mediaStream.getAudioTracks()[0];
         const mediaRecorder = new MediaRecorder(new MediaStream([audioTrack]), {
@@ -98,7 +91,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           }
         };
 
-        mediaRecorder.start(100); // Send audio data every 100ms
+        mediaRecorder.start(100);
       }
 
       console.log('Audio stream setup successful');
@@ -197,27 +190,28 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                 description: data.message,
                 variant: "destructive",
               });
-            } else if (data.type === 'member_update') {
-              refetchMembers();
-            } else if (data.type === 'user_left') {
-              // Refresh member list when a user leaves
-              refetchMembers();
+            } else if (data.type === 'member_update' || data.type === 'user_left' || data.type === 'user_joined') {
+              // Üye listesini hemen güncelle
+              await refetchMembers();
 
-              // Show notification
-              toast({
-                description: t('voice.userLeft', { username: data.username }),
-              });
+              // Bildirim göster
+              if (data.type === 'user_left') {
+                toast({
+                  description: t('voice.userLeft', { username: data.username }),
+                });
+              } else if (data.type === 'user_joined') {
+                toast({
+                  description: t('voice.userJoined', { username: data.username }),
+                });
+              }
             } else if (data.type === 'voice_data' && data.fromUserId !== user.id) {
-              // Handle incoming voice data
               const audioData = data.data;
               const audioBlob = new Blob([audioData], { type: 'audio/webm;codecs=opus' });
               const audioUrl = URL.createObjectURL(audioBlob);
               const audio = new Audio(audioUrl);
 
-              // Play the audio
               try {
                 await audio.play();
-                // Clean up after playing
                 audio.onended = () => {
                   URL.revokeObjectURL(audioUrl);
                 };
@@ -307,7 +301,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   useEffect(() => {
     return () => {
-      // Cleanup when component unmounts
       handleLeaveChannel();
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);

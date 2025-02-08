@@ -858,7 +858,7 @@ export function registerRoutes(app: Express): Server {
                       data: data.data
                     }));
                   } catch (error) {
-                    console.error('Error sending voice data to user', {
+                    console.error('Error sendingvoice data to user', {
                       userId: user.user.id,
                       error: handleError(error)
                     });
@@ -903,20 +903,44 @@ export function registerRoutes(app: Express): Server {
                 leavingUser.currentChannel = undefined;
 
                 if (previousChannel) {
+                  console.log('User leaving channel:', {
+                    userId,
+                    username: leavingUser.user.username,
+                    channelId: previousChannel
+                  });
+
                   // Notify other users in the channel about the user leaving
                   const remainingUsers = Array.from(connectedUsers.values())
                     .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
 
                   for (const user of remainingUsers) {
                     if (user.ws.readyState === WebSocket.OPEN) {
-                      user.ws.send(JSON.stringify({
-                        type: 'user_left',
-                        userId,
-                        username: leavingUser.user.username,
-                        channelId: previousChannel
-                      }));
+                      try {
+                        user.ws.send(JSON.stringify({
+                          type: 'user_left',
+                          userId,
+                          username: leavingUser.user.username,
+                          channelId: previousChannel
+                        }));
+                      } catch (error) {
+                        console.error('Error sending user_left notification:', error);
+                      }
                     }
                   }
+
+                  // Force refresh channel members for all remaining users
+                  remainingUsers.forEach(user => {
+                    if (user.ws.readyState === WebSocket.OPEN) {
+                      try {
+                        user.ws.send(JSON.stringify({
+                          type: 'member_update',
+                          channelId: previousChannel
+                        }));
+                      } catch (error) {
+                        console.error('Error sending member_update notification:', error);
+                      }
+                    }
+                  });
                 }
               }
               break;
