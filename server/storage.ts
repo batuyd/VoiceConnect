@@ -814,6 +814,7 @@ export class DatabaseStorage implements IStorage {
     try {
       console.log(`Looking for friendship between users ${userId1} and ${userId2}`);
 
+      // Find the existing friendship with accepted status
       const [existingFriendship] = await db
         .select()
         .from(friendships)
@@ -840,9 +841,12 @@ export class DatabaseStorage implements IStorage {
 
       console.log(`Found friendship to remove:`, existingFriendship);
 
-      await db
-        .delete(friendships)
-        .where(eq(friendships.id, existingFriendship.id));
+      // Delete the friendship using a transaction
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(friendships)
+          .where(eq(friendships.id, existingFriendship.id));
+      });
 
       console.log(`Friendship between ${userId1} and ${userId2} successfully removed`);
     } catch (error) {
