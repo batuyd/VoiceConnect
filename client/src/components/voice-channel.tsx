@@ -12,7 +12,6 @@ import { useSoundEffects } from "@/hooks/use-sound-effects";
 
 interface VoiceChannelProps {
   channel: Channel;
-  isOwner: boolean;
 }
 
 interface ChannelMember {
@@ -38,7 +37,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const audioContext = useRef<AudioContext | null>(null);
   const gainNode = useRef<GainNode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const retryTimeoutRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
@@ -48,7 +48,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
   const requestAudioPermissions = useCallback(async () => {
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
       setAudioPermissionGranted(true);
       return true;
     } catch (error) {
@@ -65,10 +66,23 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     if (!selectedInputDevice || !isJoined || !audioPermissionGranted) return;
 
     try {
-      if (stream.current) {
-        stream.current.getTracks().forEach(track => track.stop());
+      // Cleanup existing streams and audio context
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current = null;
       }
 
+      if (stream.current) {
+        stream.current.getTracks().forEach(track => track.stop());
+        stream.current = null;
+      }
+
+      if (audioContext.current?.state !== 'closed') {
+        await audioContext.current?.close();
+        audioContext.current = null;
+      }
+
+      // Create new stream
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: { exact: selectedInputDevice },
@@ -79,10 +93,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       });
 
       stream.current = mediaStream;
-
-      if (!audioContext.current || audioContext.current.state === 'closed') {
-        audioContext.current = new AudioContext();
-      }
+      audioContext.current = new AudioContext();
 
       const source = audioContext.current.createMediaStreamSource(mediaStream);
       gainNode.current = audioContext.current.createGain();
@@ -90,9 +101,11 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         const audioTrack = mediaStream.getAudioTracks()[0];
-        const mediaRecorder = new MediaRecorder(new MediaStream([audioTrack]));
+        const recorder = new MediaRecorder(new MediaStream([audioTrack]), {
+          mimeType: 'audio/webm'
+        });
 
-        mediaRecorder.ondataavailable = (event) => {
+        recorder.ondataavailable = (event) => {
           if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN && !isMuted) {
             wsRef.current.send(JSON.stringify({
               type: 'voice_data',
@@ -102,7 +115,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
           }
         };
 
-        mediaRecorder.start(100);
+        mediaRecorderRef.current = recorder;
+        recorder.start(100);
       }
     } catch (error) {
       console.error('Audio setup error:', error);
@@ -110,8 +124,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         description: t('voice.deviceAccessError'),
         variant: "destructive",
       });
-      setAudioPermissionGranted(false);
-      setIsJoined(false);
+      handleLeaveChannel();
     }
   }, [selectedInputDevice, isJoined, audioPermissionGranted, channel.id, isMuted, toast, t]);
 
@@ -124,6 +137,11 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       }));
     }
 
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+
     if (stream.current) {
       stream.current.getTracks().forEach(track => track.stop());
       stream.current = null;
@@ -131,6 +149,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
     if (audioContext.current?.state !== 'closed') {
       await audioContext.current?.close();
+      audioContext.current = null;
     }
 
     if (wsRef.current) {
@@ -173,7 +192,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         setWsConnected(false);
         wsRef.current = null;
         if (isJoined) {
-          retryTimeoutRef.current = setTimeout(() => {
+          reconnectTimeoutRef.current = setTimeout(() => {
             connectWebSocket();
           }, 1000);
         }
@@ -191,7 +210,6 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
               });
               break;
 
-            case 'member_update':
             case 'user_left':
             case 'user_joined':
               await refetchMembers();
@@ -268,8 +286,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       connectWebSocket();
     }
     return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
       }
     };
   }, [isJoined, connectWebSocket]);
@@ -286,8 +304,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   useEffect(() => {
     return () => {
       handleLeaveChannel();
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
       }
     };
   }, [handleLeaveChannel]);
