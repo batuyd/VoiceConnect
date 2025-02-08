@@ -6,6 +6,7 @@ import { useLanguage } from './use-language';
 interface PeerConnection {
   connection: RTCPeerConnection;
   stream: MediaStream;
+  audioElement?: HTMLAudioElement;
 }
 
 export function useWebRTC(channelId: number) {
@@ -25,7 +26,8 @@ export function useWebRTC(channelId: number) {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true
-          }
+          },
+          video: false
         });
         localStreamRef.current = stream;
       }
@@ -37,14 +39,15 @@ export function useWebRTC(channelId: number) {
         ]
       });
 
-      // Yerel medya akışını ekle
+      // Add local tracks to the connection
       localStreamRef.current.getTracks().forEach(track => {
         if (localStreamRef.current) {
+          console.log('Adding local track to peer connection:', track.kind);
           peerConnection.addTrack(track, localStreamRef.current);
         }
       });
 
-      // ICE aday olaylarını dinle
+      // Handle ICE candidates
       peerConnection.onicecandidate = async (event) => {
         if (event.candidate) {
           try {
@@ -70,8 +73,9 @@ export function useWebRTC(channelId: number) {
         }
       };
 
-      // Bağlantı durumu değişikliklerini izle
+      // Handle connection state changes
       peerConnection.onconnectionstatechange = () => {
+        console.log('Connection state changed:', peerConnection.connectionState);
         if (peerConnection.connectionState === 'connected') {
           console.log('WebRTC peer connected');
           setIsConnected(true);
@@ -82,18 +86,47 @@ export function useWebRTC(channelId: number) {
         }
       };
 
-      // Uzak medya akışını al
+      // Handle remote stream
       peerConnection.ontrack = (event) => {
-        console.log('Received remote track');
-        const audio = new Audio();
-        audio.srcObject = event.streams[0];
-        audio.autoplay = true;
-        audio.play().catch(console.error);
+        console.log('Received remote track:', event.track.kind);
+        const [remoteStream] = event.streams;
+
+        if (remoteStream) {
+          const audioElement = new Audio();
+          audioElement.srcObject = remoteStream;
+          audioElement.autoplay = true;
+
+          // Create audio context for volume control
+          const audioContext = new AudioContext();
+          const source = audioContext.createMediaStreamSource(remoteStream);
+          const gainNode = audioContext.createGain();
+          source.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+
+          // Set initial volume
+          gainNode.gain.value = 1.0;
+
+          setPeers(prev => ({
+            ...prev,
+            [targetUserId]: {
+              ...prev[targetUserId],
+              stream: remoteStream,
+              audioElement
+            }
+          }));
+
+          audioElement.play().catch(error => {
+            console.error('Error playing remote audio:', error);
+          });
+        }
       };
 
-      // Eğer başlatıcıysak, teklif oluştur ve gönder
+      // Create and send offer if initiator
       if (initiator) {
-        const offer = await peerConnection.createOffer();
+        const offer = await peerConnection.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: false
+        });
         await peerConnection.setLocalDescription(offer);
 
         try {
@@ -121,7 +154,10 @@ export function useWebRTC(channelId: number) {
 
       setPeers(prev => ({
         ...prev,
-        [targetUserId]: { connection: peerConnection, stream: localStreamRef.current! }
+        [targetUserId]: { 
+          connection: peerConnection, 
+          stream: localStreamRef.current!
+        }
       }));
 
       return peerConnection;
@@ -166,7 +202,7 @@ export function useWebRTC(channelId: number) {
           }
         } else if (signal.type === 'answer') {
           await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-        } else if (signal.type === 'candidate' && 'candidate' in signal) {
+        } else if ('candidate' in signal && signal.candidate) {
           await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
         }
       }
@@ -178,7 +214,18 @@ export function useWebRTC(channelId: number) {
   const cleanupPeer = useCallback((userId: number) => {
     const peerConnection = peers[userId];
     if (peerConnection) {
+      // Stop all tracks
+      peerConnection.stream.getTracks().forEach(track => track.stop());
+
+      // Close audio element if it exists
+      if (peerConnection.audioElement) {
+        peerConnection.audioElement.pause();
+        peerConnection.audioElement.srcObject = null;
+      }
+
+      // Close peer connection
       peerConnection.connection.close();
+
       setPeers(prev => {
         const newPeers = { ...prev };
         delete newPeers[userId];
