@@ -3,6 +3,7 @@ import {
   useQuery,
   useMutation,
   UseMutationResult,
+  QueryFunction,
 } from "@tanstack/react-query";
 import { insertUserSchema, User as SelectUser, InsertUser } from "@shared/schema";
 import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
@@ -36,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
   } = useQuery<SelectUser | null>({
     queryKey: ["/api/user"],
-    queryFn: () => getQueryFn({ on401: "returnNull" })("/api/user"),
+    queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
     staleTime: 30000,
   });
@@ -46,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: friendRequestsLoading,
   } = useQuery<SelectUser[]>({
     queryKey: ["/api/friends/requests"],
-    queryFn: () => getQueryFn()("/api/friends/requests"),
+    queryFn: getQueryFn({ on401: "throw" }),
     enabled: !!user,
     refetchInterval: 30000,
   });
@@ -62,19 +63,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    if (!user?.id) {
+    if (!user) {
       cleanup();
     }
 
     return cleanup;
-  }, [user?.id]);
+  }, [user]);
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
       const res = await apiRequest("POST", "/api/login", credentials);
-      if (!res.ok) {
-        throw new Error(t('auth.errors.invalidCredentials'));
-      }
       return res.json();
     },
     onSuccess: (user: SelectUser) => {
@@ -95,10 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const registerMutation = useMutation({
     mutationFn: async (credentials: InsertUser) => {
       const res = await apiRequest("POST", "/api/register", credentials);
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || t('auth.errors.registrationFailed'));
-      }
       return res.json();
     },
     onSuccess: (user: SelectUser) => {

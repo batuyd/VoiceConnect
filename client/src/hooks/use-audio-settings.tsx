@@ -27,14 +27,15 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const [isInitialized, setIsInitialized] = useState(false);
   const [isTestingAudio, setIsTestingAudio] = useState(false);
 
-  // Real-time volume feedback
+  // Real-time volume feedback with improved cleanup
   useEffect(() => {
     if (!selectedInputDevice || !isInitialized) return;
 
     let audioContext: AudioContext | null = null;
     let analyser: AnalyserNode | null = null;
     let microphone: MediaStreamAudioSourceNode | null = null;
-    let animationFrame: number;
+    let mediaStream: MediaStream | null = null;
+    let animationFrame: number | null = null;
 
     const updateVolume = () => {
       if (!analyser) return;
@@ -47,17 +48,21 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     const setupAudioAnalysis = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        mediaStream = await navigator.mediaDevices.getUserMedia({
           audio: { deviceId: selectedInputDevice }
         });
 
         audioContext = new AudioContext();
         analyser = audioContext.createAnalyser();
-        microphone = audioContext.createMediaStreamSource(stream);
+        microphone = audioContext.createMediaStreamSource(mediaStream);
         microphone.connect(analyser);
         updateVolume();
       } catch (error) {
         console.warn('Could not initialize audio analysis:', error);
+        toast({
+          description: t('audio.initializationError'),
+          variant: "destructive",
+        });
       }
     };
 
@@ -67,8 +72,11 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       if (animationFrame) cancelAnimationFrame(animationFrame);
       if (microphone) microphone.disconnect();
       if (audioContext) audioContext.close();
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+      }
     };
-  }, [selectedInputDevice, isInitialized]);
+  }, [selectedInputDevice, isInitialized, toast, t]);
 
   useEffect(() => {
     let mounted = true;
@@ -77,7 +85,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       if (!mounted) return;
 
       try {
-        // Check if browser supports audio devices
         if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
           console.warn('Audio devices not supported');
           toast({
@@ -87,20 +94,18 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           return;
         }
 
-        // Get device list first
         const devices = await navigator.mediaDevices.enumerateDevices();
         const hasAudioDevices = devices.some(device =>
           device.kind === 'audioinput' || device.kind === 'audiooutput'
         );
 
-        // Only request permissions if audio devices exist
         if (hasAudioDevices) {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
               audio: { echoCancellation: true, noiseSuppression: true }
             });
             stream.getTracks().forEach(track => track.stop());
-          } catch (error: any) {
+          } catch (error) {
             console.warn('Audio permission denied:', error);
             toast({
               description: t('audio.permissionDenied'),
@@ -119,7 +124,6 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
         if (!mounted) return;
 
-        // Re-enumerate devices after getting permissions
         const availableDevices = await navigator.mediaDevices.enumerateDevices();
         const audioDevices = availableDevices.filter(device =>
           (device.kind === 'audioinput' || device.kind === 'audiooutput') &&
@@ -135,25 +139,22 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
           return;
         }
 
-        console.log(`Found ${audioDevices.length} audio devices`);
         setAudioDevices(audioDevices);
 
         const defaultInput = audioDevices.find(d => d.kind === 'audioinput');
         const defaultOutput = audioDevices.find(d => d.kind === 'audiooutput');
 
         if (defaultInput) {
-          console.log('Setting default input device:', defaultInput.label);
           setSelectedInputDevice(defaultInput.deviceId);
         }
 
         if (defaultOutput) {
-          console.log('Setting default output device:', defaultOutput.label);
           setSelectedOutputDevice(defaultOutput.deviceId);
         }
 
         setIsInitialized(true);
 
-      } catch (error: any) {
+      } catch (error) {
         console.error('Audio initialization error:', error);
         toast({
           description: t('audio.initializationError'),
@@ -208,17 +209,16 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       oscillator.connect(gainNode);
       gainNode.connect(audioContext.destination);
 
-      // Smooth volume ramp
       gainNode.gain.setValueAtTime(0, audioContext.currentTime);
       gainNode.gain.linearRampToValueAtTime(volume[0] / 100, audioContext.currentTime + 0.1);
       gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
 
       oscillator.start();
-      setTimeout(() => {
-        oscillator.stop();
-        audioContext.close();
-        setIsTestingAudio(false);
-      }, 500);
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      oscillator.stop();
+      await audioContext.close();
 
     } catch (error) {
       console.error('Test sound error:', error);
@@ -226,6 +226,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         description: t('audio.testSoundError'),
         variant: "destructive",
       });
+    } finally {
       setIsTestingAudio(false);
     }
   }, [isInitialized, volume, toast, t]);

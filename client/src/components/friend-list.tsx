@@ -27,17 +27,21 @@ export function FriendList() {
   const addFriendMutation = useMutation({
     mutationFn: async (username: string) => {
       const res = await apiRequest("POST", "/api/friends", { username });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || t('friends.requestError'));
+      }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
       toast({
-        title: t('friends.addSuccess'),
+        description: t('friends.requestSentDescription'),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: t('friends.addError'),
+        title: t('friends.requestError'),
         description: error.message,
         variant: "destructive",
       });
@@ -47,13 +51,22 @@ export function FriendList() {
   const acceptFriendRequestMutation = useMutation({
     mutationFn: async (friendshipId: number) => {
       const res = await apiRequest("POST", `/api/friends/${friendshipId}/accept`);
-      return res.json();
+      if (!res.ok) {
+        throw new Error(t('friends.acceptError'));
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
       queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
       toast({
-        title: t('friends.acceptSuccess'),
+        description: t('friends.requestAcceptedDescription'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('friends.acceptError'),
+        description: error.message,
+        variant: "destructive",
       });
     },
   });
@@ -61,12 +74,21 @@ export function FriendList() {
   const rejectFriendRequestMutation = useMutation({
     mutationFn: async (friendshipId: number) => {
       const res = await apiRequest("POST", `/api/friends/${friendshipId}/reject`);
-      return res.json();
+      if (!res.ok) {
+        throw new Error(t('friends.rejectError'));
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
       toast({
-        title: t('friends.rejectSuccess'),
+        description: t('friends.requestRejectedDescription'),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t('friends.rejectError'),
+        description: error.message,
+        variant: "destructive",
       });
     },
   });
@@ -74,12 +96,14 @@ export function FriendList() {
   const removeFriendMutation = useMutation({
     mutationFn: async (friendId: number) => {
       const res = await apiRequest("DELETE", `/api/friends/${friendId}`);
-      return res.json();
+      if (!res.ok) {
+        throw new Error(t('friends.removeError'));
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
       toast({
-        title: t('friends.removeSuccess'),
+        description: t('friends.removedDescription'),
       });
     },
     onError: (error: Error) => {
@@ -100,22 +124,6 @@ export function FriendList() {
       event.currentTarget.reset();
     }
   };
-
-  // Friend list skeleton
-  const FriendSkeleton = () => (
-    <Card className="p-3 md:p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-8 w-8 md:h-10 md:w-10 rounded-full" />
-          <Skeleton className="h-4 w-32" />
-        </div>
-        <div className="flex gap-2">
-          <Skeleton className="h-8 w-8" />
-          <Skeleton className="h-8 w-8" />
-        </div>
-      </div>
-    </Card>
-  );
 
   return (
     <Dialog>
@@ -148,10 +156,10 @@ export function FriendList() {
         <Tabs defaultValue="friends">
           <TabsList className="w-full mb-4">
             <TabsTrigger value="friends" className="flex-1">
-              {t('friends.list')} ({!friendsLoading ? friends.length : '...'})
+              {t('friends.list')} ({friends.length})
             </TabsTrigger>
             <TabsTrigger value="requests" className="flex-1">
-              {t('friends.requests')} ({!requestsLoading ? friendRequests.length : '...'})
+              {t('friends.requests')} ({friendRequests.length})
             </TabsTrigger>
           </TabsList>
 
@@ -183,8 +191,7 @@ export function FriendList() {
                         size="icon"
                         onClick={() => {
                           toast({
-                            title: "Coming soon",
-                            description: "Private messaging will be available soon!",
+                            description: t('friends.messageComingSoon'),
                           });
                         }}
                       >
@@ -264,3 +271,19 @@ export function FriendList() {
     </Dialog>
   );
 }
+
+// Friend list skeleton
+const FriendSkeleton = () => (
+  <Card className="p-3 md:p-4">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-8 w-8 md:h-10 md:w-10 rounded-full" />
+        <Skeleton className="h-4 w-32" />
+      </div>
+      <div className="flex gap-2">
+        <Skeleton className="h-8 w-8" />
+        <Skeleton className="h-8 w-8" />
+      </div>
+    </div>
+  </Card>
+);

@@ -2,8 +2,14 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let errorMessage = res.statusText;
+    try {
+      const errorData = await res.json();
+      errorMessage = errorData.message || errorMessage;
+    } catch {
+      // If JSON parsing fails, use the status text
+    }
+    throw new Error(`${res.status}: ${errorMessage}`);
   }
 }
 
@@ -24,22 +30,28 @@ export async function apiRequest(
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
+
+export const getQueryFn = <TData = unknown>({
+  on401,
+}: {
   on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
+}): QueryFunction<TData, [string]> => {
+  return async ({ queryKey: [url] }) => {
+    const res = await fetch(url, {
       credentials: "include",
     });
 
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+    if (res.status === 401) {
+      if (on401 === "returnNull") {
+        return null as TData;
+      }
+      throw new Error("Unauthorized");
     }
 
     await throwIfResNotOk(res);
-    return await res.json();
+    return res.json();
   };
+};
 
 export const queryClient = new QueryClient({
   defaultOptions: {

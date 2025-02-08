@@ -220,21 +220,24 @@ export const insertUserSchema = baseUserSchema.extend({
     .max(20, "Kullanıcı adı en fazla 20 karakter olabilir")
     .regex(/^[a-zA-Z0-9_]+$/, "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir"),
   password: z.string()
-    .min(8, "Şifre en az 8 karakter olmalıdır"),
+    .min(8, "Şifre en az 8 karakter olmalıdır")
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, "Şifre en az bir büyük harf, bir küçük harf ve bir rakam içermelidir"),
   email: z.string()
-    .email("Geçersiz email adresi"),
+    .email("Geçersiz email adresi")
+    .min(1, "Email adresi zorunludur"),
   phone: z.string()
+    .regex(/^\+?[1-9]\d{1,14}$/, "Geçersiz telefon numarası")
     .min(1, "Telefon numarası gereklidir"),
   nickname: z.string().max(30, "Takma ad en fazla 30 karakter olabilir").optional(),
-  avatar: z.string().optional(),
+  avatar: z.string().url("Geçersiz URL formatı").optional(),
   bio: z.string().max(500, "Biyografi en fazla 500 karakter olabilir").optional(),
   status: z.string().max(100, "Durum mesajı en fazla 100 karakter olabilir").optional(),
-  age: z.number().optional(),
+  age: z.number().int("Yaş tam sayı olmalıdır").min(13, "Yaş en az 13 olmalıdır").optional(),
   socialLinks: z.object({
-    discord: z.string().optional(),
-    twitter: z.string().optional(),
-    instagram: z.string().optional(),
-    website: z.string().optional(),
+    discord: z.string().regex(/^.{3,32}#[0-9]{4}$/, "Geçersiz Discord kullanıcı adı").optional(),
+    twitter: z.string().regex(/^[A-Za-z0-9_]{4,15}$/, "Geçersiz Twitter kullanıcı adı").optional(),
+    instagram: z.string().regex(/^[a-zA-Z0-9._]{1,30}$/, "Geçersiz Instagram kullanıcı adı").optional(),
+    website: z.string().url("Geçersiz website URL'si").optional(),
   }).optional(),
   theme: z.enum(["light", "dark", "system"]).optional(),
   isPrivateProfile: z.boolean().optional(),
@@ -264,6 +267,7 @@ export type Channel = typeof channels.$inferSelect;
 export type ServerMember = typeof serverMembers.$inferSelect;
 export type Friendship = typeof friendships.$inferSelect & {
   sender?: User;
+  receiver?: User;
 };
 export type ServerInvite = typeof serverInvites.$inferSelect;
 export type Message = typeof messages.$inferSelect;

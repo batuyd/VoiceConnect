@@ -6,11 +6,8 @@ import { storage } from "./storage";
 import session from 'express-session';
 import ytdl from 'ytdl-core';
 
-// Error handling helper
 function handleError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
+  if (error instanceof Error) return error.message;
   return String(error);
 }
 
@@ -43,34 +40,60 @@ export function registerRoutes(app: Express): Server {
 
       // Session parsing
       const sessionParser = session(sessionSettings);
-      await new Promise((resolve) => {
-        sessionParser(req, {} as any, resolve as any);
+      await new Promise((resolve, reject) => {
+        sessionParser(req, {} as any, (err: any) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(undefined);
+        });
       });
 
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
-        ws.close();
+        ws.close(1008, 'Unauthorized');
         return;
       }
 
       const userId = req.session.passport.user;
       console.log('WebSocket connected for user:', userId);
 
+      // Remove any existing connection for this user
+      const existingWs = clients.get(userId);
+      if (existingWs) {
+        console.log('Closing existing connection for user:', userId);
+        existingWs.close(1000, 'New connection established');
+        clients.delete(userId);
+      }
+
       clients.set(userId, ws);
+
+      // Ping/Pong to keep connection alive
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.ping();
+        }
+      }, 30000);
 
       ws.on('close', () => {
         console.log('WebSocket disconnected for user:', userId);
         clients.delete(userId);
+        clearInterval(pingInterval);
+      });
+
+      ws.on('error', (error) => {
+        console.error('WebSocket error for user:', userId, error);
+        clients.delete(userId);
+        clearInterval(pingInterval);
+        ws.close();
       });
 
       // Send initial connection success message
-      ws.send(JSON.stringify({
-        type: 'CONNECTED',
-        data: { userId }
-      }));
+      sendWebSocketMessage(ws, 'CONNECTED', { userId });
     } catch (error) {
       console.error('WebSocket connection error:', error);
-      ws.close();
+      ws.close(1011, 'Internal Server Error');
     }
   });
 
@@ -822,7 +845,7 @@ export function registerRoutes(app: Express): Server {
           data: {
             friendshipId,
             userId: req.user.id,
-            username: req.user.username,
+username: req.user.username,
             senderId: friendship.senderId,
             receiverId: friendship.receiverId
           }
