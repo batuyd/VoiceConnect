@@ -12,22 +12,10 @@ interface WebSocketManager {
   on: (event: string, handler: WebSocketEventHandler) => void;
   off: (event: string, handler: WebSocketEventHandler) => void;
   send: (message: any) => void;
+  joinVoiceChannel: (channelId: number) => Promise<void>;
+  leaveVoiceChannel: (channelId: number) => void;
+  toggleMute: (channelId: number, isMuted: boolean) => void;
 }
-
-type WebSocketMessageType = 
-  | 'FRIEND_REQUEST'
-  | 'FRIEND_REQUEST_ACCEPTED'
-  | 'FRIEND_REQUEST_REJECTED'
-  | 'FRIENDSHIP_REMOVED';
-
-interface WebSocketMessageConfig {
-  title: string;
-  description: string;
-}
-
-type MessageConfigMap = {
-  [K in WebSocketMessageType]: WebSocketMessageConfig;
-};
 
 export function useWebSocket(): WebSocketManager {
   const wsRef = useRef<WebSocket | null>(null);
@@ -40,16 +28,44 @@ export function useWebSocket(): WebSocketManager {
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const maxReconnectAttempts = 5;
   const reconnectAttemptRef = useRef(0);
+  const [hasAudioPermission, setHasAudioPermission] = useState<boolean>(false);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+
+  const requestAudioPermission = useCallback(async () => {
+    if (!navigator.mediaDevices) {
+      toast({
+        title: t('error.audioUnsupported'),
+        description: t('error.browserNotSupported'),
+        variant: 'destructive'
+      });
+      return false;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      setHasAudioPermission(true);
+      return true;
+    } catch (error) {
+      console.error('Audio permission error:', error);
+      toast({
+        title: t('error.audioPermission'),
+        description: t('error.enableMicrophoneAccess'),
+        variant: 'destructive'
+      });
+      return false;
+    }
+  }, [toast, t]);
 
   const connect = useCallback(() => {
-    const user = queryClient.getQueryData(['/api/user']);
-    if (!user) {
-      console.log('Not attempting WebSocket connection - user not authenticated');
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('WebSocket already connected');
       return;
     }
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      console.log('WebSocket already connected');
+    const user = queryClient.getQueryData(['/api/user']);
+    if (!user) {
+      console.log('Not attempting WebSocket connection - user not authenticated');
       return;
     }
 
@@ -79,6 +95,13 @@ export function useWebSocket(): WebSocketManager {
         console.log('WebSocket connection closed:', event);
         setConnectionStatus('disconnected');
         wsRef.current = null;
+
+        // Stop audio stream if it exists
+        if (audioStreamRef.current) {
+          audioStreamRef.current.getTracks().forEach(track => track.stop());
+          audioStreamRef.current = null;
+          setHasAudioPermission(false);
+        }
 
         const currentUser = queryClient.getQueryData(['/api/user']);
         if (currentUser && reconnectAttemptRef.current < maxReconnectAttempts) {
@@ -125,50 +148,68 @@ export function useWebSocket(): WebSocketManager {
               }
             });
           }
-
-          const messageConfig: MessageConfigMap = {
-            'FRIEND_REQUEST': {
-              title: t('friends.newRequest'),
-              description: t('friends.requestReceived', { username: message.data.sender?.username })
-            },
-            'FRIEND_REQUEST_ACCEPTED': {
-              title: t('friends.requestAccepted'),
-              description: t('friends.nowFriends', { username: message.data.username })
-            },
-            'FRIEND_REQUEST_REJECTED': {
-              title: t('friends.requestRejected'),
-              description: t('friends.requestRejectedDesc', { username: message.data.username })
-            },
-            'FRIENDSHIP_REMOVED': {
-              title: t('friends.removed'),
-              description: t('friends.removedDesc', { username: message.data.username })
-            }
-          };
-
-          if (message.type in messageConfig) {
-            const config = messageConfig[message.type as WebSocketMessageType];
-            handleFriendshipEvent(message, config);
-          }
         } catch (error) {
           console.error('Error processing WebSocket message:', error);
         }
       };
+
     } catch (error) {
       console.error('Error setting up WebSocket:', error);
       setConnectionStatus('disconnected');
     }
   }, [queryClient, toast, t, refreshFriendshipData]);
 
-  const handleFriendshipEvent = useCallback((message: any, config: WebSocketMessageConfig) => {
-    console.log('Handling friendship event:', message.type, message.data);
-    refreshFriendshipData();
+  useEffect(() => {
+    const user = queryClient.getQueryData(['/api/user']);
+    if (user) {
+      connect();
+    }
 
-    toast({
-      title: config.title,
-      description: config.description,
-      variant: 'default'
-    });
-  }, [refreshFriendshipData, toast]);
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [connect, queryClient]);
+
+  const joinVoiceChannel = useCallback(async (channelId: number) => {
+    if (!hasAudioPermission) {
+      const granted = await requestAudioPermission();
+      if (!granted) return;
+    }
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'join_voice_channel',
+        channelId
+      }));
+    }
+  }, [hasAudioPermission, requestAudioPermission]);
+
+  const leaveVoiceChannel = useCallback((channelId: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'leave_voice_channel',
+        channelId
+      }));
+    }
+  }, []);
+
+  const toggleMute = useCallback((channelId: number, isMuted: boolean) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'toggle_mute',
+        channelId,
+        isMuted
+      }));
+    }
+  }, []);
 
   const on = useCallback((event: string, handler: WebSocketEventHandler) => {
     if (!eventHandlersRef.current.has(event)) {
@@ -189,27 +230,14 @@ export function useWebSocket(): WebSocketManager {
     }
   }, []);
 
-  useEffect(() => {
-    const user = queryClient.getQueryData(['/api/user']);
-    if (user) {
-      connect();
-    }
-
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [connect, queryClient]);
-
   return {
     connectionStatus,
     websocket: wsRef.current,
     on,
     off,
-    send
+    send,
+    joinVoiceChannel,
+    leaveVoiceChannel,
+    toggleMute
   };
 }
