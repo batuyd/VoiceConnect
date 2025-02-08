@@ -787,8 +787,43 @@ export class DatabaseStorage implements IStorage {
 
   // Friend related methods (These methods will need to be implemented using the database)
   async getFriendship(userId1: number, userId2: number): Promise<Friendship | undefined> {
-    const [friendship] = await db.select().from(friendships).where(or(and(eq(friendships.senderId, userId1), eq(friendships.receiverId, userId2)), and(eq(friendships.senderId, userId2), eq(friendships.receiverId, userId1))));
-    return friendship;
+    console.log(`Checking friendship between users ${userId1} and ${userId2}`);
+
+    const [friendship] = await db
+      .select({
+        id: friendships.id,
+        senderId: friendships.senderId,
+        receiverId: friendships.receiverId,
+        status: friendships.status,
+        createdAt: friendships.createdAt,
+        sender: users
+      })
+      .from(friendships)
+      .innerJoin(users, eq(users.id, friendships.senderId))
+      .where(
+        or(
+          and(
+            eq(friendships.senderId, userId1),
+            eq(friendships.receiverId, userId2)
+          ),
+          and(
+            eq(friendships.senderId, userId2),
+            eq(friendships.receiverId, userId1)
+          )
+        )
+      );
+
+    if (!friendship) {
+      console.log('No friendship found');
+      return undefined;
+    }
+
+    console.log('Found friendship:', friendship);
+    const { sender, ...friendshipData } = friendship;
+    return {
+      ...friendshipData,
+      sender
+    };
   }
 
   async addFriend(userId1: number, userId2: number): Promise<void> {

@@ -80,10 +80,11 @@ export function registerRoutes(app: Express): Server {
       // Check if already friends or pending request exists
       const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
       if (existingFriendship) {
-        if (existingFriendship.status === 'pending') {
+        if (existingFriendship.status === 'accepted') {
+          return res.status(400).json({ message: "Already friends with this user" });
+        } else if (existingFriendship.status === 'pending') {
           return res.status(400).json({ message: "Friend request already sent" });
         }
-        return res.status(400).json({ message: "Already friends with this user" });
       }
 
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
