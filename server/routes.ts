@@ -730,44 +730,26 @@ export function registerRoutes(app: Express): Server {
     server: httpServer,
     path: '/ws',
     clientTracking: true,
-    perMessageDeflate: false,
   });
 
   // WebSocket session middleware setup
   const sessionParser = session(sessionSettings);
 
-  // WebSocket connection handler with improved logging and error handling
+  // WebSocket connection handler
   wss.on('connection', async (ws, req) => {
-    console.log('New WebSocket connection attempt', {
-      timestamp: new Date().toISOString(),
-      headers: req.headers,
-      url: req.url,
-      remoteAddress: req.socket.remoteAddress
-    });
+    console.log('New WebSocket connection attempt');
 
     try {
-      // Parse session synchronously to ensure proper authentication
+      // Parse session synchronously
       await new Promise<void>((resolve, reject) => {
         sessionParser(req as any, {} as any, (err) => {
-          if (err) {
-            console.error('Session parsing error:', {
-              error: handleError(err),
-              timestamp: new Date().toISOString()
-            });
-            reject(err);
-          } else {
-            resolve();
-          }
+          if (err) reject(err);
+          else resolve();
         });
       });
 
-      // Check authentication
       const session = (req as any).session;
       if (!session?.passport?.user) {
-        console.log('WebSocket authentication failed - no session', {
-          timestamp: new Date().toISOString(),
-          sessionData: session
-        });
         ws.send(JSON.stringify({
           type: 'error',
           message: 'Authentication required'
@@ -776,15 +758,10 @@ export function registerRoutes(app: Express): Server {
         return;
       }
 
-      // Get user data
       const userId = session.passport.user;
       const user = await storage.getUser(userId);
 
       if (!user) {
-        console.log('WebSocket authentication failed - user not found', {
-          timestamp: new Date().toISOString(),
-          userId
-        });
         ws.send(JSON.stringify({
           type: 'error',
           message: 'User not found'
@@ -793,8 +770,7 @@ export function registerRoutes(app: Express): Server {
         return;
       }
 
-      console.log('WebSocket connection authenticated', {
-        timestamp: new Date().toISOString(),
+      console.log('WebSocket connection authenticated:', {
         userId: user.id,
         username: user.username
       });
@@ -820,54 +796,12 @@ export function registerRoutes(app: Express): Server {
       }));
 
       // Handle incoming messages
-      ws.on('message', async (message) => {
+      ws.onmessage = async (event) => {
         try {
-          const data = JSON.parse(message.toString());
-          console.log('WebSocket message received', {
-            timestamp: new Date().toISOString(),
-            userId,
-            messageType: data.type,
-            data
-          });
+          const data = JSON.parse(event.data as string);
+          console.log('WebSocket message received:', data);
 
           switch (data.type) {
-            case 'ping':
-              const userConn = connectedUsers.get(userId);
-              if (userConn) {
-                userConn.lastPing = Date.now();
-                ws.send(JSON.stringify({ type: 'pong' }));
-              }
-              break;
-
-            case 'voice_data':
-              if (!data.channelId) {
-                console.error('Missing channelId in voice data message');
-                break;
-              }
-
-              // Get all users in the same channel
-              const channelUsers = Array.from(connectedUsers.values())
-                .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
-
-              // Forward voice data to all other users in the channel
-              for (const user of channelUsers) {
-                if (user.ws.readyState === WebSocket.OPEN) {
-                  try {
-                    user.ws.send(JSON.stringify({
-                      type: 'voice_data',
-                      fromUserId: userId,
-                      data: data.data
-                    }));
-                  } catch (error) {
-                    console.error('Error sending voice data to user', {
-                      userId: user.user.id,
-                      error: handleError(error)
-                    });
-                  }
-                }
-              }
-              break;
-
             case 'join_channel':
               if (!data.channelId) {
                 console.error('Missing channelId in join channel message');
@@ -911,31 +845,42 @@ export function registerRoutes(app: Express): Server {
               }
               break;
 
+            case 'voice_data':
+              if (!data.channelId || !data.data) {
+                console.error('Missing required data in voice message');
+                break;
+              }
+
+              // Forward voice data to all users in the same channel
+              const channelUsers = Array.from(connectedUsers.values())
+                .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
+
+              for (const user of channelUsers) {
+                if (user.ws.readyState === WebSocket.OPEN) {
+                  try {
+                    user.ws.send(JSON.stringify({
+                      type: 'voice_data',
+                      fromUserId: userId,
+                      data: data.data
+                    }));
+                  } catch (error) {
+                    console.error('Error sending voice data:', error);
+                  }
+                }
+              }
+              break;
+
             default:
-              console.log('Unknown message type', {
-                timestamp: new Date().toISOString(),
-                userId,
-                type: data.type
-              });
+              console.log('Unknown message type:', data.type);
           }
         } catch (error) {
-          console.error('Error processing message', {
-            timestamp: new Date().toISOString(),
-            userId,
-            error: handleError(error),
-            rawMessage: message.toString()
-          });
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Invalid message format'
-          }));
+          console.error('Failed to process WebSocket message:', error);
         }
-      });
+      };
 
       // Handle connection close
       ws.on('close', () => {
-        console.log('WebSocket connection closed', {
-          timestamp: new Date().toISOString(),
+        console.log('WebSocket connection closed:', {
           userId,
           username: user.username
         });
@@ -948,7 +893,7 @@ export function registerRoutes(app: Express): Server {
       });
 
     } catch (error) {
-      console.error('WebSocket connection error:', handleError(error));
+      console.error('WebSocket connection error:', error);
       ws.close();
     }
   });
@@ -959,44 +904,19 @@ export function registerRoutes(app: Express): Server {
     userConnection.currentChannel = undefined;
 
     if (previousChannel) {
-      console.log('User leaving channel:', {
-        userId,
-        username: userConnection.user.username,
-        channelId: previousChannel
-      });
-
-      // Notify other users in the channel about the user leaving
+      // Notify other users in the channel
       const remainingUsers = Array.from(connectedUsers.values())
         .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
 
       for (const user of remainingUsers) {
         if (user.ws.readyState === WebSocket.OPEN) {
-          try {
-            user.ws.send(JSON.stringify({
-              type: 'user_left',
-              userId,
-              username: userConnection.user.username,
-              channelId: previousChannel
-            }));
-          } catch (error) {
-            console.error('Error sending user_left notification:', error);
-          }
+          user.ws.send(JSON.stringify({
+            type: 'user_left',
+            userId,
+            username: userConnection.user.username
+          }));
         }
       }
-
-      // Force refresh channel members for all remaining users
-      remainingUsers.forEach(user => {
-        if (user.ws.readyState === WebSocket.OPEN) {
-          try {
-            user.ws.send(JSON.stringify({
-              type: 'member_update',
-              channelId: previousChannel
-            }));
-          } catch (error) {
-            console.error('Error sending member_update notification:', error);
-          }
-        }
-      });
     }
   }
 
