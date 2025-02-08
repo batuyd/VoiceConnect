@@ -26,6 +26,8 @@ export function useWebSocket() {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = undefined;
       }
+      // Bağlantı kurulduğunda mevcut istekleri yenile
+      queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
     };
 
     ws.onmessage = (event) => {
@@ -36,10 +38,12 @@ export function useWebSocket() {
         switch (message.type) {
           case 'CONNECTED':
             console.log('WebSocket connection confirmed for user:', message.data.userId);
+            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             break;
 
           case 'FRIEND_REQUEST':
             console.log('Friend request received:', message.data);
+            // İstek alındığında arkadaşlık isteklerini yenile
             queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             toast({
               title: t('friend.newRequest'),
@@ -49,6 +53,7 @@ export function useWebSocket() {
 
           case 'FRIEND_REQUEST_ACCEPTED':
             console.log('Friend request accepted:', message.data);
+            // Arkadaş listesini ve istekleri yenile
             queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
             queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             toast({

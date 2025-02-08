@@ -63,7 +63,9 @@ export function registerRoutes(app: Express): Server {
   app.get("/api/friends/requests", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     try {
+      console.log('Getting friend requests for user:', req.user.id);
       const requests = await storage.getPendingFriendRequests(req.user.id);
+      console.log('Found friend requests:', requests);
       res.json(requests);
     } catch (error) {
       console.error('Get friend requests error:', handleError(error));
