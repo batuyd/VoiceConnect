@@ -32,12 +32,15 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [audioPermissionGranted, setAudioPermissionGranted] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const gainNode = useRef<GainNode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const retryCount = useRef(0);
+  const maxRetries = 3;
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
@@ -149,6 +152,8 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     setIsJoined(false);
     setWsConnected(false);
     setAudioPermissionGranted(false);
+    setIsConnecting(false);
+    retryCount.current = 0;
 
     if (isJoined) {
       playLeaveSound();
@@ -156,10 +161,11 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   }, [channel.id, playLeaveSound, isJoined, cleanupAudioResources]);
 
   const connectWebSocket = useCallback(async () => {
-    if (!isJoined || !user?.id) return;
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries) return;
 
     try {
+      setIsConnecting(true);
+
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -167,12 +173,16 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
+      console.log('Trying to connect WebSocket to:', wsUrl);
+
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         console.log('WebSocket connected');
         setWsConnected(true);
+        setIsConnecting(false);
+        retryCount.current = 0;
         ws.send(JSON.stringify({
           type: 'join_channel',
           channelId: channel.id,
@@ -184,10 +194,14 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         console.log('WebSocket disconnected');
         setWsConnected(false);
         wsRef.current = null;
-        if (isJoined) {
+        setIsConnecting(false);
+
+        if (isJoined && retryCount.current < maxRetries) {
+          console.log('Attempting to reconnect WebSocket...');
+          retryCount.current++;
           setTimeout(() => {
             connectWebSocket();
-          }, 1000);
+          }, Math.min(1000 * Math.pow(2, retryCount.current), 5000));
         }
       };
 
@@ -231,12 +245,13 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       };
     } catch (error) {
       console.error('WebSocket connection error:', error);
+      setIsConnecting(false);
       toast({
         description: t('voice.connectionFailed'),
         variant: "destructive",
       });
     }
-  }, [isJoined, channel.id, user?.id, toast, t, refetchMembers]);
+  }, [isJoined, channel.id, user?.id, toast, t, refetchMembers, isConnecting]);
 
   const handleJoinLeave = useCallback(async () => {
     if (isJoined) {
@@ -298,6 +313,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
           size="sm"
           onClick={handleJoinLeave}
           className="w-20"
+          disabled={isConnecting}
         >
           {isJoined ? t('server.leave') : t('server.join')}
         </Button>
