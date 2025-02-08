@@ -171,25 +171,15 @@ export class DatabaseStorage implements IStorage {
     console.log(`Accepting friend request: ${friendshipId}`);
 
     try {
-      // Get the friendship first to verify it exists and get user details
       const [friendship] = await db
-        .select({
-          friendship: friendships,
-          sender: users
-        })
-        .from(friendships)
-        .innerJoin(users, eq(users.id, friendships.senderId))
-        .where(eq(friendships.id, friendshipId));
+        .update(friendships)
+        .set({ status: 'accepted' })
+        .where(eq(friendships.id, friendshipId))
+        .returning();
 
       if (!friendship) {
         throw new Error('Friendship request not found');
       }
-
-      // Update the friendship status to accepted
-      await db
-        .update(friendships)
-        .set({ status: 'accepted' })
-        .where(eq(friendships.id, friendshipId));
 
       console.log('Friend request accepted:', friendship);
     } catch (error) {
@@ -957,51 +947,6 @@ export class DatabaseStorage implements IStorage {
       throw error;
     }
   }
-  async getFriendshipBetweenUsers(userId1: number, userId2: number): Promise<Friendship | undefined> {
-    try {
-      console.log(`Looking for friendship between users ${userId1} and ${userId2}`);
-
-      const [friendship] = await db
-        .select({
-          id: friendships.id,
-          senderId: friendships.senderId,
-          receiverId: friendships.receiverId,
-          status: friendships.status,
-          createdAt: friendships.createdAt,
-          sender: users
-        })
-        .from(friendships)
-        .innerJoin(users, eq(users.id, friendships.senderId))
-        .where(
-          and(
-            or(
-              and(
-                eq(friendships.senderId, userId1),
-                eq(friendships.receiverId, userId2)
-              ),
-              and(
-                eq(friendships.senderId, userId2),
-                eq(friendships.receiverId, userId1)
-              )
-            ),
-            eq(friendships.status, 'accepted')
-          )
-        );
-
-      if (!friendship) {
-        console.log('No active friendship found between users');
-        return undefined;
-      }
-
-      console.log('Found friendship:', friendship);
-      const { sender, ...friendshipData } = friendship;
-      return {
-        ...friendshipData,
-        sender
-      };
-    };
-  }
-
   async getFriendshipBetweenUsers(userId1: number, userId2: number): Promise<Friendship | undefined> {
     try {
       console.log(`Looking for friendship between users ${userId1} and ${userId2}`);
