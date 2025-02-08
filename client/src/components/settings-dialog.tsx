@@ -77,7 +77,7 @@ export function SettingsDialog() {
             </TabsTrigger>
             <TabsTrigger value="effects">
               <Wand2 className="h-4 w-4 mr-2" />
-              {t('settings.effects.title')}
+              {t('settings.effects')}
             </TabsTrigger>
           </TabsList>
 
@@ -203,8 +203,8 @@ export function SettingsDialog() {
                   <Volume2 className="h-4 w-4 text-gray-400" />
                   <div className="flex-1">
                     <Slider
-                      value={[volume]}
-                      onValueChange={([v]) => setVolume(v)}
+                      value={volume}
+                      onValueChange={setVolume}
                       max={100}
                       step={1}
                       className="relative z-0"
