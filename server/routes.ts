@@ -19,19 +19,28 @@ export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
-  // WebSocket bağlantılarını saklamak için Map
+  // WebSocket connections map
   const clients = new Map<number, WebSocket>();
+
+  // Create session parser instance
+  const sessionParser = session(sessionSettings);
 
   wss.on('connection', async (ws: WebSocket, req: any) => {
     try {
       console.log('New WebSocket connection attempt');
 
-      // Session parsing
-      const sessionParser = session(sessionSettings);
-      await new Promise((resolve) => {
-        sessionParser(req, {} as any, resolve as any);
+      // Parse session before checking authentication
+      await new Promise((resolve, reject) => {
+        sessionParser(req, {} as any, (err?: any) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(undefined);
+        });
       });
 
+      // Verify authentication after session is parsed
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
         ws.close();
@@ -41,18 +50,27 @@ export function registerRoutes(app: Express): Server {
       const userId = req.session.passport.user;
       console.log('WebSocket connected for user:', userId);
 
+      // Store client connection
       clients.set(userId, ws);
 
+      // Send initial connection confirmation
+      ws.send(JSON.stringify({
+        type: 'CONNECTED',
+        data: { userId }
+      }));
+
+      // Handle disconnection
       ws.on('close', () => {
         console.log('WebSocket disconnected for user:', userId);
         clients.delete(userId);
       });
 
-      // Send initial connection success message
-      ws.send(JSON.stringify({
-        type: 'CONNECTED',
-        data: { userId }
-      }));
+      // Handle errors
+      ws.on('error', (error) => {
+        console.error('WebSocket error for user:', userId, error);
+        clients.delete(userId);
+      });
+
     } catch (error) {
       console.error('WebSocket connection error:', error);
       ws.close();
