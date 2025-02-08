@@ -70,7 +70,7 @@ export function registerRoutes(app: Express): Server {
       ws.isAlive = true;
       ws.on('pong', heartbeat);
 
-      // Session parsing
+      // Parse session
       await new Promise<void>((resolve, reject) => {
         sessionMiddleware(req, {} as any, (err: any) => {
           if (err) {
@@ -82,6 +82,7 @@ export function registerRoutes(app: Express): Server {
         });
       });
 
+      // Check authentication
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
         ws.close(1008, 'Unauthorized');
@@ -91,6 +92,7 @@ export function registerRoutes(app: Express): Server {
       const userId = req.session.passport.user;
       ws.userId = userId;
 
+      // Handle existing connection
       const existingWs = clients.get(userId);
       if (existingWs) {
         console.log('Closing existing connection for user:', userId);
@@ -100,28 +102,26 @@ export function registerRoutes(app: Express): Server {
 
       clients.set(userId, ws);
 
-      ws.on('close', (code: number, reason: string) => {
-        console.log(`WebSocket disconnected for user: ${userId}, code: ${code}, reason: ${reason}`);
+      // Set up event handlers
+      ws.on('close', () => {
+        console.log(`WebSocket disconnected for user: ${userId}`);
         clients.delete(userId);
       });
 
       ws.on('error', (error) => {
         console.error('WebSocket error for user:', userId, error);
         clients.delete(userId);
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.close(1011, 'Internal Server Error');
-        }
       });
 
       ws.on('message', async (message: string) => {
         try {
           const data = JSON.parse(message.toString());
+          console.log('Received message from user:', userId, data);
 
           switch (data.type) {
             case 'ping':
               sendWebSocketMessage(ws, 'pong', { timestamp: Date.now() });
               break;
-
             default:
               console.log('Unknown message type:', data.type);
           }
@@ -131,7 +131,8 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      sendWebSocketMessage(ws, 'CONNECTED', { 
+      // Send connection confirmation
+      sendWebSocketMessage(ws, 'CONNECTED', {
         userId,
         timestamp: Date.now()
       });

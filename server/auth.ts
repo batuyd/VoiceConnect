@@ -37,12 +37,13 @@ export const sessionSettings: session.SessionOptions = {
   store: storage.sessionStore,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
     httpOnly: true,
     sameSite: 'lax',
-    path: '/'
+    path: '/',
   },
-  name: 'sid'
+  rolling: true, // Refresh session with each request
+  name: 'sid' // Custom cookie name for better security
 };
 
 export function setupAuth(app: Express) {
@@ -51,7 +52,8 @@ export function setupAuth(app: Express) {
     sessionSettings.cookie!.secure = true;
   }
 
-  app.use(session(sessionSettings));
+  const sessionMiddleware = session(sessionSettings);
+  app.use(sessionMiddleware);
   app.use(passport.initialize());
   app.use(passport.session());
 
@@ -117,13 +119,6 @@ export function setupAuth(app: Express) {
         avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(validatedData.username)}`
       });
 
-      const { subject, html } = emailTemplates.welcomeEmail(validatedData.username);
-      sendEmail({
-        to: validatedData.email,
-        subject,
-        html
-      });
-
       req.login(user, (err) => {
         if (err) {
           console.error('Login error after registration:', err);
@@ -175,6 +170,7 @@ export function setupAuth(app: Express) {
       return res.status(401).json({ message: "Not authenticated" });
     }
 
+    const sessionId = req.sessionID;
     req.logout((err) => {
       if (err) {
         console.error('Logout error:', err);
@@ -198,4 +194,6 @@ export function setupAuth(app: Express) {
     }
     res.json(req.user);
   });
+
+  return sessionMiddleware;
 }
