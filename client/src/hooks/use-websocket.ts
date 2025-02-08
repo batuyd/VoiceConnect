@@ -34,6 +34,7 @@ export function useWebSocket() {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = undefined;
       }
+      refreshFriendshipData();
     };
 
     ws.onclose = () => {
@@ -51,7 +52,8 @@ export function useWebSocket() {
       } else {
         toast({
           title: t('error.connectionLost'),
-          description: t('error.refreshPage')
+          description: t('error.refreshPage'),
+          variant: 'destructive'
         });
       }
     };
@@ -60,7 +62,8 @@ export function useWebSocket() {
       console.error('WebSocket error:', error);
       toast({
         title: t('error.connectionError'),
-        description: t('error.tryAgainLater')
+        description: t('error.tryAgainLater'),
+        variant: 'destructive'
       });
     };
 
@@ -79,8 +82,9 @@ export function useWebSocket() {
             console.log('Friend request received:', message.data);
             refreshFriendshipData();
             toast({
-              title: t('friend.newRequest'),
-              description: t('friend.requestReceived', { username: message.data.sender.username })
+              title: t('friends.newRequest'),
+              description: t('friends.requestReceived', { username: message.data.sender.username }),
+              variant: 'default'
             });
             break;
 
@@ -93,8 +97,9 @@ export function useWebSocket() {
             console.log('Friend request accepted:', message.data);
             refreshFriendshipData();
             toast({
-              title: t('friend.requestAccepted'),
-              description: t('friend.nowFriends', { username: message.data.username })
+              title: t('friends.requestAccepted'),
+              description: t('friends.nowFriends', { username: message.data.username }),
+              variant: 'default'
             });
             break;
 
@@ -102,8 +107,9 @@ export function useWebSocket() {
             console.log('Friend request rejected:', message.data);
             refreshFriendshipData();
             toast({
-              title: t('friend.requestRejected'),
-              description: t('friend.requestRejectedDesc', { username: message.data.username })
+              title: t('friends.requestRejected'),
+              description: t('friends.requestRejectedDesc', { username: message.data.username }),
+              variant: 'default'
             });
             break;
 
@@ -111,10 +117,14 @@ export function useWebSocket() {
             console.log('Friendship removed:', message.data);
             refreshFriendshipData();
             toast({
-              title: t('friend.removed'),
-              description: t('friend.removedDesc', { username: message.data.username })
+              title: t('friends.removed'),
+              description: t('friends.removedDesc', { username: message.data.username }),
+              variant: 'default'
             });
             break;
+
+          default:
+            console.warn('Unknown message type:', message.type);
         }
       } catch (error) {
         console.error('WebSocket message error:', error);

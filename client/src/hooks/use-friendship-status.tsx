@@ -38,13 +38,13 @@ export function useFriendshipStatus() {
     onSuccess: () => {
       refreshFriendshipData();
       toast({
-        title: t('friend.requestSent'),
-        description: t('friend.requestSentDesc'),
+        title: t('friends.addSuccess'),
+        description: t('friends.addSuccessDescription'),
       });
     },
     onError: (error: Error) => {
       toast({
-        title: t('error.sendRequestFailed'),
+        title: t('friends.addError'),
         description: error.message,
         variant: 'destructive',
       });
@@ -58,8 +58,11 @@ export function useFriendshipStatus() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to accept friend request');
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to accept friend request');
       }
+
+      return response.json();
     },
     onSuccess: () => {
       refreshFriendshipData();
@@ -80,8 +83,11 @@ export function useFriendshipStatus() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to reject friend request');
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to reject friend request');
       }
+
+      return response.json();
     },
     onSuccess: () => {
       refreshFriendshipData();
