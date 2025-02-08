@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Settings, Globe, Moon, Sun, Monitor, Volume2, PlayCircle } from "lucide-react";
+import { Settings, Globe, Moon, Sun, Monitor, Volume2, PlayCircle, Loader2 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,7 @@ export function SettingsDialog() {
     selectedOutputDevice,
     setSelectedOutputDevice,
     playTestSound,
+    isTestingAudio,
   } = useAudioSettings();
 
   const [open, setOpen] = useState(false);
@@ -166,20 +167,34 @@ export function SettingsDialog() {
                 <Label>{t('settings.audio.volume')}</Label>
                 <div className="flex items-center space-x-2">
                   <Volume2 className="h-4 w-4 text-gray-400" />
-                  <Slider
-                    value={volume}
-                    onValueChange={setVolume}
-                    max={100}
-                    step={1}
-                    className="flex-1"
-                  />
+                  <div className="flex-1">
+                    <Slider
+                      value={volume}
+                      onValueChange={setVolume}
+                      max={100}
+                      step={1}
+                      className="relative z-0"
+                    />
+                    <div
+                      className="h-1 bg-primary/20 rounded-full mt-1 transition-all duration-200"
+                      style={{
+                        width: `${volume}%`,
+                        opacity: selectedInputDevice ? 1 : 0
+                      }}
+                    />
+                  </div>
                   <span className="text-xs text-gray-400 w-8">{volume}%</span>
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={handleTestSound}
+                    disabled={isTestingAudio}
                   >
-                    <PlayCircle className="h-4 w-4" />
+                    {isTestingAudio ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <PlayCircle className="h-4 w-4" />
+                    )}
                   </Button>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/use-language";
 
@@ -11,6 +11,7 @@ type AudioSettingsContextType = {
   selectedOutputDevice: string;
   setSelectedOutputDevice: (deviceId: string) => void;
   playTestSound: () => Promise<void>;
+  isTestingAudio: boolean;
 };
 
 const AudioSettingsContext = createContext<AudioSettingsContextType | null>(null);
@@ -24,6 +25,50 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>("");
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isTestingAudio, setIsTestingAudio] = useState(false);
+
+  // Real-time volume feedback
+  useEffect(() => {
+    if (!selectedInputDevice || !isInitialized) return;
+
+    let audioContext: AudioContext | null = null;
+    let analyser: AnalyserNode | null = null;
+    let microphone: MediaStreamAudioSourceNode | null = null;
+    let animationFrame: number;
+
+    const updateVolume = () => {
+      if (!analyser) return;
+      const array = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(array);
+      const values = array.reduce((a, b) => a + b) / array.length;
+      setVolume([Math.min(Math.round((values / 255) * 100), 100)]);
+      animationFrame = requestAnimationFrame(updateVolume);
+    };
+
+    const setupAudioAnalysis = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: selectedInputDevice }
+        });
+
+        audioContext = new AudioContext();
+        analyser = audioContext.createAnalyser();
+        microphone = audioContext.createMediaStreamSource(stream);
+        microphone.connect(analyser);
+        updateVolume();
+      } catch (error) {
+        console.warn('Could not initialize audio analysis:', error);
+      }
+    };
+
+    setupAudioAnalysis();
+
+    return () => {
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      if (microphone) microphone.disconnect();
+      if (audioContext) audioContext.close();
+    };
+  }, [selectedInputDevice, isInitialized]);
 
   useEffect(() => {
     let mounted = true;
@@ -44,14 +89,14 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
         // Get device list first
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const hasAudioDevices = devices.some(device => 
+        const hasAudioDevices = devices.some(device =>
           device.kind === 'audioinput' || device.kind === 'audiooutput'
         );
 
         // Only request permissions if audio devices exist
         if (hasAudioDevices) {
           try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
+            const stream = await navigator.mediaDevices.getUserMedia({
               audio: { echoCancellation: true, noiseSuppression: true }
             });
             stream.getTracks().forEach(track => track.stop());
@@ -76,8 +121,8 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
         // Re-enumerate devices after getting permissions
         const availableDevices = await navigator.mediaDevices.enumerateDevices();
-        const audioDevices = availableDevices.filter(device => 
-          (device.kind === 'audioinput' || device.kind === 'audiooutput') && 
+        const audioDevices = availableDevices.filter(device =>
+          (device.kind === 'audioinput' || device.kind === 'audiooutput') &&
           device.deviceId
         );
 
@@ -140,15 +185,16 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
     };
   }, [toast, t]);
 
-  const playTestSound = async () => {
+  const playTestSound = useCallback(async () => {
     if (!isInitialized) {
-      console.warn('Audio not initialized, cannot play test sound');
       toast({
         description: t('audio.notInitialized'),
         variant: "destructive",
       });
       return;
     }
+
+    setIsTestingAudio(true);
 
     try {
       const audioContext = new AudioContext();
@@ -162,10 +208,16 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       oscillator.connect(gainNode);
       gainNode.connect(audioContext.destination);
 
+      // Smooth volume ramp
+      gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+      gainNode.gain.linearRampToValueAtTime(volume[0] / 100, audioContext.currentTime + 0.1);
+      gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
+
       oscillator.start();
       setTimeout(() => {
         oscillator.stop();
         audioContext.close();
+        setIsTestingAudio(false);
       }, 500);
 
     } catch (error) {
@@ -174,8 +226,9 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         description: t('audio.testSoundError'),
         variant: "destructive",
       });
+      setIsTestingAudio(false);
     }
-  };
+  }, [isInitialized, volume, toast, t]);
 
   return (
     <AudioSettingsContext.Provider
@@ -188,6 +241,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         selectedOutputDevice,
         setSelectedOutputDevice,
         playTestSound,
+        isTestingAudio,
       }}
     >
       {children}

@@ -10,4 +10,24 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+
+  /* Theme transition animations */
+  :root {
+    --transition-duration: 200ms;
+  }
+
+  *, *::before, *::after {
+    transition: background-color var(--transition-duration) ease-in-out,
+                border-color var(--transition-duration) ease-in-out,
+                color var(--transition-duration) ease-in-out,
+                box-shadow var(--transition-duration) ease-in-out;
+  }
+
+  /* Exclude transition from specific elements */
+  .no-transition,
+  .no-transition *,
+  .no-transition *::before,
+  .no-transition *::after {
+    transition: none !important;
+  }
 }
