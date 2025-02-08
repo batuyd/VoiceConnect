@@ -377,20 +377,24 @@ export class DatabaseStorage implements IStorage {
     console.log('Creating message in storage:', { channelId, userId, content });
 
     const message = {
-      id: 0, // Auto-incremented by database
-      content,
       channelId,
       userId,
+      content,
       createdAt: new Date(),
     };
 
-    const [insertedMessage] = await db
-      .insert(messages)
-      .values(message)
-      .returning();
+    try {
+      const [insertedMessage] = await db
+        .insert(messages)
+        .values(message)
+        .returning();
 
-    console.log('Message created in storage:', insertedMessage);
-    return insertedMessage;
+      console.log('Message created in storage:', insertedMessage);
+      return insertedMessage;
+    } catch (error) {
+      console.error('Error creating message:', error);
+      throw error;
+    }
   }
   async getMessages(channelId: number): Promise<MessageWithReactions[]> {
     console.log('Getting messages for channel:', channelId);
