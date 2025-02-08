@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from 'ws';
 import session from 'express-session';
 import type { User } from "@shared/schema";
+import ytdl from 'ytdl-core';
 
 // Track connected users globally
 const connectedUsers = new Map<number, {
@@ -74,9 +75,9 @@ export function registerRoutes(app: Express): Server {
       const reqWithSession = req as any;
       if (!reqWithSession.session?.passport?.user) {
         console.error('No authenticated user found in session');
-        ws.send(JSON.stringify({ 
-          type: 'error', 
-          message: 'Authentication failed' 
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Authentication failed'
         }));
         ws.close();
         return;
@@ -87,9 +88,9 @@ export function registerRoutes(app: Express): Server {
 
       if (!user) {
         console.error('User not found in storage:', userId);
-        ws.send(JSON.stringify({ 
-          type: 'error', 
-          message: 'User not found' 
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'User not found'
         }));
         ws.close();
         return;
@@ -128,9 +129,9 @@ export function registerRoutes(app: Express): Server {
             case 'join_channel':
               if (!data.channelId) {
                 console.error('No channelId provided in join_channel message');
-                ws.send(JSON.stringify({ 
-                  type: 'error', 
-                  message: 'Channel ID is required' 
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Channel ID is required'
                 }));
                 break;
               }
@@ -230,9 +231,9 @@ export function registerRoutes(app: Express): Server {
           }
         } catch (error) {
           console.error('Failed to handle WebSocket message:', error);
-          ws.send(JSON.stringify({ 
-            type: 'error', 
-            message: 'Failed to process message' 
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to process message'
           }));
         }
       });

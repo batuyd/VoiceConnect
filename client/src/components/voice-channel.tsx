@@ -33,6 +33,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const [wsConnected, setWsConnected] = useState(false);
   const [audioPermissionGranted, setAudioPermissionGranted] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionErrors, setConnectionErrors] = useState(0);
 
   const stream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
@@ -41,12 +42,20 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const retryCount = useRef(0);
   const maxRetries = 3;
+  const maxConnectionErrors = 3;
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined,
     refetchInterval: 2000
   });
+
+  const resetConnectionState = useCallback(() => {
+    setWsConnected(false);
+    setIsConnecting(false);
+    retryCount.current = 0;
+    setConnectionErrors(0);
+  }, []);
 
   const requestAudioPermissions = useCallback(async () => {
     try {
@@ -87,12 +96,13 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   }, []);
 
   const setupAudioStream = useCallback(async () => {
-    if (!selectedInputDevice || !isJoined || !audioPermissionGranted || !wsConnected) {
+    if (!selectedInputDevice || !isJoined || !audioPermissionGranted || !wsConnected || !channel.id) {
       console.log('Cannot setup audio stream:', {
         selectedInputDevice,
         isJoined,
         audioPermissionGranted,
-        wsConnected
+        wsConnected,
+        channelId: channel.id
       });
       return;
     }
@@ -167,23 +177,23 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     }
 
     setIsJoined(false);
-    setWsConnected(false);
+    resetConnectionState();
     setAudioPermissionGranted(false);
-    setIsConnecting(false);
-    retryCount.current = 0;
 
     if (isJoined) {
       playLeaveSound();
     }
-  }, [channel.id, playLeaveSound, isJoined, cleanupAudioResources]);
+  }, [channel.id, playLeaveSound, isJoined, cleanupAudioResources, resetConnectionState]);
 
   const connectWebSocket = useCallback(async () => {
-    if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries) {
+    if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries || !channel.id || connectionErrors >= maxConnectionErrors) {
       console.log('Cannot connect WebSocket:', {
         isJoined,
         userId: user?.id,
         isConnecting,
-        retryCount: retryCount.current
+        retryCount: retryCount.current,
+        channelId: channel.id,
+        connectionErrors
       });
       return;
     }
@@ -205,6 +215,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
       ws.onopen = () => {
         console.log('WebSocket connected');
+        setConnectionErrors(0);
       };
 
       ws.onmessage = async (event) => {
@@ -218,7 +229,14 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
                 description: data.message,
                 variant: "destructive",
               });
-              handleLeaveChannel();
+              setConnectionErrors(prev => prev + 1);
+              if (connectionErrors >= maxConnectionErrors) {
+                toast({
+                  description: t('voice.tooManyErrors'),
+                  variant: "destructive",
+                });
+              }
+              await handleLeaveChannel();
               break;
 
             case 'connection_success':
@@ -265,6 +283,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
           }
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error);
+          setConnectionErrors(prev => prev + 1);
         }
       };
 
@@ -274,14 +293,14 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         wsRef.current = null;
         setIsConnecting(false);
 
-        if (isJoined && retryCount.current < maxRetries) {
+        if (isJoined && retryCount.current < maxRetries && connectionErrors < maxConnectionErrors) {
           console.log('Attempting to reconnect WebSocket...');
           retryCount.current++;
           const timeout = Math.min(1000 * Math.pow(2, retryCount.current), 5000);
           setTimeout(() => {
             connectWebSocket();
           }, timeout);
-        } else if (retryCount.current >= maxRetries) {
+        } else if (retryCount.current >= maxRetries || connectionErrors >= maxConnectionErrors) {
           handleLeaveChannel();
           toast({
             description: t('voice.connectionLost'),
@@ -292,6 +311,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        setConnectionErrors(prev => prev + 1);
         toast({
           description: t('voice.connectionFailed'),
           variant: "destructive",
@@ -300,6 +320,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     } catch (error) {
       console.error('WebSocket connection error:', error);
       setIsConnecting(false);
+      setConnectionErrors(prev => prev + 1);
       toast({
         description: t('voice.connectionFailed'),
         variant: "destructive",
@@ -310,6 +331,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     channel.id,
     user?.id,
     isConnecting,
+    connectionErrors,
     toast,
     t,
     refetchMembers,
@@ -339,10 +361,10 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   ]);
 
   useEffect(() => {
-    if (isJoined) {
+    if (isJoined && !wsConnected && connectionErrors < maxConnectionErrors) {
       connectWebSocket();
     }
-  }, [isJoined, connectWebSocket]);
+  }, [isJoined, wsConnected, connectionErrors, connectWebSocket]);
 
   useEffect(() => {
     if (!gainNode.current) return;
@@ -377,7 +399,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
           size="sm"
           onClick={handleJoinLeave}
           className="w-20"
-          disabled={isConnecting}
+          disabled={isConnecting || connectionErrors >= maxConnectionErrors}
         >
           {isJoined ? t('server.leave') : t('server.join')}
         </Button>
