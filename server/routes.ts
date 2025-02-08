@@ -19,28 +19,19 @@ export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
-  // WebSocket connections map
+  // WebSocket bağlantılarını saklamak için Map
   const clients = new Map<number, WebSocket>();
-
-  // Create session parser instance
-  const sessionParser = session(sessionSettings);
 
   wss.on('connection', async (ws: WebSocket, req: any) => {
     try {
       console.log('New WebSocket connection attempt');
 
-      // Parse session before checking authentication
-      await new Promise((resolve, reject) => {
-        sessionParser(req, {} as any, (err?: any) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve(undefined);
-        });
+      // Session parsing
+      const sessionParser = session(sessionSettings);
+      await new Promise((resolve) => {
+        sessionParser(req, {} as any, resolve as any);
       });
 
-      // Verify authentication after session is parsed
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
         ws.close();
@@ -50,27 +41,18 @@ export function registerRoutes(app: Express): Server {
       const userId = req.session.passport.user;
       console.log('WebSocket connected for user:', userId);
 
-      // Store client connection
       clients.set(userId, ws);
 
-      // Send initial connection confirmation
-      ws.send(JSON.stringify({
-        type: 'CONNECTED',
-        data: { userId }
-      }));
-
-      // Handle disconnection
       ws.on('close', () => {
         console.log('WebSocket disconnected for user:', userId);
         clients.delete(userId);
       });
 
-      // Handle errors
-      ws.on('error', (error) => {
-        console.error('WebSocket error for user:', userId, error);
-        clients.delete(userId);
-      });
-
+      // Send initial connection success message
+      ws.send(JSON.stringify({
+        type: 'CONNECTED',
+        data: { userId }
+      }));
     } catch (error) {
       console.error('WebSocket connection error:', error);
       ws.close();
@@ -106,6 +88,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Cannot add yourself as a friend" });
       }
 
+      // Mevcut arkadaşlık durumunu kontrol et
       const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
       if (existingFriendship) {
         if (existingFriendship.status === 'accepted') {
@@ -120,13 +103,17 @@ export function registerRoutes(app: Express): Server {
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
       console.log('Created friend request:', friendship);
 
-      // Notify target user about new friend request
+      // Hedef kullanıcıya bildirim gönder
       const targetWs = clients.get(targetUser.id);
       if (targetWs?.readyState === WebSocket.OPEN) {
         targetWs.send(JSON.stringify({
           type: 'FRIEND_REQUEST',
           data: {
-            ...friendship,
+            id: friendship.id,
+            senderId: req.user.id,
+            receiverId: targetUser.id,
+            status: friendship.status,
+            createdAt: friendship.createdAt,
             sender: {
               id: req.user.id,
               username: req.user.username
@@ -136,7 +123,7 @@ export function registerRoutes(app: Express): Server {
         console.log('WebSocket friend request notification sent to user:', targetUser.id);
       }
 
-      // Notify sender about request being sent
+      // Gönderen kullanıcıya da bildirim gönder
       const senderWs = clients.get(req.user.id);
       if (senderWs?.readyState === WebSocket.OPEN) {
         senderWs.send(JSON.stringify({
@@ -159,6 +146,628 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.post("/api/channels/:channelId/signal", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      console.log('Received WebRTC signal:', {
+        fromUser: req.user.id,
+        targetUser: req.body.targetUserId,
+        signalType: req.body.signal.type
+      });
+
+      const { targetUserId, signal } = req.body;
+      const channelId = parseInt(req.params.channelId);
+
+      // Get channel and check if it's a voice channel
+      const channel = await storage.getChannel(channelId);
+      if (!channel || !channel.isVoice) {
+        return res.status(400).json({ error: "Invalid channel" });
+      }
+
+      // Check if both users are members of the channel
+      const members = await storage.getServerMembers(channel.serverId);
+      const isValidConnection = members.some(m => m.id === targetUserId) &&
+                                members.some(m => m.id === req.user!.id);
+
+      if (!isValidConnection) {
+        console.log('Invalid connection attempt between users:', req.user.id, targetUserId);
+        return res.status(403).json({ error: "Invalid connection attempt" });
+      }
+
+      // In a real implementation, you would use WebSocket or another real-time solution
+      // For now, we just acknowledge the signal
+      console.log('Successfully processed signal');
+      res.json({ success: true });
+    } catch (error) {
+      console.error('WebRTC signaling error:', error);
+      res.status(500).json({ message: "Failed to relay signal" });
+    }
+  });
+
+  app.get("/api/servers", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const servers = await storage.getServers(req.user.id);
+      res.json(servers);
+    } catch (error) {
+      console.error('Get servers error:', handleError(error));
+      res.status(500).json({ message: "Failed to get servers" });
+    }
+  });
+
+  app.get("/api/servers/:serverId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const server = await storage.getServer(parseInt(req.params.serverId));
+      if (!server) return res.sendStatus(404);
+      res.json(server);
+    } catch (error) {
+      console.error('Get server error:', handleError(error));
+      res.status(500).json({ message: "Failed to get server" });
+    }
+  });
+
+  app.post("/api/servers", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const server = await storage.createServer(req.body.name, req.user.id);
+      res.status(201).json(server);
+    } catch (error) {
+      console.error('Create server error:', handleError(error));
+      res.status(500).json({ message: "Failed to create server" });
+    }
+  });
+
+  app.get("/api/servers/:serverId/channels", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const channels = await storage.getChannels(parseInt(req.params.serverId));
+      res.json(channels);
+    } catch (error) {
+      console.error('Get channels error:', handleError(error));
+      res.status(500).json({ message: "Failed to get channels" });
+    }
+  });
+
+  app.post("/api/servers/:serverId/channels", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const server = await storage.getServer(parseInt(req.params.serverId));
+      if (!server || server.ownerId !== req.user.id) {
+        return res.status(403).json({ message: "Only server owner can create channels" });
+      }
+
+      if (!req.body.name || typeof req.body.name !== 'string' || !req.body.name.trim()) {
+        return res.status(400).json({ message: "Channel name is required" });
+      }
+
+      const channel = await storage.createChannel(
+        req.body.name.trim(),
+        parseInt(req.params.serverId),
+        req.body.isVoice || false,
+        req.body.isPrivate || false
+      );
+
+      console.log('Created channel:', channel);
+      res.status(201).json(channel);
+    } catch (error) {
+      console.error('Create channel error:', handleError(error));
+      res.status(500).json({ message: "Failed to create channel" });
+    }
+  });
+
+  // Kanal silme endpoint'i
+  app.delete("/api/channels/:channelId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.deleteChannel(parseInt(req.params.channelId));
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Delete channel error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+
+  app.get("/api/servers/:serverId/members", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const members = await storage.getServerMembers(parseInt(req.params.serverId));
+      res.json(members);
+    } catch (error) {
+      console.error('Get server members error:', handleError(error));
+      res.status(500).json({ message: "Failed to get server members" });
+    }
+  });
+
+  app.post("/api/servers/:serverId/members", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      await storage.addServerMember(parseInt(req.params.serverId), req.body.userId);
+      res.sendStatus(201);
+    } catch (error) {
+      console.error('Add server member error:', handleError(error));
+      res.status(500).json({ message: "Failed to add server member" });
+    }
+  });
+
+  app.get("/api/channels/:channelId/members", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+      const members = await storage.getServerMembers(channel.serverId);
+      const connectedMembers = members.map(member => ({
+        ...member,
+        isMuted: Math.random() > 0.5
+      }));
+      res.json(connectedMembers);
+    } catch (error) {
+      console.error('Get channel members error:', handleError(error));
+      res.status(500).json({ message: "Failed to get channel members" });
+    }
+  });
+
+  app.patch("/api/user/profile", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const updatedUser = await storage.updateUserProfile(req.user.id, {
+        bio: req.body.bio,
+        age: req.body.age,
+        avatar: req.body.avatar,
+      });
+
+      res.json(updatedUser);
+    } catch (error) {
+      console.error('Update user profile error:', handleError(error));
+      res.status(500).json({ message: "Failed to update user profile" });
+    }
+  });
+
+  // Server invite routes
+  app.post("/api/servers/:serverId/invites", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const server = await storage.getServer(parseInt(req.params.serverId));
+      if (!server) return res.sendStatus(404);
+
+      // Sadece sunucu sahibi davet gönderebilir
+      if (server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      const invite = await storage.createServerInvite(
+        parseInt(req.params.serverId),
+        req.user.id,
+        req.body.userId
+      );
+
+      res.status(201).json(invite);
+    } catch (error) {
+      console.error('Create server invite error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  app.get("/api/invites", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const invites = await storage.getServerInvitesByUser(req.user.id);
+      res.json(invites);
+    } catch (error) {
+      console.error('Get server invites error:', handleError(error));
+      res.status(500).json({ message: "Failed to get server invites" });
+    }
+  });
+
+  app.post("/api/invites/:inviteId/accept", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.acceptServerInvite(parseInt(req.params.inviteId));
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Accept server invite error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  app.post("/api/invites/:inviteId/reject", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      await storage.rejectServerInvite(parseInt(req.params.inviteId));
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Reject server invite error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  // Message routes
+  app.post("/api/channels/:channelId/messages", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channelId = parseInt(req.params.channelId);
+
+      // Kanalın varlığını kontrol et
+      const channel = await storage.getChannel(channelId);
+      if (!channel) {
+        return res.status(404).json({ message: "Kanal bulunamadı" });
+      }
+
+      // Mesaj içeriğini kontrol et
+      if (!req.body.content || typeof req.body.content !== 'string') {
+        return res.status(400).json({ message: "Mesaj içeriği gerekli" });
+      }
+
+      console.log('Creating message:', {
+        channelId,
+        userId: req.user.id,
+        content: req.body.content
+      });
+
+      const message = await storage.createMessage(
+        channelId,
+        req.user.id,
+        req.body.content
+      );
+
+      console.log('Message created:', message);
+
+      const achievements = await storage.getUserAchievements(req.user.id);
+      const messageAchievement = achievements.find(a => a.type === "messages");
+      if (messageAchievement) {
+        await storage.updateUserAchievement(req.user.id, "messages", messageAchievement.progress + 1);
+      }
+
+      res.status(201).json(message);
+    } catch (error) {
+      console.error('Post message error:', handleError(error));
+      res.status(500).json({ message: "Failed to post message" });
+    }
+  });
+
+  app.get("/api/channels/:channelId/messages", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const channelId = parseInt(req.params.channelId);
+
+      // Kanalın varlığını kontrol et
+      const channel = await storage.getChannel(channelId);
+      if (!channel) {
+        return res.status(404).json({ message: "Kanal bulunamadı" });
+      }
+
+      console.log('Fetching messages for channel:', channelId);
+      const messages = await storage.getMessages(channelId);
+      console.log('Found messages:', messages.length);
+
+      res.json(messages);
+    } catch (error) {
+      console.error('Get messages error:', handleError(error));
+      res.status(500).json({ message: "Failed to get messages" });
+    }
+  });
+
+  // Reaction routes
+  app.post("/api/messages/:messageId/reactions", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const reaction = await storage.addReaction(
+        parseInt(req.params.messageId),
+        req.user.id,
+        req.body.emoji
+      );
+      res.status(201).json(reaction);
+    } catch (error) {
+      console.error('Add reaction error:', handleError(error));
+      res.status(500).json({ message: "Failed to add reaction" });
+    }
+  });
+
+  app.delete("/api/messages/:messageId/reactions/:emoji", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      await storage.removeReaction(
+        parseInt(req.params.messageId),
+        req.user.id,
+        req.params.emoji
+      );
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Remove reaction error:', handleError(error));
+      res.status(500).json({ message: "Failed to remove reaction" });
+    }
+  });
+
+  // Coin related routes
+  app.get("/api/coins", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const userCoins = await storage.getUserCoins(req.user.id);
+      if (!userCoins) {
+        const newUserCoins = await storage.createUserCoins(req.user.id);
+        res.json(newUserCoins);
+      } else {
+        res.json(userCoins);
+      }
+    } catch (error) {
+      console.error('Get coins error:', handleError(error));
+      res.status(500).json({ message: "Failed to get coins" });
+    }
+  });
+
+  app.post("/api/coins/daily-reward", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const transaction = await storage.claimDailyReward(req.user.id);
+      res.json(transaction);
+    } catch (error) {
+      console.error('Claim daily reward error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  app.get("/api/coins/products", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const products = await storage.getCoinProducts();
+      res.json(products);
+    } catch (error) {
+      console.error('Get coin products error:', handleError(error));
+      res.status(500).json({ message: "Failed to get coin products" });
+    }
+  });
+
+  app.get("/api/achievements", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const achievements = await storage.getUserAchievements(req.user.id);
+      res.json(achievements);
+    } catch (error) {
+      console.error('Get achievements error:', handleError(error));
+      res.status(500).json({ message: "Failed to get achievements" });
+    }
+  });
+
+  // Gift related routes
+  app.get("/api/gifts", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const gifts = await storage.getGifts();
+      res.json(gifts);
+    } catch (error) {
+      console.error('Get gifts error:', handleError(error));
+      res.status(500).json({ message: "Failed to get gifts" });
+    }
+  });
+
+  app.post("/api/gifts/send", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const giftHistory = await storage.sendGift(
+        req.user.id,
+        req.body.receiverId,
+        req.body.giftId,
+        req.body.message
+      );
+      res.status(201).json(giftHistory);
+    } catch (error) {
+      console.error('Send gift error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  app.get("/api/gifts/history", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const history = await storage.getGiftHistory(req.user.id);
+      res.json(history);
+    } catch (error) {
+      console.error('Get gift history error:', handleError(error));
+      res.status(500).json({ message: "Failed to get gift history" });
+    }
+  });
+
+  // Level related routes
+  app.get("/api/user/level", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const userLevel = await storage.getUserLevel(req.user.id);
+      res.json(userLevel);
+    } catch (error) {
+      console.error('Get user level error:', handleError(error));
+      res.status(500).json({ message: "Failed to get user level" });
+    }
+  });
+
+  app.post("/api/channels/:channelId/members", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.addUserToPrivateChannel(
+        parseInt(req.params.channelId),
+        req.body.userId
+      );
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Add user to private channel error:', handleError(error));
+      res.status(500).json({ message: "Failed to add user to private channel" });
+    }
+  });
+
+  app.delete("/api/channels/:channelId/members/:userId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.removeUserFromPrivateChannel(
+        parseInt(req.params.channelId),
+        parseInt(req.params.userId)
+      );
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Remove user from private channel error:', handleError(error));
+      res.status(500).json({ message: "Failed to remove user from private channel" });
+    }
+  });
+
+  app.get("/api/channels/:channelId", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channelId = parseInt(req.params.channelId);
+      const canAccess = await storage.canAccessChannel(channelId, req.user.id);
+
+      if (!canAccess) {
+        return res.sendStatus(403);
+      }
+
+      const channel = await storage.getChannel(channelId);
+      res.json(channel);
+    } catch (error) {
+      console.error('Get channel error:', handleError(error));
+      res.status(500).json({ message: "Failed to get channel" });
+    }
+  });
+
+  // Media related routes
+  app.post("/api/channels/:channelId/media", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const { url, type } = req.body;
+      const videoInfo = await ytdl.getInfo(url);
+
+      const media = {
+        type,
+        url,
+        title: videoInfo.videoDetails.title,
+        queuedBy: req.user.id
+      };
+
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel?.currentMedia) {
+        const updatedChannel = await storage.setChannelMedia(parseInt(req.params.channelId), media);
+        res.json(updatedChannel);
+      } else {
+        const updatedChannel = await storage.addToMediaQueue(parseInt(req.params.channelId), media);
+        res.json(updatedChannel);
+      }
+    } catch (error) {
+      const errorMessage = handleError(error);
+      console.error('Media error:', errorMessage);
+      res.status(400).json({ error: errorMessage });
+    }
+  });
+
+  app.post("/api/channels/:channelId/media/skip", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      const updatedChannel = await storage.skipCurrentMedia(parseInt(req.params.channelId));
+      res.json(updatedChannel);
+    } catch (error) {
+      console.error('Skip media error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  app.delete("/api/channels/:channelId/media/queue", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const channel = await storage.getChannel(parseInt(req.params.channelId));
+      if (!channel) return res.sendStatus(404);
+
+      const server = await storage.getServer(channel.serverId);
+      if (!server || server.ownerId !== req.user.id) {
+        return res.sendStatus(403);
+      }
+
+      await storage.clearMediaQueue(parseInt(req.params.channelId));
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Clear media queue error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  // YouTube arama API'si
+  app.get("/api/youtube/search", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const query = req.query.q as string;
+      const response = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(
+          query
+        )}&type=video&key=${process.env.YOUTUBE_API_KEY}`
+      );
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error.message);
+      }
+
+      res.json(data);
+    } catch (error) {
+      console.error('YouTube search error:', handleError(error));
+      res.status(400).json({ error: handleError(error) });
+    }
+  });
+
+  // Friend related routes
+
+  app.get("/api/friends", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const friends = await storage.getFriends(req.user.id);
+      res.json(friends);
+    } catch (error) {
+      console.error('Get friends error:', handleError(error));
+      res.status(500).json({ message: "Failed to get friends" });
+    }
+  });
+
   app.post("/api/friends/:friendshipId/accept", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
@@ -172,7 +781,7 @@ export function registerRoutes(app: Express): Server {
 
       await storage.acceptFriendRequest(friendshipId);
 
-      // Notify the sender about accepted request
+      // İsteği gönderen kullanıcıya bildirim gönder
       const senderWs = clients.get(friendship.senderId);
       if (senderWs?.readyState === WebSocket.OPEN) {
         senderWs.send(JSON.stringify({
@@ -207,10 +816,10 @@ export function registerRoutes(app: Express): Server {
 
       await storage.rejectFriendRequest(friendshipId);
 
-      // Notify the receiver about rejected request
-      const receiverWs = clients.get(friendship.receiverId);
-      if (receiverWs?.readyState === WebSocket.OPEN) {
-        receiverWs.send(JSON.stringify({
+      // İsteği gönderen kullanıcıya bildirim gönder
+      const senderWs = clients.get(friendship.senderId);
+      if (senderWs?.readyState === WebSocket.OPEN) {
+        senderWs.send(JSON.stringify({
           type: 'FRIEND_REQUEST_REJECTED',
           data: {
             friendshipId,
@@ -247,8 +856,7 @@ export function registerRoutes(app: Express): Server {
       const targetWs = clients.get(friendId);
       if (targetWs && targetWs.readyState === WebSocket.OPEN) {
         try {
-          targetWs.send(JSON.stringify({
-            type: 'FRIENDSHIP_REMOVED',
+          targetWs.send(JSON.stringify({            type: 'FRIENDSHIP_REMOVED',
             data: {
               userId: req.user.id,
               friendId: friendId,
@@ -273,8 +881,7 @@ export function registerRoutes(app: Express): Server {
     try {
       await storage.deleteServer(parseInt(req.params.serverId), req.user.id);
       res.sendStatus(200);
-    } catch (error) {
-      console.error('Delete server error:', handleError(error));
+    } catch (error) {      console.error('Delete server error:', handleError(error));
       res.status(400).json({ error: handleError(error) });
     }
   });

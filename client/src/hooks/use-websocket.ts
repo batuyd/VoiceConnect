@@ -10,23 +10,8 @@ export function useWebSocket() {
   const { toast } = useToast();
   const { t } = useLanguage();
 
-  const refreshFriendshipData = useCallback(() => {
-    console.log('Refreshing friendship data...');
-    // Invalidate both friend requests and friends list
-    queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
-    queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
-  }, [queryClient]);
-
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      console.log('WebSocket connection already open');
-      return;
-    }
-
-    if (wsRef.current?.readyState === WebSocket.CONNECTING) {
-      console.log('WebSocket connection in progress');
-      return;
-    }
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     console.log('Setting up WebSocket connection...');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -41,8 +26,14 @@ export function useWebSocket() {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = undefined;
       }
-      // Refresh data when connection is established
+      // Bağlantı kurulduğunda tüm arkadaşlık verilerini yenile
       refreshFriendshipData();
+    };
+
+    const refreshFriendshipData = () => {
+      console.log('Refreshing friendship data...');
+      queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
     };
 
     ws.onmessage = (event) => {
@@ -81,7 +72,7 @@ export function useWebSocket() {
 
           case 'FRIEND_REQUEST_REJECTED':
             console.log('Friend request rejected:', message.data);
-            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
+            refreshFriendshipData();
             toast({
               title: t('friend.requestRejected'),
               description: t('friend.requestRejectedDesc', { username: message.data.username }),
@@ -90,7 +81,7 @@ export function useWebSocket() {
 
           case 'FRIENDSHIP_REMOVED':
             console.log('Friendship removed:', message.data);
-            queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
+            refreshFriendshipData();
             toast({
               title: t('friend.removed'),
               description: t('friend.removedDesc', { username: message.data.username }),
@@ -104,24 +95,16 @@ export function useWebSocket() {
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
-      toast({
-        title: t('error.websocket'),
-        description: t('error.websocketDesc'),
-        variant: 'destructive',
-      });
     };
 
     ws.onclose = () => {
       console.log('WebSocket connection closed');
-      // Only attempt reconnection if we still have a reference to the closed socket
-      if (wsRef.current === ws) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          console.log('Attempting to reconnect WebSocket...');
-          connect();
-        }, 5000);
-      }
+      reconnectTimeoutRef.current = setTimeout(() => {
+        console.log('Attempting to reconnect WebSocket...');
+        connect();
+      }, 5000);
     };
-  }, [queryClient, toast, t, refreshFriendshipData]);
+  }, [queryClient, toast, t]);
 
   useEffect(() => {
     connect();
@@ -132,9 +115,7 @@ export function useWebSocket() {
       }
       if (wsRef.current) {
         console.log('Cleaning up WebSocket connection');
-        const ws = wsRef.current;
-        wsRef.current = null; // Clear reference before closing to prevent reconnection attempts
-        ws.close();
+        wsRef.current.close();
       }
     };
   }, [connect]);
