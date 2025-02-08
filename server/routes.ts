@@ -122,6 +122,33 @@ export function registerRoutes(app: Express): Server {
             case 'ping':
               sendWebSocketMessage(ws, 'pong', { timestamp: Date.now() });
               break;
+            case 'join_channel':
+              try {
+                const channelId = data.channelId;
+                const channel = await storage.getChannel(channelId);
+
+                if (!channel) {
+                  sendWebSocketMessage(ws, 'error', { message: 'Channel not found' });
+                  return;
+                }
+
+                // Kullanıcının kanala erişim iznini kontrol et
+                const canAccess = await storage.canAccessChannel(channelId, userId);
+                if (!canAccess) {
+                  sendWebSocketMessage(ws, 'error', { message: 'Access denied' });
+                  return;
+                }
+
+                console.log(`User ${userId} joined channel ${channelId}`);
+                sendWebSocketMessage(ws, 'channel_joined', { 
+                  channelId,
+                  timestamp: Date.now()
+                });
+              } catch (error) {
+                console.error('Error joining channel:', error);
+                sendWebSocketMessage(ws, 'error', { message: 'Failed to join channel' });
+              }
+              break;
             default:
               console.log('Unknown message type:', data.type);
           }
@@ -837,7 +864,7 @@ export function registerRoutes(app: Express): Server {
       res.json(friends);
     } catch (error) {
       console.error('Get friends error:', handleError(error));
-      res.status(500).json({ message: "Failed to get friends" });
+            res.status(500).json({ message: "Failed to get friends" });
     }
   });
 

@@ -12,6 +12,7 @@ interface WebSocketManager {
   on: (event: string, handler: WebSocketEventHandler) => void;
   off: (event: string, handler: WebSocketEventHandler) => void;
   send: (message: any) => void;
+  joinChannel: (channelId: number) => void;
 }
 
 export function useWebSocket(): WebSocketManager {
@@ -141,6 +142,20 @@ export function useWebSocket(): WebSocketManager {
                 variant: 'default'
               });
               break;
+
+            case 'channel_joined':
+              console.log('Successfully joined channel:', message.data);
+              queryClient.invalidateQueries({ queryKey: [`/api/channels/${message.data.channelId}`] });
+              break;
+
+            case 'error':
+              console.error('WebSocket error message:', message.data);
+              toast({
+                title: t('error.websocketError'),
+                description: message.data.message,
+                variant: 'destructive'
+              });
+              break;
           }
         } catch (error) {
           console.error('Error processing WebSocket message:', error);
@@ -151,6 +166,17 @@ export function useWebSocket(): WebSocketManager {
       setConnectionStatus('disconnected');
     }
   }, [queryClient, toast, t, refreshFriendshipData]);
+
+  const joinChannel = useCallback((channelId: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'join_channel',
+        channelId
+      }));
+    } else {
+      console.warn('Cannot join channel: WebSocket is not connected');
+    }
+  }, []);
 
   const on = useCallback((event: string, handler: WebSocketEventHandler) => {
     if (!eventHandlersRef.current.has(event)) {
@@ -188,6 +214,7 @@ export function useWebSocket(): WebSocketManager {
     websocket: wsRef.current,
     on,
     off,
-    send
+    send,
+    joinChannel
   };
 }

@@ -10,6 +10,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useWebSocket } from "@/hooks/use-websocket";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -31,6 +32,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const { joinChannel } = useWebSocket();
 
   const { isConnected, createPeer, cleanup } = useWebRTC(channel.id);
 
@@ -95,7 +97,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       console.log('Joining voice channel');
       const stream = await setupLocalStream();
       if (stream) {
-        // Initialize peer connections with existing members
+        joinChannel(channel.id); 
         for (const member of channelMembers) {
           if (member.id !== user?.id) {
             console.log('Creating peer connection with:', member.username);
@@ -110,7 +112,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const toggleMute = () => {
     if (localStream) {
       localStream.getAudioTracks().forEach(track => {
-        track.enabled = !isMuted; // Toggle the current state
+        track.enabled = !isMuted; 
         console.log('Track enabled:', track.enabled);
       });
       setIsMuted(!isMuted);
@@ -131,7 +133,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined,
-    refetchInterval: 5000 // Her 5 saniyede bir güncelle
+    refetchInterval: 5000 
   });
 
   const currentMemberStatus = channelMembers.find(member => member.id === user?.id);
