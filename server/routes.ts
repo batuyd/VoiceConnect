@@ -75,6 +75,8 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
 
     try {
+      console.log('Adding friend request:', req.body);
+
       const targetUser = await storage.getUserByUsername(req.body.username);
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
@@ -83,6 +85,18 @@ export function registerRoutes(app: Express): Server {
       if (targetUser.id === req.user.id) {
         return res.status(400).json({ message: "Cannot add yourself as a friend" });
       }
+
+      // Mevcut arkadaşlık durumunu kontrol et
+      const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
+      if (existingFriendship) {
+        if (existingFriendship.status === 'accepted') {
+          return res.status(400).json({ message: "Already friends with this user" });
+        } else {
+          return res.status(400).json({ message: "Friend request already exists" });
+        }
+      }
+
+      console.log('Creating friend request from', req.user.id, 'to', targetUser.id);
 
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
       console.log('Created friend request:', friendship);
@@ -834,7 +848,7 @@ export function registerRoutes(app: Express): Server {
 
       await storage.removeFriend(req.user.id, friendId);
 
-      // WebSocket üzerinden arkadaşlık durumunun güncellendiğini bildirme
+      // WebSocket üzerinden arkadaşlık durumunun güncelllendiğini bildirme
       const targetWs = clients.get(friendId);
       if (targetWs && targetWs.readyState === WebSocket.OPEN) {
         try {

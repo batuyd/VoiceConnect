@@ -164,32 +164,17 @@ export class DatabaseStorage implements IStorage {
         senderId,
         receiverId,
         status: 'pending',
+        createdAt: new Date()
       })
       .returning();
 
     console.log("Created friendship:", friendship);
 
+    // Get sender information
     const [sender] = await db
       .select()
       .from(users)
       .where(eq(users.id, senderId));
-
-    // Send email notification to receiver
-    const [receiver] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, receiverId));
-
-    if (receiver && receiver.email) {
-      const { subject, html } = emailTemplates.friendRequest(sender.username);
-      await sendEmail({
-        to: receiver.email,
-        subject,
-        html
-      }).catch(error => {
-        console.error('Error sending friend request email:', error);
-      });
-    }
 
     return {
       ...friendship,
