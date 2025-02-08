@@ -47,7 +47,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined,
-    refetchInterval: 5000 
+    refetchInterval: 1000, 
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true
   });
 
   const setupAudioStream = useCallback(async () => {
@@ -300,7 +303,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     setWsConnected(false);
     setRetryCount(0);
     setAudioPermissionGranted(false);
-  }, [channel.id, user?.id]);
+
+    await refetchMembers();
+    playLeaveSound();
+  }, [channel.id, user?.id, refetchMembers, playLeaveSound]);
 
   useEffect(() => {
     return () => {
@@ -318,9 +324,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       const hasPermission = await requestAudioPermissions();
       if (hasPermission) {
         setIsJoined(true);
+        playJoinSound();
       }
     }
-  }, [isJoined, requestAudioPermissions, handleLeaveChannel]);
+  }, [isJoined, requestAudioPermissions, handleLeaveChannel, playJoinSound]);
 
   return (
     <div className="space-y-2">

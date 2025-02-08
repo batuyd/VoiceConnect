@@ -853,7 +853,7 @@ export function registerRoutes(app: Express): Server {
                 if (user.ws.readyState === WebSocket.OPEN) {
                   try {
                     user.ws.send(JSON.stringify({
-                                            type: 'voice_data',
+                      type: 'voice_data',
                       fromUserId: userId,
                       data: data.data
                     }));
@@ -937,34 +937,37 @@ export function registerRoutes(app: Express): Server {
                   const remainingUsers = Array.from(connectedUsers.values())
                     .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
 
-                  // Notify other users about user leaving
+                  // Notify all remaining users about the user leaving
                   for (const user of remainingUsers) {
                     if (user.ws.readyState === WebSocket.OPEN) {
                       try {
+                        // Send user_left notification
                         user.ws.send(JSON.stringify({
                           type: 'user_left',
                           userId,
                           username: leavingUser.user.username,
                           channelId: previousChannel
                         }));
-                      } catch (error) {
-                        console.error('Error sending user_left notification:', error);
-                      }
-                    }
-                  }
 
-                  // Force refresh channel members for all remaining users
-                  for (const user of remainingUsers) {
-                    if (user.ws.readyState === WebSocket.OPEN) {
-                      try {
+                        // Force member list update
                         user.ws.send(JSON.stringify({
                           type: 'member_update',
                           channelId: previousChannel
                         }));
                       } catch (error) {
-                        console.error('Error sending member_update notification:', error);
+                        console.error('Error sending leave notifications:', error);
                       }
                     }
+                  }
+
+                  // Send confirmation to the leaving user
+                  try {
+                    ws.send(JSON.stringify({
+                      type: 'leave_confirmed',
+                      channelId: previousChannel
+                    }));
+                  } catch (error) {
+                    console.error('Error sending leave confirmation:', error);
                   }
                 }
               }
