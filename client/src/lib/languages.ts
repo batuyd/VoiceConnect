@@ -10,22 +10,18 @@ export const translations = {
       phone: 'Phone Number',
       welcomeTitle: 'Welcome to OZBA',
       welcomeDescription: 'Connect with friends and communities through voice chat channels. Create your own servers, join voice rooms, and start talking!',
-      setup2FA: 'Setup Two-Factor Authentication',
-      disable2FA: 'Disable Two-Factor Authentication',
-      verify2FA: 'Enter 2FA Code',
-      verify2FADescription: 'Enter the 6-digit code from your authenticator app',
-      logout: 'Logout',
       errors: {
         usernameRequired: 'Username is required',
+        usernameTooShort: 'Username must be at least 3 characters',
         passwordRequired: 'Password is required',
-        usernameExists: 'Username already exists',
-        invalidCredentials: 'Invalid username or password',
-        serverError: 'Server error occurred',
+        passwordTooShort: 'Password must be at least 6 characters',
         emailRequired: 'Email is required',
         invalidEmail: 'Invalid email address',
         phoneRequired: 'Phone number is required',
-        registrationFailed: 'Registration failed',
-        loginFailed: 'Login failed'
+        invalidPhone: 'Invalid phone number',
+        registrationFailed: 'Registration failed. Please try again.',
+        loginFailed: 'Invalid username or password',
+        logoutFailed: 'Failed to logout'
       }
     },
     home: {
@@ -236,22 +232,18 @@ export const translations = {
       phone: 'Telefon Numarası',
       welcomeTitle: 'OZBA\'ya Hoş Geldiniz',
       welcomeDescription: 'Sesli sohbet kanalları aracılığıyla arkadaşlarınız ve topluluklarla bağlantı kurun. Kendi sunucularınızı oluşturun, sesli odalara katılın ve sohbete başlayın!',
-      setup2FA: 'İki Faktörlü Doğrulamayı Etkinleştir',
-      disable2FA: 'İki Faktörlü Doğrulamayı Devre Dışı Bırak',
-      verify2FA: '2FA Kodunu Girin',
-      verify2FADescription: 'Doğrulayıcı uygulamanızdan 6 haneli kodu girin',
-      logout: 'Çıkış Yap',
       errors: {
-        usernameRequired: 'Kullanıcı adı gerekli',
-        passwordRequired: 'Şifre gerekli',
-        usernameExists: 'Bu kullanıcı adı zaten mevcut',
-        invalidCredentials: 'Geçersiz kullanıcı adı veya şifre',
-        serverError: 'Sunucu hatası oluştu',
-        emailRequired: 'E-posta adresi gerekli',
+        usernameRequired: 'Kullanıcı adı zorunludur',
+        usernameTooShort: 'Kullanıcı adı en az 3 karakter olmalıdır',
+        passwordRequired: 'Şifre zorunludur',
+        passwordTooShort: 'Şifre en az 6 karakter olmalıdır',
+        emailRequired: 'E-posta adresi zorunludur',
         invalidEmail: 'Geçersiz e-posta adresi',
-        phoneRequired: 'Telefon numarası gerekli',
-        registrationFailed: 'Kayıt başarısız',
-        loginFailed: 'Giriş başarısız'
+        phoneRequired: 'Telefon numarası zorunludur',
+        invalidPhone: 'Geçersiz telefon numarası',
+        registrationFailed: 'Kayıt işlemi başarısız oldu. Lütfen tekrar deneyin.',
+        loginFailed: 'Geçersiz kullanıcı adı veya şifre',
+        logoutFailed: 'Çıkış yapılamadı'
       }
     },
     home: {

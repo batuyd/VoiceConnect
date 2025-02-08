@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { setMaxListeners } from 'events';
 import { WebSocketServer, WebSocket } from 'ws';
 import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
@@ -31,22 +32,27 @@ export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
+  // Set higher limit for EventEmitter
+  setMaxListeners(20);
+
   // WebSocket bağlantılarını saklamak için Map
   const clients = new Map<number, WebSocket>();
 
   wss.on('connection', async (ws: WebSocket, req: any) => {
+    let pingInterval: NodeJS.Timeout;
+
     try {
       console.log('New WebSocket connection attempt');
 
       // Session parsing
       const sessionParser = session(sessionSettings);
-      await new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         sessionParser(req, {} as any, (err: any) => {
           if (err) {
             reject(err);
             return;
           }
-          resolve(undefined);
+          resolve();
         });
       });
 
@@ -70,30 +76,46 @@ export function registerRoutes(app: Express): Server {
       clients.set(userId, ws);
 
       // Ping/Pong to keep connection alive
-      const pingInterval = setInterval(() => {
+      pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.ping();
+        } else {
+          clearInterval(pingInterval);
         }
       }, 30000);
 
+      // Handle connection close
       ws.on('close', () => {
         console.log('WebSocket disconnected for user:', userId);
         clients.delete(userId);
         clearInterval(pingInterval);
       });
 
+      // Handle errors
       ws.on('error', (error) => {
         console.error('WebSocket error for user:', userId, error);
         clients.delete(userId);
         clearInterval(pingInterval);
-        ws.close();
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1011, 'Internal Server Error');
+        }
+      });
+
+      // Handle pong responses
+      ws.on('pong', () => {
+        console.log('Received pong from user:', userId);
       });
 
       // Send initial connection success message
       sendWebSocketMessage(ws, 'CONNECTED', { userId });
     } catch (error) {
       console.error('WebSocket connection error:', error);
-      ws.close(1011, 'Internal Server Error');
+      if (pingInterval) {
+        clearInterval(pingInterval);
+      }
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(1011, 'Internal Server Error');
+      }
     }
   });
 
@@ -845,7 +867,7 @@ export function registerRoutes(app: Express): Server {
           data: {
             friendshipId,
             userId: req.user.id,
-username: req.user.username,
+            username: req.user.username,
             senderId: friendship.senderId,
             receiverId: friendship.receiverId
           }

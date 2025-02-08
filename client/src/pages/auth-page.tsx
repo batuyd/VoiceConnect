@@ -23,7 +23,7 @@ export default function AuthPage() {
     user, 
     loginMutation, 
     registerMutation, 
-    isLoading
+    isLoading 
   } = useAuth();
   const { t, language, setLanguage } = useLanguage();
 
@@ -35,11 +35,7 @@ export default function AuthPage() {
           username: insertUserSchema.shape.username.min(3, t('auth.errors.usernameTooShort')),
           password: insertUserSchema.shape.password.min(6, t('auth.errors.passwordTooShort'))
         })
-    ),
-    defaultValues: {
-      username: "",
-      password: ""
-    }
+    )
   });
 
   const registerForm = useForm({
@@ -50,13 +46,7 @@ export default function AuthPage() {
         email: insertUserSchema.shape.email.email(t('auth.errors.invalidEmail')),
         phone: insertUserSchema.shape.phone.regex(/^\+?[\d\s-]{10,}$/, t('auth.errors.invalidPhone'))
       })
-    ),
-    defaultValues: {
-      email: "",
-      phone: "",
-      username: "",
-      password: "",
-    },
+    )
   });
 
   if (isLoading) {
@@ -70,6 +60,25 @@ export default function AuthPage() {
   if (user) {
     return <Redirect to="/" />;
   }
+
+  const handleLogin = async (data: any) => {
+    try {
+      await loginMutation.mutateAsync({
+        username: data.username,
+        password: data.password,
+      });
+    } catch (error) {
+      console.error('Login error:', error);
+    }
+  };
+
+  const handleRegister = async (data: any) => {
+    try {
+      await registerMutation.mutateAsync(data);
+    } catch (error) {
+      console.error('Register error:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 flex">
@@ -94,25 +103,19 @@ export default function AuthPage() {
 
             <TabsContent value="login">
               <CardContent className="pt-6">
-                <form 
-                  onSubmit={loginForm.handleSubmit((data) => {
-                    loginMutation.mutate({
-                      username: data.username,
-                      password: data.password,
-                    });
-                  })}
-                >
+                <form onSubmit={loginForm.handleSubmit(handleLogin)}>
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="username">{t('auth.username')}</Label>
                       <Input 
                         id="username" 
+                        type="text"
                         {...loginForm.register("username")}
                         className={loginForm.formState.errors.username ? "border-destructive" : ""}
                       />
                       {loginForm.formState.errors.username && (
                         <p className="text-sm text-destructive mt-1">
-                          {loginForm.formState.errors.username.message}
+                          {loginForm.formState.errors.username?.message?.toString()}
                         </p>
                       )}
                     </div>
@@ -126,18 +129,18 @@ export default function AuthPage() {
                       />
                       {loginForm.formState.errors.password && (
                         <p className="text-sm text-destructive mt-1">
-                          {loginForm.formState.errors.password.message}
+                          {loginForm.formState.errors.password?.message?.toString()}
                         </p>
                       )}
                     </div>
                     <Button 
                       type="submit" 
                       className="w-full"
-                      disabled={loginMutation.isPending || !loginForm.formState.isValid}
+                      disabled={loginMutation.isPending}
                     >
-                      {loginMutation.isPending ? (
+                      {loginMutation.isPending && (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : null}
+                      )}
                       {t('auth.login')}
                     </Button>
                     {loginMutation.isError && (
@@ -152,18 +155,19 @@ export default function AuthPage() {
 
             <TabsContent value="register">
               <CardContent className="pt-6">
-                <form onSubmit={registerForm.handleSubmit((data) => registerMutation.mutate(data))}>
+                <form onSubmit={registerForm.handleSubmit(handleRegister)}>
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="reg-username">{t('auth.username')}</Label>
                       <Input 
                         id="reg-username" 
+                        type="text"
                         {...registerForm.register("username")}
                         className={registerForm.formState.errors.username ? "border-destructive" : ""}
                       />
                       {registerForm.formState.errors.username && (
                         <p className="text-sm text-destructive mt-1">
-                          {registerForm.formState.errors.username.message}
+                          {registerForm.formState.errors.username?.message?.toString()}
                         </p>
                       )}
                     </div>
@@ -177,7 +181,7 @@ export default function AuthPage() {
                       />
                       {registerForm.formState.errors.email && (
                         <p className="text-sm text-destructive mt-1">
-                          {registerForm.formState.errors.email.message}
+                          {registerForm.formState.errors.email?.message?.toString()}
                         </p>
                       )}
                     </div>
@@ -185,12 +189,13 @@ export default function AuthPage() {
                       <Label htmlFor="reg-phone">{t('auth.phone')}</Label>
                       <Input 
                         id="reg-phone" 
+                        type="tel"
                         {...registerForm.register("phone")}
                         className={registerForm.formState.errors.phone ? "border-destructive" : ""}
                       />
                       {registerForm.formState.errors.phone && (
                         <p className="text-sm text-destructive mt-1">
-                          {registerForm.formState.errors.phone.message}
+                          {registerForm.formState.errors.phone?.message?.toString()}
                         </p>
                       )}
                     </div>
@@ -204,18 +209,18 @@ export default function AuthPage() {
                       />
                       {registerForm.formState.errors.password && (
                         <p className="text-sm text-destructive mt-1">
-                          {registerForm.formState.errors.password.message}
+                          {registerForm.formState.errors.password?.message?.toString()}
                         </p>
                       )}
                     </div>
                     <Button 
                       type="submit" 
                       className="w-full"
-                      disabled={registerMutation.isPending || !registerForm.formState.isValid}
+                      disabled={registerMutation.isPending}
                     >
-                      {registerMutation.isPending ? (
+                      {registerMutation.isPending && (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : null}
+                      )}
                       {t('auth.register')}
                     </Button>
                     {registerMutation.isError && (
