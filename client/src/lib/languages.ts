@@ -409,7 +409,17 @@ export const translations = {
       requestRejected: 'Arkadaşlık İsteği Reddedildi',
       requestRejectedDesc: '{username} arkadaşlık isteğinizi reddetti',
       removed: 'Arkadaşlıktan Çıkarıldı',
-      removedDesc: '{username} sizi arkadaşlıktan çıkardı'
+      removedDesc: '{username} sizi arkadaşlıktan çıkardı',
+      requestSent: 'Arkadaşlık İsteği Gönderildi',
+      requestSentDescription: 'Arkadaşlık isteğiniz başarıyla gönderildi',
+      requestError: 'İstek Gönderme Hatası',
+      acceptError: 'Kabul Etme Hatası',
+      rejectError: 'Reddetme Hatası',
+      addFriend: 'Arkadaş Ekle',
+      removeFriend: 'Arkadaşı Sil',
+      pending: 'İstek Beklemede',
+      accept: 'Kabul Et',
+      reject: 'Reddet'
     },
     blocks: {
       add: 'Engelle',

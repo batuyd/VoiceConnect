@@ -15,27 +15,39 @@ import ProfilePage from "@/pages/profile-page";
 import SettingsPage from "@/pages/settings-page";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { CoinDisplay } from "@/components/coin-display";
+import { LanguageSelector } from "@/components/language-selector";
 import { useAuth } from "@/hooks/use-auth";
 import { useWebSocket } from "./hooks/use-websocket";
 import React from "react";
 
-function Layout({ children }: { children: React.ReactNode }) {
+function Header() {
   const { user } = useAuth();
   const { connectionStatus } = useWebSocket();
 
+  if (!user) return null;
+
+  return (
+    <header className="fixed top-0 left-0 right-0 h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-50 border-b">
+      <div className="container h-full mx-auto flex items-center justify-between px-4">
+        <LanguageSelector />
+        <div className="flex items-center gap-4">
+          <CoinDisplay />
+          <SettingsDialog />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Layout({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
   return (
     <div className="min-h-screen bg-gray-900">
-      {children}
-      {user && (
-        <>
-          <div className="fixed top-4 right-4 z-50">
-            <CoinDisplay />
-          </div>
-          <div className="fixed bottom-4 right-4 z-50">
-            <SettingsDialog />
-          </div>
-        </>
-      )}
+      <Header />
+      <main className={user ? "pt-16" : ""}>
+        {children}
+      </main>
     </div>
   );
 }
