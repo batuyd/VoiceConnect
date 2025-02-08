@@ -117,8 +117,11 @@ export function useFriendshipStatus() {
 
   const removeFriendMutation = useMutation({
     mutationFn: async (friendId: number) => {
-      const response = await fetch(`/api/friends/${friendId}`, {
-        method: 'DELETE',
+      const response = await fetch(`/api/friends/remove/${friendId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
 
       if (!response.ok) {

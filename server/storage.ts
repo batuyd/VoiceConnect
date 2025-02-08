@@ -484,6 +484,7 @@ export class DatabaseStorage implements IStorage {
   }
 
 
+
   async getUserCoins(userId: number): Promise<UserCoins | undefined> {
     const [result] = await db
       .select()
@@ -839,12 +840,10 @@ export class DatabaseStorage implements IStorage {
 
       console.log(`Found friendship to remove:`, existingFriendship);
 
-      const result = await db
+      await db
         .delete(friendships)
-        .where(eq(friendships.id, existingFriendship.id))
-        .returning();
+        .where(eq(friendships.id, existingFriendship.id));
 
-      console.log(`Deleted friendship result:`, result);
       console.log(`Friendship between ${userId1} and ${userId2} successfully removed`);
     } catch (error) {
       console.error('Error removing friend:', error);
@@ -1009,7 +1008,7 @@ interface GiftHistory {
   id: number;
   senderId: number;
   receiverId: number;  giftId: number;
-coinAmount: number;
+  coinAmount: number;
   message: string | null;
   createdAt: Date;
 }
