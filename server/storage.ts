@@ -374,17 +374,27 @@ export class DatabaseStorage implements IStorage {
     await db.update(users).set({ lastActive: new Date() }).where(eq(users.id, userId));
   }
   async createMessage(channelId: number, userId: number, content: string): Promise<Message> {
-    const message: Message = {
-      id: 0, //Auto-incremented by database
+    console.log('Creating message in storage:', { channelId, userId, content });
+
+    const message = {
+      id: 0, // Auto-incremented by database
       content,
       channelId,
       userId,
       createdAt: new Date(),
     };
-    const [insertedMessage] = await db.insert(messages).values(message).returning();
+
+    const [insertedMessage] = await db
+      .insert(messages)
+      .values(message)
+      .returning();
+
+    console.log('Message created in storage:', insertedMessage);
     return insertedMessage;
   }
   async getMessages(channelId: number): Promise<MessageWithReactions[]> {
+    console.log('Getting messages for channel:', channelId);
+
     // Önce mesajları alalım
     const messagesResult = await db
       .select()
@@ -392,8 +402,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(messages.channelId, channelId))
       .orderBy(messages.createdAt);
 
+    console.log('Found messages:', messagesResult.length);
+
     // Her mesaj için kullanıcı ve reaksiyonları getirelim
-    return await Promise.all(
+    const messagesWithDetails = await Promise.all(
       messagesResult.map(async (message) => {
         // Mesajın sahibi olan kullanıcıyı getir
         const [user] = await db
@@ -406,6 +418,8 @@ export class DatabaseStorage implements IStorage {
           .select()
           .from(reactions)
           .where(eq(reactions.messageId, message.id));
+
+        console.log(`Message ${message.id} has ${messageReactions.length} reactions`);
 
         // Her reaksiyon için kullanıcı bilgisini getir
         const reactionsWithUsers = await Promise.all(
@@ -429,6 +443,9 @@ export class DatabaseStorage implements IStorage {
         };
       })
     );
+
+    console.log('Processed messages with reactions:', messagesWithDetails.length);
+    return messagesWithDetails;
   }
 
   async addReaction(messageId: number, userId: number, emoji: string): Promise<Reaction> {

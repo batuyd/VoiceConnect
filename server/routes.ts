@@ -278,27 +278,36 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Message routes
-  app.get("/api/channels/:channelId/messages", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-    try {
-      const messages = await storage.getMessages(parseInt(req.params.channelId));
-      res.json(messages);
-    } catch (error) {
-      console.error('Get messages error:', handleError(error));
-      res.status(500).json({ message: "Failed to get messages" });
-    }
-  });
-
   app.post("/api/channels/:channelId/messages", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
     try {
       const channelId = parseInt(req.params.channelId);
+
+      // Kanalın varlığını kontrol et
+      const channel = await storage.getChannel(channelId);
+      if (!channel) {
+        return res.status(404).json({ message: "Kanal bulunamadı" });
+      }
+
+      // Mesaj içeriğini kontrol et
+      if (!req.body.content || typeof req.body.content !== 'string') {
+        return res.status(400).json({ message: "Mesaj içeriği gerekli" });
+      }
+
+      console.log('Creating message:', {
+        channelId,
+        userId: req.user.id,
+        content: req.body.content
+      });
+
       const message = await storage.createMessage(
         channelId,
         req.user.id,
         req.body.content
       );
+
+      console.log('Message created:', message);
 
       const achievements = await storage.getUserAchievements(req.user.id);
       const messageAchievement = achievements.find(a => a.type === "messages");
@@ -310,6 +319,28 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Post message error:', handleError(error));
       res.status(500).json({ message: "Failed to post message" });
+    }
+  });
+
+  app.get("/api/channels/:channelId/messages", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+    try {
+      const channelId = parseInt(req.params.channelId);
+
+      // Kanalın varlığını kontrol et
+      const channel = await storage.getChannel(channelId);
+      if (!channel) {
+        return res.status(404).json({ message: "Kanal bulunamadı" });
+      }
+
+      console.log('Fetching messages for channel:', channelId);
+      const messages = await storage.getMessages(channelId);
+      console.log('Found messages:', messages.length);
+
+      res.json(messages);
+    } catch (error) {
+      console.error('Get messages error:', handleError(error));
+      res.status(500).json({ message: "Failed to get messages" });
     }
   });
 
