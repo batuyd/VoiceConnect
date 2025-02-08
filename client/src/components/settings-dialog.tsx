@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Settings, Globe, Moon, Sun, Monitor, Volume2, Loader2, Wand2, Music2, Activity } from "lucide-react";
+import { Settings, Globe, Moon, Sun, Monitor, Volume2, Loader2, Wand2, Music2 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -12,8 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
-import { Progress } from "@/components/ui/progress";
 
 export function SettingsDialog() {
   const { language, setLanguage, t } = useLanguage();
@@ -35,9 +33,6 @@ export function SettingsDialog() {
     setNoiseSuppressionLevel,
     audioQuality,
     setAudioQuality,
-    audioConfig,
-    setAudioConfig,
-    audioStats
   } = useAudioSettings();
 
   const [open, setOpen] = useState(false);
@@ -71,7 +66,7 @@ export function SettingsDialog() {
           <DialogTitle>{t('settings.title')}</DialogTitle>
         </DialogHeader>
         <Tabs defaultValue="audio">
-          <TabsList className="grid grid-cols-4 gap-4">
+          <TabsList className="grid grid-cols-3 gap-4">
             <TabsTrigger value="general">
               <Settings className="h-4 w-4 mr-2" />
               {t('settings.general')}
@@ -84,13 +79,8 @@ export function SettingsDialog() {
               <Wand2 className="h-4 w-4 mr-2" />
               {t('settings.effects')}
             </TabsTrigger>
-            <TabsTrigger value="stats">
-              <Activity className="h-4 w-4 mr-2" />
-              {t('settings.stats')}
-            </TabsTrigger>
           </TabsList>
 
-          {/* General Settings Tab */}
           <TabsContent value="general">
             <div className="space-y-6">
               <div>
@@ -149,7 +139,6 @@ export function SettingsDialog() {
             </div>
           </TabsContent>
 
-          {/* Audio Settings Tab */}
           <TabsContent value="audio">
             <div className="space-y-4">
               <div className="space-y-2">
@@ -236,27 +225,9 @@ export function SettingsDialog() {
                   </Button>
                 </div>
               </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label>{t('settings.audio.echoCancellation')}</Label>
-                  <Switch
-                    checked={audioConfig.echoCancellation}
-                    onCheckedChange={(checked) => setAudioConfig({ ...audioConfig, echoCancellation: checked })}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label>{t('settings.audio.autoGain')}</Label>
-                  <Switch
-                    checked={audioConfig.autoGainControl}
-                    onCheckedChange={(checked) => setAudioConfig({ ...audioConfig, autoGainControl: checked })}
-                  />
-                </div>
-              </div>
             </div>
           </TabsContent>
 
-          {/* Effects Tab */}
           <TabsContent value="effects">
             <div className="space-y-4">
               <div className="space-y-2">
@@ -291,33 +262,6 @@ export function SettingsDialog() {
                     <SelectItem value="high">{t('settings.effects.noiseSuppressionHigh')}</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Stats Tab */}
-          <TabsContent value="stats">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>{t('settings.stats.inputLevel')}</Label>
-                <Progress value={audioStats.inputLevel} className="h-2" />
-                <span className="text-xs text-gray-400">{audioStats.inputLevel.toFixed(1)}%</span>
-              </div>
-
-              <div className="space-y-2">
-                <Label>{t('settings.stats.outputLevel')}</Label>
-                <Progress value={audioStats.outputLevel} className="h-2" />
-                <span className="text-xs text-gray-400">{audioStats.outputLevel.toFixed(1)}%</span>
-              </div>
-
-              <div className="space-y-2">
-                <Label>{t('settings.stats.latency')}</Label>
-                <span className="text-sm">{audioStats.latency.toFixed(1)} ms</span>
-              </div>
-
-              <div className="space-y-2">
-                <Label>{t('settings.stats.packetLoss')}</Label>
-                <span className="text-sm">{audioStats.packetLoss.toFixed(1)}%</span>
               </div>
             </div>
           </TabsContent>
