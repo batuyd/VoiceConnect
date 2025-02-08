@@ -50,9 +50,11 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
   const requestAudioPermissions = useCallback(async () => {
     try {
+      console.log('Requesting audio permissions...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach(track => track.stop());
       setAudioPermissionGranted(true);
+      console.log('Audio permissions granted');
       return true;
     } catch (error) {
       console.error('Audio permission error:', error);
@@ -65,6 +67,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   }, [toast, t]);
 
   const cleanupAudioResources = useCallback(async () => {
+    console.log('Cleaning up audio resources');
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
@@ -79,14 +82,25 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       await audioContext.current?.close();
       audioContext.current = null;
     }
+
+    gainNode.current = null;
   }, []);
 
   const setupAudioStream = useCallback(async () => {
-    if (!selectedInputDevice || !isJoined || !audioPermissionGranted) return;
+    if (!selectedInputDevice || !isJoined || !audioPermissionGranted || !wsConnected) {
+      console.log('Cannot setup audio stream:', {
+        selectedInputDevice,
+        isJoined,
+        audioPermissionGranted,
+        wsConnected
+      });
+      return;
+    }
 
     try {
       await cleanupAudioResources();
 
+      console.log('Setting up audio stream with device:', selectedInputDevice);
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: { exact: selectedInputDevice },
@@ -106,6 +120,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
       gainNode.current.connect(audioContext.current.destination);
 
       if (wsRef.current?.readyState === WebSocket.OPEN) {
+        console.log('Starting media recorder');
         const audioTrack = mediaStream.getAudioTracks()[0];
         const recorder = new MediaRecorder(new MediaStream([audioTrack]), {
           mimeType: 'audio/webm'
@@ -123,6 +138,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
         mediaRecorderRef.current = recorder;
         recorder.start(100);
+        console.log('Media recorder started');
       }
     } catch (error) {
       console.error('Audio setup error:', error);
@@ -130,11 +146,12 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         description: t('voice.deviceAccessError'),
         variant: "destructive",
       });
-      handleLeaveChannel();
+      await handleLeaveChannel();
     }
-  }, [selectedInputDevice, isJoined, audioPermissionGranted, channel.id, isMuted, toast, t, cleanupAudioResources]);
+  }, [selectedInputDevice, isJoined, audioPermissionGranted, wsConnected, channel.id, isMuted, toast, t, cleanupAudioResources]);
 
   const handleLeaveChannel = useCallback(async () => {
+    console.log('Leaving channel:', channel.id);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'leave_channel',
@@ -161,7 +178,15 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
   }, [channel.id, playLeaveSound, isJoined, cleanupAudioResources]);
 
   const connectWebSocket = useCallback(async () => {
-    if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries) return;
+    if (!isJoined || !user?.id || isConnecting || retryCount.current >= maxRetries) {
+      console.log('Cannot connect WebSocket:', {
+        isJoined,
+        userId: user?.id,
+        isConnecting,
+        retryCount: retryCount.current
+      });
+      return;
+    }
 
     try {
       setIsConnecting(true);
@@ -180,14 +205,67 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
 
       ws.onopen = () => {
         console.log('WebSocket connected');
-        setWsConnected(true);
-        setIsConnecting(false);
-        retryCount.current = 0;
-        ws.send(JSON.stringify({
-          type: 'join_channel',
-          channelId: channel.id,
-          userId: user.id
-        }));
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('WebSocket message received:', data);
+
+          switch (data.type) {
+            case 'error':
+              toast({
+                description: data.message,
+                variant: "destructive",
+              });
+              handleLeaveChannel();
+              break;
+
+            case 'connection_success':
+              console.log('Connection success confirmed');
+              setWsConnected(true);
+              setIsConnecting(false);
+              retryCount.current = 0;
+              ws.send(JSON.stringify({
+                type: 'join_channel',
+                channelId: channel.id,
+                userId: user.id
+              }));
+              break;
+
+            case 'join_success':
+              console.log('Successfully joined channel');
+              await setupAudioStream();
+              await refetchMembers();
+              break;
+
+            case 'user_joined':
+            case 'user_left':
+              await refetchMembers();
+              if (data.type === 'user_joined') {
+                playJoinSound();
+              } else {
+                playLeaveSound();
+              }
+              break;
+
+            case 'voice_data':
+              if (data.fromUserId !== user.id && data.data) {
+                try {
+                  const audioBlob = new Blob([data.data], { type: 'audio/webm' });
+                  const audioUrl = URL.createObjectURL(audioBlob);
+                  const audio = new Audio(audioUrl);
+                  await audio.play();
+                  audio.onended = () => URL.revokeObjectURL(audioUrl);
+                } catch (error) {
+                  console.error('Error playing received audio:', error);
+                }
+              }
+              break;
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
       };
 
       ws.onclose = () => {
@@ -199,40 +277,16 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         if (isJoined && retryCount.current < maxRetries) {
           console.log('Attempting to reconnect WebSocket...');
           retryCount.current++;
+          const timeout = Math.min(1000 * Math.pow(2, retryCount.current), 5000);
           setTimeout(() => {
             connectWebSocket();
-          }, Math.min(1000 * Math.pow(2, retryCount.current), 5000));
-        }
-      };
-
-      ws.onmessage = async (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('WebSocket message received:', data);
-
-          switch (data.type) {
-            case 'user_joined':
-            case 'user_left':
-              await refetchMembers();
-              break;
-
-            case 'voice_data':
-              if (data.fromUserId !== user.id) {
-                const audioBlob = new Blob([data.data], { type: 'audio/webm' });
-                const audioUrl = URL.createObjectURL(audioBlob);
-                const audio = new Audio(audioUrl);
-                try {
-                  await audio.play();
-                  audio.onended = () => URL.revokeObjectURL(audioUrl);
-                } catch (error) {
-                  console.error('Error playing audio:', error);
-                  URL.revokeObjectURL(audioUrl);
-                }
-              }
-              break;
-          }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
+          }, timeout);
+        } else if (retryCount.current >= maxRetries) {
+          handleLeaveChannel();
+          toast({
+            description: t('voice.connectionLost'),
+            variant: "destructive",
+          });
         }
       };
 
@@ -251,7 +305,19 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         variant: "destructive",
       });
     }
-  }, [isJoined, channel.id, user?.id, toast, t, refetchMembers, isConnecting]);
+  }, [
+    isJoined,
+    channel.id,
+    user?.id,
+    isConnecting,
+    toast,
+    t,
+    refetchMembers,
+    setupAudioStream,
+    handleLeaveChannel,
+    playJoinSound,
+    playLeaveSound
+  ]);
 
   const handleJoinLeave = useCallback(async () => {
     if (isJoined) {
@@ -262,7 +328,6 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
         setIsJoined(true);
         playJoinSound();
         await connectWebSocket();
-        await setupAudioStream();
       }
     }
   }, [
@@ -270,8 +335,7 @@ export function VoiceChannel({ channel }: VoiceChannelProps) {
     handleLeaveChannel,
     requestAudioPermissions,
     playJoinSound,
-    connectWebSocket,
-    setupAudioStream
+    connectWebSocket
   ]);
 
   useEffect(() => {
