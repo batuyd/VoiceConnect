@@ -8,6 +8,7 @@ import session from 'express-session';
 import ytdl from 'ytdl-core';
 import { parse as parseUrl } from 'url';
 import { parse as parseCookie } from 'cookie';
+import { voiceStateManager } from './services/voice-state';
 
 declare module 'ws' {
   interface WebSocket {
@@ -148,10 +149,6 @@ export function registerRoutes(app: Express): Server {
           console.log(`Received message from user ${userId}:`, data);
 
           switch (data.type) {
-            case 'ping':
-              sendWebSocketMessage(ws, 'pong', { timestamp: Date.now() });
-              break;
-
             case 'join_voice_channel':
               try {
                 const channelId = data.channelId;
@@ -173,11 +170,27 @@ export function registerRoutes(app: Express): Server {
                   break;
                 }
 
-                const members = await storage.getServerMembers(channel.serverId);
-                const connectedMembers = members.map(member => ({
-                  ...member,
+                // Update voice state in both MongoDB and Redis
+                await voiceStateManager.updateVoiceState({
+                  userId,
+                  channelId,
+                  serverId: channel.serverId,
                   isMuted: false,
-                  isDeafened: false
+                  isDeafened: false,
+                  timestamp: Date.now(),
+                  connectionQuality: 100,
+                  deviceInfo: {
+                    name: req.headers['user-agent'] || 'Unknown',
+                    type: 'browser'
+                  }
+                });
+
+                const states = await voiceStateManager.getChannelVoiceStates(channelId);
+                const connectedMembers = states.map(state => ({
+                  userId: state.userId,
+                  isMuted: state.isMuted,
+                  isDeafened: state.isDeafened,
+                  connectionQuality: state.connectionQuality
                 }));
 
                 wss.clients.forEach((client: WebSocket) => {
@@ -211,6 +224,9 @@ export function registerRoutes(app: Express): Server {
                 const channelId = data.channelId;
                 console.log(`User ${userId} leaving voice channel ${channelId}`);
 
+                // Cleanup voice state and connections
+                await voiceStateManager.removeVoiceConnection(userId);
+
                 wss.clients.forEach((client: WebSocket) => {
                   if (client.readyState === WebSocket.OPEN && client !== ws) {
                     sendWebSocketMessage(client, 'voice_user_left', {
@@ -236,15 +252,26 @@ export function registerRoutes(app: Express): Server {
                 const { channelId, isMuted } = data;
                 console.log(`User ${userId} toggling mute state to ${isMuted} in channel ${channelId}`);
 
-                wss.clients.forEach((client: WebSocket) => {
-                  if (client.readyState === WebSocket.OPEN) {
-                    sendWebSocketMessage(client, 'voice_user_muted', {
-                      channelId,
-                      userId,
-                      isMuted
-                    });
-                  }
-                });
+                // Update voice state
+                const currentState = (await voiceStateManager.getChannelVoiceStates(channelId))
+                  .find(state => state.userId === userId);
+
+                if (currentState) {
+                  await voiceStateManager.updateVoiceState({
+                    ...currentState,
+                    isMuted
+                  });
+
+                  wss.clients.forEach((client: WebSocket) => {
+                    if (client.readyState === WebSocket.OPEN) {
+                      sendWebSocketMessage(client, 'voice_user_muted', {
+                        channelId,
+                        userId,
+                        isMuted
+                      });
+                    }
+                  });
+                }
               } catch (error) {
                 console.error('Error handling toggle_mute:', error);
                 sendWebSocketMessage(ws, 'error', {
@@ -253,7 +280,32 @@ export function registerRoutes(app: Express): Server {
                 });
               }
               break;
+            case 'update_connection_quality':
+              try {
+                const { channelId, quality } = data;
+                const currentState = (await voiceStateManager.getChannelVoiceStates(channelId))
+                  .find(state => state.userId === userId);
 
+                if (currentState) {
+                  await voiceStateManager.updateVoiceState({
+                    ...currentState,
+                    connectionQuality: quality
+                  });
+
+                  wss.clients.forEach((client: WebSocket) => {
+                    if (client.readyState === WebSocket.OPEN) {
+                      sendWebSocketMessage(client, 'voice_connection_quality_changed', {
+                        channelId,
+                        userId,
+                        quality
+                      });
+                    }
+                  });
+                }
+              } catch (error) {
+                console.error('Error handling update_connection_quality:', error);
+              }
+              break;
             default:
               console.log('Unknown message type:', data.type);
           }

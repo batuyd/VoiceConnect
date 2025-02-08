@@ -18,6 +18,26 @@ type AudioSettingsContextType = {
   setNoiseSuppressionLevel: (level: 'off' | 'low' | 'medium' | 'high') => void;
   audioQuality: 'low' | 'medium' | 'high';
   setAudioQuality: (quality: 'low' | 'medium' | 'high') => void;
+  audioConfig: {
+    echoCancellation: boolean;
+    noiseSuppression: boolean;
+    autoGainControl: boolean;
+    channelCount?: number;
+    sampleRate?: number;
+  };
+  setAudioConfig: (config: {
+    echoCancellation: boolean;
+    noiseSuppression: boolean;
+    autoGainControl: boolean;
+    channelCount?: number;
+    sampleRate?: number;
+  }) => void;
+  audioStats: {
+    inputLevel: number;
+    outputLevel: number;
+    latency: number;
+    packetLoss: number;
+  };
 };
 
 const AudioSettingsContext = createContext<AudioSettingsContextType | null>(null);
@@ -32,13 +52,35 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>("");
   const [isInitialized, setIsInitialized] = useState(false);
   const [isTestingAudio, setIsTestingAudio] = useState(false);
-  const [autoGainControl, setAutoGainControl] = useState(true);
-  const [echoCancellation, setEchoCancellation] = useState(true);
-  const [noiseSuppression, setNoiseSuppression] = useState(true);
 
   const [voiceEffect, setVoiceEffect] = useState<'none' | 'pitch-up' | 'pitch-down' | 'robot' | 'echo'>('none');
   const [noiseSuppressionLevel, setNoiseSuppressionLevel] = useState<'off' | 'low' | 'medium' | 'high'>('medium');
   const [audioQuality, setAudioQuality] = useState<'low' | 'medium' | 'high'>('high');
+  const [audioConfig, setAudioConfig] = useState({
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 2,
+    sampleRate: 48000,
+  });
+  const [audioStats, setAudioStats] = useState({
+    inputLevel: 0,
+    outputLevel: 0,
+    latency: 0,
+    packetLoss: 0,
+  });
+
+  const updateAudioStats = useCallback((stats: { 
+    inputLevel?: number;
+    outputLevel?: number;
+    latency?: number;
+    packetLoss?: number;
+  }) => {
+    setAudioStats(prev => ({
+      ...prev,
+      ...stats,
+    }));
+  }, []);
 
   const applyAudioEffects = useCallback((stream: MediaStream) => {
     const audioContext = new AudioContext({ sampleRate: 48000 });
@@ -116,29 +158,32 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
   const getAudioConstraints = useCallback(() => {
     const constraints: MediaTrackConstraints = {
-      deviceId: selectedInputDevice,
-      autoGainControl,
-      echoCancellation,
-      noiseSuppression,
+      deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
+      ...audioConfig,
+      sampleSize: { ideal: 16 },
     };
 
     switch (audioQuality) {
       case 'low':
-        constraints.sampleRate = 22050;
-        constraints.channelCount = 1;
+        constraints.sampleRate = { ideal: 22050 };
+        constraints.channelCount = { ideal: 1 };
         break;
       case 'medium':
-        constraints.sampleRate = 44100;
-        constraints.channelCount = 1;
+        constraints.sampleRate = { ideal: 44100 };
+        constraints.channelCount = { ideal: 1 };
         break;
       case 'high':
-        constraints.sampleRate = 48000;
-        constraints.channelCount = 2;
+        constraints.sampleRate = { ideal: 48000 };
+        constraints.channelCount = { ideal: 2 };
         break;
     }
 
+    if (noiseSuppressionLevel !== 'off') {
+      constraints.noiseSuppression = true;
+    }
+
     return constraints;
-  }, [selectedInputDevice, autoGainControl, echoCancellation, noiseSuppression, audioQuality]);
+  }, [selectedInputDevice, audioConfig, audioQuality, noiseSuppressionLevel]);
 
   useEffect(() => {
     if (!selectedInputDevice || !isInitialized) return;
@@ -202,7 +247,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         mediaStream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [selectedInputDevice, isInitialized, autoGainControl, echoCancellation, noiseSuppression, toast, t, getAudioConstraints, applyAudioEffects]);
+  }, [selectedInputDevice, isInitialized,  getAudioConstraints, applyAudioEffects, toast, t]);
 
 
   const requestAudioPermission = useCallback(async (retryCount = 0): Promise<MediaStream | null> => {
@@ -402,6 +447,9 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         setNoiseSuppressionLevel,
         audioQuality,
         setAudioQuality,
+        audioConfig,
+        setAudioConfig,
+        audioStats
       }}
     >
       {children}

@@ -3,20 +3,169 @@ import { useAudioSettings } from './use-audio-settings';
 import { useToast } from './use-toast';
 import { useLanguage } from './use-language';
 
+interface RTCStats {
+  timestamp: number;
+  jitter: number;
+  packetsLost: number;
+  roundTripTime: number;
+}
+
 interface PeerConnection {
   connection: RTCPeerConnection;
   stream: MediaStream;
   audioElement?: HTMLAudioElement;
+  stats: RTCStats;
 }
 
+interface AudioConfig {
+  echoCancellation: boolean;
+  noiseSuppression: boolean;
+  autoGainControl: boolean;
+  channelCount?: number;
+  sampleRate?: number;
+  sampleSize?: number;
+}
+
+const DEFAULT_AUDIO_CONFIG: AudioConfig = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+  sampleRate: 48000,
+  sampleSize: 16
+};
+
+const ICE_SERVERS: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    {
+      urls: 'turn:global.turn.twilio.com:3478',
+      username: process.env.TWILIO_TURN_USERNAME,
+      credential: process.env.TWILIO_TURN_CREDENTIAL
+    }
+  ],
+  iceTransportPolicy: 'all',
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require',
+  iceCandidatePoolSize: 10
+};
+
 export function useWebRTC(channelId: number) {
-  const { selectedInputDevice } = useAudioSettings();
+  const { selectedInputDevice, audioConfig } = useAudioSettings();
   const { toast } = useToast();
   const { t } = useLanguage();
   const [isConnected, setIsConnected] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [peers, setPeers] = useState<Record<number, PeerConnection>>({});
+  const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor'>('excellent');
+
   const localStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionsRef = useRef<Record<number, RTCPeerConnection>>({});
+  const statsIntervalRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+
+  const initializeAudioStream = useCallback(async () => {
+    try {
+      console.log('Initializing audio stream with device:', selectedInputDevice);
+
+      const mergedConfig: AudioConfig = {
+        ...DEFAULT_AUDIO_CONFIG,
+        ...audioConfig
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
+          ...mergedConfig,
+          latency: { ideal: 0.01 }, // 10ms hedef gecikme
+          sampleSize: { ideal: mergedConfig.sampleSize },
+          sampleRate: { ideal: mergedConfig.sampleRate }
+        },
+        video: false
+      });
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+
+      // Ses düzeyi analizi için
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      source.connect(analyser);
+
+      localStreamRef.current = stream;
+      return true;
+    } catch (error: any) {
+      console.error('Audio stream initialization error:', error);
+      toast({
+        title: t('voice.audioError'),
+        description: error.name === 'NotAllowedError' 
+          ? t('voice.microphonePermissionDenied')
+          : t('voice.microphoneAccessError'),
+        variant: 'destructive'
+      });
+      return false;
+    }
+  }, [selectedInputDevice, audioConfig, toast, t]);
+
+  const monitorConnectionQuality = useCallback((pc: RTCPeerConnection, userId: number) => {
+    if (statsIntervalRef.current) {
+      clearInterval(statsIntervalRef.current);
+    }
+
+    statsIntervalRef.current = setInterval(async () => {
+      try {
+        const stats = await pc.getStats();
+        let totalJitter = 0;
+        let totalPacketsLost = 0;
+        let totalRoundTripTime = 0;
+        let measurementCount = 0;
+
+        stats.forEach(report => {
+          if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+            totalJitter += report.jitter || 0;
+            totalPacketsLost += report.packetsLost || 0;
+            measurementCount++;
+          }
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            totalRoundTripTime += report.currentRoundTripTime || 0;
+          }
+        });
+
+        if (measurementCount > 0) {
+          const averageJitter = totalJitter / measurementCount;
+          const averagePacketsLost = totalPacketsLost / measurementCount;
+          const averageRoundTripTime = totalRoundTripTime / measurementCount;
+
+          setPeers(prev => ({
+            ...prev,
+            [userId]: {
+              ...prev[userId],
+              stats: {
+                timestamp: Date.now(),
+                jitter: averageJitter,
+                packetsLost: averagePacketsLost,
+                roundTripTime: averageRoundTripTime
+              }
+            }
+          }));
+
+          // Bağlantı kalitesi değerlendirmesi
+          if (averageJitter > 0.1 || averagePacketsLost > 50 || averageRoundTripTime > 300) {
+            setConnectionQuality('poor');
+          } else if (averageJitter > 0.05 || averagePacketsLost > 20 || averageRoundTripTime > 150) {
+            setConnectionQuality('good');
+          } else {
+            setConnectionQuality('excellent');
+          }
+        }
+      } catch (error) {
+        console.error('Error monitoring connection quality:', error);
+      }
+    }, 2000);
+  }, []);
 
   const createPeer = useCallback(async (targetUserId: number, initiator: boolean): Promise<RTCPeerConnection> => {
     try {
@@ -24,44 +173,28 @@ export function useWebRTC(channelId: number) {
       console.log('Creating peer connection with user:', targetUserId);
 
       if (!localStreamRef.current) {
-        try {
-          console.log('Requesting user media with device:', selectedInputDevice);
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
-            },
-            video: false
-          });
-          console.log('Got user media stream:', stream.id);
-          localStreamRef.current = stream;
-        } catch (error: any) {
-          console.error('Error accessing microphone:', error);
-          toast({
-            title: t('voice.microphoneError'),
-            description: error.name === 'NotAllowedError' 
-              ? t('voice.microphonePermissionDenied')
-              : t('voice.microphoneAccessError'),
-            variant: 'destructive'
-          });
-          throw error;
+        const success = await initializeAudioStream();
+        if (!success) {
+          throw new Error('Failed to initialize audio stream');
         }
       }
 
-      const config: RTCConfiguration = {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ],
-        iceTransportPolicy: 'all',
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require'
-      };
+      console.log('Creating RTCPeerConnection with config:', ICE_SERVERS);
+      const peerConnection = new RTCPeerConnection(ICE_SERVERS);
+      peerConnectionsRef.current[targetUserId] = peerConnection;
 
-      console.log('Creating RTCPeerConnection with config:', config);
-      const peerConnection = new RTCPeerConnection(config);
+      // Ses kalitesi optimizasyonları
+      peerConnection.getSenders().forEach(sender => {
+        if (sender.track?.kind === 'audio') {
+          const params = sender.getParameters();
+          if (!params.encodings) {
+            params.encodings = [{}];
+          }
+          params.encodings[0].maxBitrate = 128000; // 128 kbps
+          params.encodings[0].priority = 'high';
+          sender.setParameters(params).catch(console.error);
+        }
+      });
 
       localStreamRef.current.getTracks().forEach(track => {
         if (localStreamRef.current) {
@@ -112,6 +245,7 @@ export function useWebRTC(channelId: number) {
               description: t('voice.connectionEstablished'),
               variant: 'default'
             });
+            monitorConnectionQuality(peerConnection, targetUserId);
             break;
           case 'failed':
             console.error('ICE connection failed');
@@ -120,7 +254,15 @@ export function useWebRTC(channelId: number) {
               description: t('voice.tryReconnecting'),
               variant: 'destructive'
             });
-            cleanupPeer(targetUserId);
+
+            // Otomatik yeniden bağlanma
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+            }
+            reconnectTimeoutRef.current = setTimeout(() => {
+              cleanupPeer(targetUserId);
+              createPeer(targetUserId, initiator);
+            }, 5000);
             break;
           case 'disconnected':
             console.warn('ICE connection disconnected');
@@ -193,17 +335,32 @@ export function useWebRTC(channelId: number) {
         const [remoteStream] = event.streams;
 
         if (remoteStream) {
-          console.log('Creating new audio element for remote stream:', remoteStream.id);
           const audioElement = new Audio();
           audioElement.srcObject = remoteStream;
           audioElement.autoplay = true;
+
+          // Ses işleme ve kalite iyileştirmeleri
+          const audioContext = new AudioContext();
+          const source = audioContext.createMediaStreamSource(remoteStream);
+          const gainNode = audioContext.createGain();
+          const analyser = audioContext.createAnalyser();
+
+          source.connect(gainNode);
+          gainNode.connect(analyser);
+          analyser.connect(audioContext.destination);
 
           setPeers(prev => ({
             ...prev,
             [targetUserId]: {
               ...prev[targetUserId],
               stream: remoteStream,
-              audioElement
+              audioElement,
+              stats: {
+                timestamp: Date.now(),
+                jitter: 0,
+                packetsLost: 0,
+                roundTripTime: 0
+              }
             }
           }));
 
@@ -222,7 +379,13 @@ export function useWebRTC(channelId: number) {
         ...prev,
         [targetUserId]: {
           connection: peerConnection,
-          stream: localStreamRef.current!
+          stream: localStreamRef.current!,
+          stats: {
+            timestamp: Date.now(),
+            jitter: 0,
+            packetsLost: 0,
+            roundTripTime: 0
+          }
         }
       }));
 
@@ -232,12 +395,12 @@ export function useWebRTC(channelId: number) {
       setIsInitializing(false);
       throw error;
     }
-  }, [channelId, selectedInputDevice, toast, t]);
+  }, [channelId, initializeAudioStream, toast, t, monitorConnectionQuality]);
 
   const handleIncomingSignal = useCallback(async (userId: number, signal: any) => {
     try {
       console.log('Handling incoming signal:', signal.type);
-      let peerConnection = peers[userId]?.connection;
+      let peerConnection = peerConnectionsRef.current[userId];
 
       if (!peerConnection) {
         console.log('Creating new peer for incoming signal');
@@ -276,12 +439,16 @@ export function useWebRTC(channelId: number) {
       console.error('Error handling incoming signal:', error);
       cleanupPeer(userId);
     }
-  }, [peers, createPeer, channelId]);
+  }, [channelId, createPeer]);
 
   const cleanupPeer = useCallback((userId: number) => {
     console.log('Cleaning up peer:', userId);
     const peerConnection = peers[userId];
     if (peerConnection) {
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+      }
+
       peerConnection.stream.getTracks().forEach(track => {
         console.log('Stopping track:', track.kind, track.id);
         track.stop();
@@ -302,11 +469,21 @@ export function useWebRTC(channelId: number) {
         delete newPeers[userId];
         return newPeers;
       });
+
+      delete peerConnectionsRef.current[userId];
     }
   }, [peers]);
 
   const cleanup = useCallback(() => {
     console.log('Running cleanup');
+    if (statsIntervalRef.current) {
+      clearInterval(statsIntervalRef.current);
+    }
+
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+
     Object.keys(peers).forEach(userId => {
       cleanupPeer(Number(userId));
     });
@@ -332,6 +509,7 @@ export function useWebRTC(channelId: number) {
   return {
     isConnected,
     isInitializing,
+    connectionQuality,
     createPeer,
     handleIncomingSignal,
     cleanup
