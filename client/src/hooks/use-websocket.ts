@@ -12,6 +12,7 @@ export function useWebSocket() {
 
   const refreshFriendshipData = useCallback(() => {
     console.log('Refreshing friendship data...');
+    // Invalidate both friend requests and friends list
     queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
     queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
   }, [queryClient]);
@@ -32,6 +33,7 @@ export function useWebSocket() {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = undefined;
       }
+      // Refresh data when connection is established
       refreshFriendshipData();
     };
 
@@ -48,7 +50,8 @@ export function useWebSocket() {
 
           case 'FRIEND_REQUEST':
             console.log('Friend request received:', message.data);
-            refreshFriendshipData();
+            // Immediately refresh friend requests
+            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             toast({
               title: t('friend.newRequest'),
               description: t('friend.requestReceived', { username: message.data.sender.username }),
@@ -57,11 +60,13 @@ export function useWebSocket() {
 
           case 'FRIEND_REQUEST_SENT':
             console.log('Friend request sent confirmation:', message.data);
+            // Immediately refresh both lists
             refreshFriendshipData();
             break;
 
           case 'FRIEND_REQUEST_ACCEPTED':
             console.log('Friend request accepted:', message.data);
+            // Immediately refresh both friends list and requests
             refreshFriendshipData();
             toast({
               title: t('friend.requestAccepted'),
@@ -71,7 +76,8 @@ export function useWebSocket() {
 
           case 'FRIEND_REQUEST_REJECTED':
             console.log('Friend request rejected:', message.data);
-            refreshFriendshipData();
+            // Immediately refresh friend requests list
+            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
             toast({
               title: t('friend.requestRejected'),
               description: t('friend.requestRejectedDesc', { username: message.data.username }),
@@ -80,7 +86,8 @@ export function useWebSocket() {
 
           case 'FRIENDSHIP_REMOVED':
             console.log('Friendship removed:', message.data);
-            refreshFriendshipData();
+            // Immediately refresh friends list
+            queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
             toast({
               title: t('friend.removed'),
               description: t('friend.removedDesc', { username: message.data.username }),
@@ -94,6 +101,11 @@ export function useWebSocket() {
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      toast({
+        title: t('error.websocket'),
+        description: t('error.websocketDesc'),
+        variant: 'destructive',
+      });
     };
 
     ws.onclose = () => {
