@@ -41,7 +41,11 @@
       "phoneRequired": "Telefon numarası gerekli",
       "loginFailed": "Geçersiz kullanıcı adı veya şifre",
       "registrationFailed": "Kayıt başarısız oldu. Lütfen tekrar deneyin."
-    }
+    },
+    "loginSuccess": "Başarıyla giriş yapıldı",
+    "registrationSuccess": "Kayıt işlemi başarılı",
+    "logoutSuccess": "Başarıyla çıkış yapıldı",
+    "invalidCredentials": "Geçersiz kullanıcı adı veya şifre"
   },
   "error": {
     "connectionLost": "Bağlantı Kesildi",

@@ -41,7 +41,11 @@
       "phoneRequired": "Phone number is required",
       "loginFailed": "Invalid username or password",
       "registrationFailed": "Registration failed. Please try again."
-    }
+    },
+    "loginSuccess": "Successfully logged in",
+    "registrationSuccess": "Registration successful",
+    "logoutSuccess": "Successfully logged out",
+    "invalidCredentials": "Invalid username or password"
   },
   "error": {
     "connectionLost": "Connection Lost",
