@@ -1,15 +1,14 @@
 import { Volume2, VolumeX } from "lucide-react";
 import { Channel } from "@shared/schema";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { MediaControls } from "./media-controls";
 import { useAudioSettings } from "@/hooks/use-audio-settings";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useWebRTC } from "@/hooks/use-webrtc";
 
 interface VoiceChannelProps {
   channel: Channel;
@@ -28,69 +27,18 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const { selectedInputDevice } = useAudioSettings();
-
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [wsConnected, setWsConnected] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
   const [audioPermissionGranted, setAudioPermissionGranted] = useState(false);
 
-  const stream = useRef<MediaStream | null>(null);
-  const audioContext = useRef<AudioContext | null>(null);
-  const gainNode = useRef<GainNode | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const retryTimeoutRef = useRef<NodeJS.Timeout>();
-  const maxRetries = 3;
+  const { isConnected, createPeer, cleanup } = useWebRTC(channel.id);
 
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined
   });
 
-  const setupAudioStream = useCallback(async () => {
-    if (!selectedInputDevice || !isJoined || !audioPermissionGranted) return;
-
-    try {
-      // Cleanup existing stream if any
-      if (stream.current) {
-        stream.current.getTracks().forEach(track => track.stop());
-      }
-
-      // Get new media stream with specified device
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          deviceId: { exact: selectedInputDevice },
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-
-      // Create audio context if not exists
-      if (!audioContext.current || audioContext.current.state === 'closed') {
-        audioContext.current = new AudioContext();
-      }
-
-      stream.current = mediaStream;
-      const source = audioContext.current.createMediaStreamSource(mediaStream);
-      gainNode.current = audioContext.current.createGain();
-
-      source.connect(gainNode.current);
-      if (!isMuted) {
-        gainNode.current.connect(audioContext.current.destination);
-      }
-
-      console.log('Audio stream setup successful');
-    } catch (error) {
-      console.error('Audio setup error:', error);
-      toast({
-        description: t('voice.deviceAccessError'),
-        variant: "destructive",
-      });
-    }
-  }, [selectedInputDevice, isJoined, audioPermissionGranted, isMuted, toast, t]);
-
-  const requestAudioPermissions = useCallback(async () => {
+  const requestAudioPermissions = async () => {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       setAudioPermissionGranted(true);
@@ -103,160 +51,35 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       });
       return false;
     }
-  }, [toast, t]);
+  };
 
-  useEffect(() => {
-    let mounted = true;
-
-    const connectWebSocket = async () => {
-      if (!isJoined || !user?.id || wsRef.current?.readyState === WebSocket.OPEN || retryCount >= maxRetries) {
-        return;
-      }
-
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-
-      try {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
-        console.log('Connecting to WebSocket:', wsUrl);
-
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-          if (!mounted) return;
-          console.log('WebSocket connected');
-          setWsConnected(true);
-          setRetryCount(0);
-          ws.send(JSON.stringify({
-            type: 'join_channel',
-            channelId: channel.id,
-            userId: user.id
-          }));
-        };
-
-        ws.onclose = () => {
-          if (!mounted) return;
-          console.log('WebSocket disconnected');
-          setWsConnected(false);
-          wsRef.current = null;
-
-          if (isJoined && retryCount < maxRetries) {
-            const timeout = Math.min(1000 * Math.pow(2, retryCount), 5000);
-            retryTimeoutRef.current = setTimeout(() => {
-              if (mounted) {
-                setRetryCount(prev => prev + 1);
-              }
-            }, timeout);
-          }
-        };
-
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          if (mounted) {
-            toast({
-              description: t('voice.connectionError'),
-              variant: "destructive",
-            });
-          }
-        };
-
-        ws.onmessage = (event) => {
-          if (!mounted) return;
-          try {
-            const data = JSON.parse(event.data);
-            console.log('WebSocket message received:', data);
-
-            if (data.type === 'error') {
-              console.error('WebSocket error:', data.message);
-              toast({
-                description: data.message,
-                variant: "destructive",
-              });
-            } else if (data.type === 'member_update') {
-              refetchMembers();
-            }
-          } catch (error) {
-            console.error('Failed to parse WebSocket message:', error);
-          }
-        };
-      } catch (error) {
-        console.error('Failed to create WebSocket connection:', error);
-        if (mounted) {
-          toast({
-            description: t('voice.connectionFailed'),
-            variant: "destructive",
-          });
-        }
-      }
-    };
-
-    connectWebSocket();
-
-    return () => {
-      mounted = false;
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, [isJoined, channel.id, retryCount, user?.id, toast, t, refetchMembers]);
-
-  useEffect(() => {
-    if (isJoined && !audioPermissionGranted) {
-      requestAudioPermissions().then(granted => {
-        if (granted) {
-          setupAudioStream();
-        }
-      });
-    }
-  }, [isJoined, audioPermissionGranted, requestAudioPermissions, setupAudioStream]);
-
-  useEffect(() => {
-    if (isJoined && audioPermissionGranted) {
-      setupAudioStream();
-    }
-  }, [isJoined, audioPermissionGranted, setupAudioStream]);
-
-  useEffect(() => {
-    if (!gainNode.current || !audioContext.current) return;
-
-    if (isMuted) {
-      gainNode.current.disconnect();
-    } else {
-      gainNode.current.connect(audioContext.current.destination);
-    }
-  }, [isMuted]);
-
-  const handleJoinLeave = useCallback(async () => {
+  const handleJoinLeave = async () => {
     if (isJoined) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (stream.current) {
-        stream.current.getTracks().forEach(track => track.stop());
-      }
-      if (audioContext.current?.state !== 'closed') {
-        await audioContext.current?.close();
-      }
+      cleanup();
       setIsJoined(false);
-      setWsConnected(false);
-      setRetryCount(0);
       setAudioPermissionGranted(false);
     } else {
       const hasPermission = await requestAudioPermissions();
       if (hasPermission) {
+        // Initialize peer connections with existing members
+        for (const member of channelMembers) {
+          if (member.id !== user?.id) {
+            await createPeer(member.id, true);
+          }
+        }
         setIsJoined(true);
       }
     }
-  }, [isJoined, requestAudioPermissions]);
+  };
+
+  useEffect(() => {
+    // Cleanup on unmount
+    return () => {
+      if (isJoined) {
+        cleanup();
+      }
+    };
+  }, [isJoined, cleanup]);
 
   return (
     <div className="space-y-2">
@@ -272,7 +95,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             <Volume2 className="h-4 w-4 text-gray-400" />
           )}
           <span>{channel.name}</span>
-          {wsConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
+          {isConnected && <span className="w-2 h-2 rounded-full bg-green-500" />}
         </div>
 
         <Button

@@ -2,35 +2,6 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
-import { WebSocketServer, WebSocket } from 'ws';
-import session from 'express-session';
-import type { User } from "@shared/schema";
-import ytdl from 'ytdl-core';
-
-// Track connected users globally
-const connectedUsers = new Map<number, {
-  ws: WebSocket;
-  user: User;
-  lastPing: number;
-  currentChannel?: number;
-}>();
-
-// WebSocket notification helper
-function sendWebSocketNotification(userId: number, notification: any) {
-  const userConnection = connectedUsers.get(userId);
-  if (userConnection && userConnection.ws.readyState === WebSocket.OPEN) {
-    try {
-      userConnection.ws.send(JSON.stringify(notification));
-      console.log(`Notification sent to user ${userId}:`, notification);
-      return true;
-    } catch (error) {
-      console.error(`Failed to send notification to user ${userId}:`, error);
-      connectedUsers.delete(userId);
-      return false;
-    }
-  }
-  return false;
-}
 
 // Error handling helper
 function handleError(error: unknown): string {
@@ -48,11 +19,37 @@ export function registerRoutes(app: Express): Server {
     if (!req.user) return res.sendStatus(401);
     try {
       const requests = await storage.getPendingFriendRequests(req.user.id);
-      console.log('Pending friend requests for user', req.user.id, ':', requests);
       res.json(requests);
     } catch (error) {
       console.error('Get friend requests error:', handleError(error));
       res.status(500).json({ message: "Failed to get friend requests" });
+    }
+  });
+
+  // WebRTC signaling endpoint
+  app.post("/api/channels/:channelId/signal", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const { targetUserId, signal } = req.body;
+      const channelId = parseInt(req.params.channelId);
+
+      // Check if both users are members of the channel
+      const members = await storage.getServerMembers(channelId);
+      const isValidConnection = members.some(m => m.id === targetUserId) && 
+                              members.some(m => m.id === req.user!.id);
+
+      if (!isValidConnection) {
+        return res.status(403).json({ error: "Invalid connection attempt" });
+      }
+
+      // Relay the signal to the target user
+      // In a real implementation, you would use a real-time solution to deliver this
+      // For now, we'll just acknowledge the signal
+      res.json({ success: true });
+    } catch (error) {
+      console.error('WebRTC signaling error:', handleError(error));
+      res.status(500).json({ message: "Failed to relay signal" });
     }
   });
 
@@ -632,22 +629,6 @@ export function registerRoutes(app: Express): Server {
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
       console.log('Created friend request:', friendship);
 
-      // Send WebSocket notification to target user
-      const notificationSent = sendWebSocketNotification(targetUser.id, {
-        type: 'friend_request',
-        from: {
-          id: req.user.id,
-          username: req.user.username,
-          avatar: req.user.avatar
-        },
-        friendshipId: friendship.id
-      });
-
-      console.log(
-        notificationSent
-          ? `Notification sent to user ${targetUser.id}`
-          : `User ${targetUser.id} is offline or notification failed`
-      );
 
       res.status(201).json(friendship);
     } catch (error: any) {
@@ -669,16 +650,6 @@ export function registerRoutes(app: Express): Server {
 
       await storage.acceptFriendRequest(friendshipId);
 
-      // Notify the friend request sender
-      sendWebSocketNotification(friendship.senderId, {
-        type: 'friend_request_accepted',
-        by: {
-          id: req.user.id,
-          username: req.user.username,
-          avatar: req.user.avatar
-        },
-        friendshipId
-      });
 
       res.sendStatus(200);
     } catch (error: any) {
@@ -724,185 +695,5 @@ export function registerRoutes(app: Express): Server {
   });
 
   const httpServer = createServer(app);
-
-  // WebSocket server configuration
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/ws',
-    clientTracking: true,
-    perMessageDeflate: false,
-  });
-
-  // WebSocket session middleware setup
-  const sessionParser = session(sessionSettings);
-
-  // WebSocket connection handler with improved logging and error handling
-  wss.on('connection', async (ws, req) => {
-    console.log('New WebSocket connection attempt', {
-      timestamp: new Date().toISOString(),
-      headers: req.headers,
-      url: req.url,
-      remoteAddress: req.socket.remoteAddress
-    });
-
-    try {
-      // Parse session synchronously to ensure proper authentication
-      await new Promise<void>((resolve, reject) => {
-        sessionParser(req as any, {} as any, (err) => {
-          if (err) {
-            console.error('Session parsing error:', {
-              error: handleError(err),
-              timestamp: new Date().toISOString()
-            });
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-
-      // Check authentication
-      const session = (req as any).session;
-      if (!session?.passport?.user) {
-        console.log('WebSocket authentication failed - no session', {
-          timestamp: new Date().toISOString(),
-          sessionData: session
-        });
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Authentication required'
-        }));
-        ws.close();
-        return;
-      }
-
-      // Get user data
-      const userId = session.passport.user;
-      const user = await storage.getUser(userId);
-
-      if (!user) {
-        console.log('WebSocket authentication failed - user not found', {
-          timestamp: new Date().toISOString(),
-          userId
-        });
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'User not found'
-        }));
-        ws.close();
-        return;
-      }
-
-      console.log('WebSocket connection authenticated', {
-        timestamp: new Date().toISOString(),
-        userId: user.id,
-        username: user.username
-      });
-
-      // Remove existing connection if any
-      const existingConnection = connectedUsers.get(userId);
-      if (existingConnection?.ws.readyState === WebSocket.OPEN) {
-        existingConnection.ws.close();
-      }
-
-      // Add user to connected users
-      connectedUsers.set(userId, {
-        ws,
-        user,
-        lastPing: Date.now(),
-      });
-
-      // Send initial success message
-      ws.send(JSON.stringify({
-        type: 'connection_established',
-        userId: user.id,
-        username: user.username
-      }));
-
-      // Handle incoming messages
-      ws.on('message', async (message) => {
-        try {
-          const data = JSON.parse(message.toString());
-          console.log('WebSocket message received', {
-            timestamp: new Date().toISOString(),
-            userId,
-            messageType: data.type,
-            data
-          });
-
-          switch (data.type) {
-            case 'ping':
-              const userConnection = connectedUsers.get(userId);
-              if (userConnection) {
-                userConnection.lastPing = Date.now();
-                ws.send(JSON.stringify({ type: 'pong' }));
-              }
-              break;
-
-            default:
-              console.log('Unknown message type', {
-                timestamp: new Date().toISOString(),
-                userId,
-                type: data.type
-              });
-          }
-        } catch (error) {
-          console.error('Error processing message', {
-            timestamp: new Date().toISOString(),
-            userId,
-            error: handleError(error),
-            rawMessage: message.toString()
-          });
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Invalid message format'
-          }));
-        }
-      });
-
-      // Handle connection close
-      ws.on('close', () => {
-        console.log('WebSocket connection closed', {
-          timestamp: new Date().toISOString(),
-          userId,
-          username: user.username
-        });
-        connectedUsers.delete(userId);
-      });
-
-      // Handle errors
-      ws.on('error', (error) => {
-        console.error('WebSocket connection error', {
-          timestamp: new Date().toISOString(),
-          userId,
-          error: handleError(error)
-        });
-        connectedUsers.delete(userId);
-      });
-
-    } catch (error) {
-      console.error('WebSocket connection setup error', {
-        timestamp: new Date().toISOString(),
-        error: handleError(error)
-      });
-      ws.close();
-    }
-  });
-
-  // Cleanup inactive connections every 30 seconds
-  setInterval(() => {
-    const now = Date.now();
-    for (const [userId, connection] of connectedUsers) {
-      // Close connection if no ping received in last 60 seconds
-      if (now - connection.lastPing > 60000) {
-        console.log(`Cleaning up inactive connection for user ${userId}`);
-        if (connection.ws.readyState === WebSocket.OPEN) {
-          connection.ws.close();
-        }
-        connectedUsers.delete(userId);
-      }
-    }
-  }, 30000);
-
   return httpServer;
 }
