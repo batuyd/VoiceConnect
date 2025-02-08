@@ -49,12 +49,12 @@ export function registerRoutes(app: Express): Server {
     clientTracking: true,
   });
 
-  // WebSocket connection handler
+  let joinTimeout: NodeJS.Timeout;
+
   wss.on('connection', async (ws, req) => {
     console.log('New WebSocket connection attempt');
 
     try {
-      // Parse session
       await new Promise<void>((resolve, reject) => {
         sessionParser(req as any, {} as any, (err: any) => {
           if (err) {
@@ -66,13 +66,12 @@ export function registerRoutes(app: Express): Server {
         });
       });
 
-      // Get session data
       const reqWithSession = req as any;
       if (!reqWithSession.session?.passport?.user) {
         console.error('No authenticated user found in session');
         ws.send(JSON.stringify({
           type: 'error',
-          message: 'Yetkilendirme başarısız oldu'
+          message: 'Authentication failed'
         }));
         ws.close();
         return;
@@ -85,7 +84,7 @@ export function registerRoutes(app: Express): Server {
         console.error('User not found in storage:', userId);
         ws.send(JSON.stringify({
           type: 'error',
-          message: 'Kullanıcı bulunamadı'
+          message: 'User not found'
         }));
         ws.close();
         return;
@@ -93,28 +92,28 @@ export function registerRoutes(app: Express): Server {
 
       console.log('User authenticated successfully:', userId);
 
-      // Close existing connection if any
+      // Varolan bağlantıyı kapat
       const existingConnection = connectedUsers.get(userId);
       if (existingConnection?.ws.readyState === WebSocket.OPEN) {
         console.log('Closing existing connection for user:', userId);
         existingConnection.ws.close();
       }
 
-      // Set up new connection
+      // Yeni bağlantıyı ayarla
       connectedUsers.set(userId, {
         ws,
         user,
-        lastPing: Date.now(),
+        lastPing: Date.now()
       });
 
-      // Send successful connection notification
+      // Başarılı bağlantı bildirimi
       ws.send(JSON.stringify({
         type: 'connection_success',
         userId: user.id,
         username: user.username
       }));
 
-      // Handle incoming messages
+      // Mesaj işleme
       ws.on('message', async (message) => {
         try {
           const data = JSON.parse(message.toString());
@@ -122,11 +121,13 @@ export function registerRoutes(app: Express): Server {
 
           switch (data.type) {
             case 'join_channel':
+              clearTimeout(joinTimeout);
+
               if (!data.channelId) {
                 console.error('No channelId provided in join_channel message');
                 ws.send(JSON.stringify({
                   type: 'error',
-                  message: 'Kanal ID gerekli'
+                  message: 'Channel ID required'
                 }));
                 break;
               }
@@ -135,7 +136,7 @@ export function registerRoutes(app: Express): Server {
               if (!channel) {
                 ws.send(JSON.stringify({
                   type: 'error',
-                  message: 'Kanal bulunamadı'
+                  message: 'Channel not found'
                 }));
                 break;
               }
@@ -144,7 +145,7 @@ export function registerRoutes(app: Express): Server {
               if (!canAccess) {
                 ws.send(JSON.stringify({
                   type: 'error',
-                  message: 'Bu kanala erişim izniniz yok'
+                  message: 'No access to this channel'
                 }));
                 break;
               }
@@ -154,7 +155,7 @@ export function registerRoutes(app: Express): Server {
                 userConn.currentChannel = data.channelId;
                 console.log(`User ${userId} joined channel ${data.channelId}`);
 
-                // Notify other users in the channel
+                // Diğer kullanıcılara bildir
                 const otherUsers = Array.from(connectedUsers.values())
                   .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
 
@@ -168,15 +169,19 @@ export function registerRoutes(app: Express): Server {
                   }
                 }
 
-                // Send successful join notification back to the user
-                ws.send(JSON.stringify({
-                  type: 'join_success',
-                  channelId: data.channelId,
-                  currentUsers: otherUsers.map(u => ({
-                    id: u.user.id,
-                    username: u.user.username
-                  }))
-                }));
+                // Başarılı katılma bildirimi
+                joinTimeout = setTimeout(() => {
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                      type: 'join_success',
+                      channelId: data.channelId,
+                      currentUsers: otherUsers.map(u => ({
+                        id: u.user.id,
+                        username: u.user.username
+                      }))
+                    }));
+                  }
+                }, 500);
               }
               break;
 
@@ -187,10 +192,15 @@ export function registerRoutes(app: Express): Server {
               }
 
               const leavingUser = connectedUsers.get(userId);
-              if (leavingUser?.currentChannel === data.channelId) {
+              if (!leavingUser) {
+                console.error('User not found in connected users map:', userId);
+                break;
+              }
+
+              if (leavingUser.currentChannel === data.channelId) {
                 console.log(`User ${userId} left channel ${data.channelId}`);
 
-                // Notify other users in the channel
+                // Diğer kullanıcılara bildir
                 const remainingUsers = Array.from(connectedUsers.values())
                   .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
 
@@ -199,7 +209,8 @@ export function registerRoutes(app: Express): Server {
                     user.ws.send(JSON.stringify({
                       type: 'user_left',
                       userId,
-                      username: leavingUser.user.username
+                      username: leavingUser.user.username,
+                      channelId: data.channelId
                     }));
                   }
                 }
@@ -220,7 +231,7 @@ export function registerRoutes(app: Express): Server {
                 break;
               }
 
-              // Broadcast voice data to other users in the channel
+              // Ses verisini diğer kullanıcılara ilet
               const channelUsers = Array.from(connectedUsers.values())
                 .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
 
@@ -243,19 +254,19 @@ export function registerRoutes(app: Express): Server {
               console.warn('Unknown message type:', data.type);
               ws.send(JSON.stringify({
                 type: 'error',
-                message: 'Bilinmeyen mesaj türü'
+                message: 'Unknown message type'
               }));
           }
         } catch (error) {
           console.error('Failed to handle WebSocket message:', error);
           ws.send(JSON.stringify({
             type: 'error',
-            message: 'Mesaj işlenirken hata oluştu'
+            message: 'Error processing message'
           }));
         }
       });
 
-      // Handle connection close
+      // Bağlantı kapandığında
       ws.on('close', () => {
         console.log(`WebSocket connection closed for user ${userId}`);
         const userConnection = connectedUsers.get(userId);
@@ -280,7 +291,7 @@ export function registerRoutes(app: Express): Server {
         connectedUsers.delete(userId);
       });
 
-      // Handle connection errors
+      // Bağlantı hataları
       ws.on('error', (error) => {
         console.error('WebSocket error for user', userId, ':', error);
         ws.close();
