@@ -150,7 +150,7 @@ export function useFriendshipStatus() {
         refreshFriendshipData();
         toast({
           title: t('friends.newRequest'),
-          description: t('friends.newRequestDescription', { username: data.sender.username }),
+          description: t('friends.requestReceived', data),
           variant: 'default'
         });
       };
@@ -159,7 +159,7 @@ export function useFriendshipStatus() {
         refreshFriendshipData();
         toast({
           title: t('friends.requestAccepted'),
-          description: t('friends.requestAcceptedDescription', { username: data.username }),
+          description: t('friends.nowFriends', data),
           variant: 'default'
         });
       };
@@ -168,7 +168,7 @@ export function useFriendshipStatus() {
         refreshFriendshipData();
         toast({
           title: t('friends.requestRejected'),
-          description: t('friends.requestRejectedDescription', { username: data.username }),
+          description: t('friends.requestRejectedDesc', data),
           variant: 'default'
         });
       };
@@ -176,8 +176,8 @@ export function useFriendshipStatus() {
       const handleFriendshipRemoved = (data: any) => {
         refreshFriendshipData();
         toast({
-          title: t('friends.friendshipRemoved'),
-          description: t('friends.friendshipRemovedDescription', { username: data.username }),
+          title: t('friends.removed'),
+          description: t('friends.removedDesc', data),
           variant: 'default'
         });
       };

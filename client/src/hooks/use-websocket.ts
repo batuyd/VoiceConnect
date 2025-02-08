@@ -4,8 +4,19 @@ import { useToast } from './use-toast';
 import { useLanguage } from './use-language';
 import { useRefreshFriendship } from './use-friendship-refresh';
 
-export function useWebSocket() {
+type WebSocketEventHandler = (data: any) => void;
+
+interface WebSocketManager {
+  connectionStatus: 'connecting' | 'connected' | 'disconnected';
+  websocket: WebSocket | null;
+  on: (event: string, handler: WebSocketEventHandler) => void;
+  off: (event: string, handler: WebSocketEventHandler) => void;
+  send: (message: any) => void;
+}
+
+export function useWebSocket(): WebSocketManager {
   const wsRef = useRef<WebSocket | null>(null);
+  const eventHandlersRef = useRef<Map<string, Set<WebSocketEventHandler>>>(new Map());
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -14,6 +25,23 @@ export function useWebSocket() {
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const maxReconnectAttempts = 5;
   const reconnectAttemptRef = useRef(0);
+
+  const on = useCallback((event: string, handler: WebSocketEventHandler) => {
+    if (!eventHandlersRef.current.has(event)) {
+      eventHandlersRef.current.set(event, new Set());
+    }
+    eventHandlersRef.current.get(event)?.add(handler);
+  }, []);
+
+  const off = useCallback((event: string, handler: WebSocketEventHandler) => {
+    eventHandlersRef.current.get(event)?.delete(handler);
+  }, []);
+
+  const send = useCallback((message: any) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(message));
+    }
+  }, []);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -72,6 +100,12 @@ export function useWebSocket() {
         console.log('WebSocket message received:', event.data);
         const message = JSON.parse(event.data);
 
+        // Get all handlers for this event type
+        const handlers = eventHandlersRef.current.get(message.type);
+        if (handlers) {
+          handlers.forEach(handler => handler(message.data));
+        }
+
         switch (message.type) {
           case 'CONNECTED':
             console.log('WebSocket connection confirmed for user:', message.data.userId);
@@ -81,11 +115,6 @@ export function useWebSocket() {
           case 'FRIEND_REQUEST':
             console.log('Friend request received:', message.data);
             refreshFriendshipData();
-            toast({
-              title: t('friends.newRequest'),
-              description: t('friends.requestReceived', { username: message.data.sender.username }),
-              variant: 'default'
-            });
             break;
 
           case 'FRIEND_REQUEST_SENT':
@@ -96,31 +125,16 @@ export function useWebSocket() {
           case 'FRIEND_REQUEST_ACCEPTED':
             console.log('Friend request accepted:', message.data);
             refreshFriendshipData();
-            toast({
-              title: t('friends.requestAccepted'),
-              description: t('friends.nowFriends', { username: message.data.username }),
-              variant: 'default'
-            });
             break;
 
           case 'FRIEND_REQUEST_REJECTED':
             console.log('Friend request rejected:', message.data);
             refreshFriendshipData();
-            toast({
-              title: t('friends.requestRejected'),
-              description: t('friends.requestRejectedDesc', { username: message.data.username }),
-              variant: 'default'
-            });
             break;
 
           case 'FRIENDSHIP_REMOVED':
             console.log('Friendship removed:', message.data);
             refreshFriendshipData();
-            toast({
-              title: t('friends.removed'),
-              description: t('friends.removedDesc', { username: message.data.username }),
-              variant: 'default'
-            });
             break;
 
           default:
@@ -148,6 +162,9 @@ export function useWebSocket() {
 
   return {
     connectionStatus,
-    websocket: wsRef.current
+    websocket: wsRef.current,
+    on,
+    off,
+    send
   };
 }
