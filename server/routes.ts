@@ -838,6 +838,7 @@ export function registerRoutes(app: Express): Server {
                 ws.send(JSON.stringify({ type: 'pong' }));
               }
               break;
+
             case 'voice_data':
               if (!data.channelId) {
                 console.error('Missing channelId in voice data message');
@@ -858,7 +859,7 @@ export function registerRoutes(app: Express): Server {
                       data: data.data
                     }));
                   } catch (error) {
-                    console.error('Error sendingvoice data to user', {
+                    console.error('Error sending voice data to user', {
                       userId: user.user.id,
                       error: handleError(error)
                     });
@@ -875,7 +876,13 @@ export function registerRoutes(app: Express): Server {
 
               const currentUser = connectedUsers.get(userId);
               if (currentUser) {
+                // Leave previous channel if any
+                if (currentUser.currentChannel) {
+                  await handleLeaveChannel(currentUser.currentChannel, userId, currentUser);
+                }
+
                 currentUser.currentChannel = data.channelId;
+
                 // Notify other users in the channel
                 const otherUsers = Array.from(connectedUsers.values())
                   .filter(conn => conn.currentChannel === data.channelId && conn.user.id !== userId);
@@ -891,6 +898,7 @@ export function registerRoutes(app: Express): Server {
                 }
               }
               break;
+
             case 'leave_channel':
               if (!data.channelId) {
                 console.error('Missing channelId in leave channel message');
@@ -899,58 +907,16 @@ export function registerRoutes(app: Express): Server {
 
               const leavingUser = connectedUsers.get(userId);
               if (leavingUser) {
-                const previousChannel = leavingUser.currentChannel;
-                leavingUser.currentChannel = undefined;
-
-                if (previousChannel) {
-                  console.log('User leaving channel:', {
-                    userId,
-                    username: leavingUser.user.username,
-                    channelId: previousChannel
-                  });
-
-                  // Notify other users in the channel about the user leaving
-                  const remainingUsers = Array.from(connectedUsers.values())
-                    .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
-
-                  for (const user of remainingUsers) {
-                    if (user.ws.readyState === WebSocket.OPEN) {
-                      try {
-                        user.ws.send(JSON.stringify({
-                          type: 'user_left',
-                          userId,
-                          username: leavingUser.user.username,
-                          channelId: previousChannel
-                        }));
-                      } catch (error) {
-                        console.error('Error sending user_left notification:', error);
-                      }
-                    }
-                  }
-
-                  // Force refresh channel members for all remaining users
-                  remainingUsers.forEach(user => {
-                    if (user.ws.readyState === WebSocket.OPEN) {
-                      try {
-                        user.ws.send(JSON.stringify({
-                          type: 'member_update',
-                          channelId: previousChannel
-                        }));
-                      } catch (error) {
-                        console.error('Error sending member_update notification:', error);
-                      }
-                    }
-                  });
-                }
+                await handleLeaveChannel(data.channelId, userId, leavingUser);
               }
               break;
+
             default:
               console.log('Unknown message type', {
                 timestamp: new Date().toISOString(),
                 userId,
                 type: data.type
               });
-
           }
         } catch (error) {
           console.error('Error processing message', {
@@ -976,47 +942,63 @@ export function registerRoutes(app: Express): Server {
 
         const closingUser = connectedUsers.get(userId);
         if (closingUser?.currentChannel) {
-          // Notify other users in the channel about the user disconnecting
-          const remainingUsers = Array.from(connectedUsers.values())
-            .filter(conn =>
-              conn.currentChannel === closingUser.currentChannel &&
-              conn.user.id !== userId
-            );
-
-          for (const user of remainingUsers) {
-            if (user.ws.readyState === WebSocket.OPEN) {
-              user.ws.send(JSON.stringify({
-                type: 'user_left',
-                userId,
-                username: closingUser.user.username,
-                channelId: closingUser.currentChannel,
-                reason: 'disconnected'
-              }));
-            }
-          }
+          handleLeaveChannel(closingUser.currentChannel, userId, closingUser);
         }
-
-        connectedUsers.delete(userId);
-      });
-
-      // Handle errors
-      ws.on('error', (error) => {
-        console.error('WebSocket connection error', {
-          timestamp: new Date().toISOString(),
-          userId,
-          error: handleError(error)
-        });
         connectedUsers.delete(userId);
       });
 
     } catch (error) {
-      console.error('WebSocket connection setup error', {
-        timestamp: new Date().toISOString(),
-        error: handleError(error)
-      });
+      console.error('WebSocket connection error:', handleError(error));
       ws.close();
     }
   });
+
+  // Helper function to handle channel leave logic
+  async function handleLeaveChannel(channelId: number, userId: number, userConnection: any) {
+    const previousChannel = userConnection.currentChannel;
+    userConnection.currentChannel = undefined;
+
+    if (previousChannel) {
+      console.log('User leaving channel:', {
+        userId,
+        username: userConnection.user.username,
+        channelId: previousChannel
+      });
+
+      // Notify other users in the channel about the user leaving
+      const remainingUsers = Array.from(connectedUsers.values())
+        .filter(conn => conn.currentChannel === previousChannel && conn.user.id !== userId);
+
+      for (const user of remainingUsers) {
+        if (user.ws.readyState === WebSocket.OPEN) {
+          try {
+            user.ws.send(JSON.stringify({
+              type: 'user_left',
+              userId,
+              username: userConnection.user.username,
+              channelId: previousChannel
+            }));
+          } catch (error) {
+            console.error('Error sending user_left notification:', error);
+          }
+        }
+      }
+
+      // Force refresh channel members for all remaining users
+      remainingUsers.forEach(user => {
+        if (user.ws.readyState === WebSocket.OPEN) {
+          try {
+            user.ws.send(JSON.stringify({
+              type: 'member_update',
+              channelId: previousChannel
+            }));
+          } catch (error) {
+            console.error('Error sending member_update notification:', error);
+          }
+        }
+      });
+    }
+  }
 
   // Cleanup inactive connections every 30 seconds
   setInterval(() => {

@@ -315,20 +315,42 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createChannel(name: string, serverId: number, isVoice: boolean, isPrivate: boolean = false): Promise<Channel> {
-    const channel: Channel = {
-      id: 0, //Auto-incremented by database
-      name,
-      serverId,
-      isVoice,
-      isPrivate,
-      type: "text",
-      allowedUsers: [],
-      createdAt: new Date(),
-      currentMedia: null,
-      mediaQueue: []
-    };
-    const [insertedChannel] = await db.insert(channels).values(channel).returning();
-    return insertedChannel;
+    try {
+      // Check if server exists first
+      const server = await this.getServer(serverId);
+      if (!server) {
+        throw new Error('Server not found');
+      }
+
+      // Create channel with all required fields
+      const [insertedChannel] = await db
+        .insert(channels)
+        .values({
+          name,
+          serverId,
+          isVoice,
+          isPrivate,
+          type: isVoice ? "voice" : "text",
+          allowedUsers: [],
+          currentMedia: null,
+          mediaQueue: [],
+          createdAt: new Date()
+        })
+        .returning();
+
+      console.log('Channel created successfully:', {
+        channelId: insertedChannel.id,
+        name: insertedChannel.name,
+        serverId,
+        isVoice,
+        isPrivate
+      });
+
+      return insertedChannel;
+    } catch (error) {
+      console.error('Error creating channel:', error);
+      throw new Error('Failed to create channel');
+    }
   }
 
   async getServerMembers(serverId: number): Promise<User[]> {
