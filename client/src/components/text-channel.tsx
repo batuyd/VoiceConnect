@@ -1,4 +1,4 @@
-import { Hash, Trash2 } from "lucide-react";
+import { Hash, Trash2, MoreVertical } from "lucide-react";
 import { Channel } from "@shared/schema";
 import { useLanguage } from "@/hooks/use-language";
 import { Button } from "./ui/button";
@@ -18,6 +18,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface TextChannelProps {
   channel: Channel;
@@ -61,36 +67,48 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
           <Hash className="h-4 w-4 text-gray-400" />
           <span>{channel.name}</span>
         </button>
-        {isOwner && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="opacity-0 group-hover:opacity-100"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t('server.deleteChannelTitle')}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t('server.deleteChannelDescription')}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => deleteChannelMutation.mutate()}
-                  disabled={deleteChannelMutation.isPending}
+        <div className="flex items-center space-x-2">
+          {isOwner && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="opacity-0 group-hover:opacity-100"
                 >
-                  {t('common.delete')}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      {t('common.delete')}
+                    </DropdownMenuItem>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{t('server.deleteChannelTitle')}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t('server.deleteChannelDescription')}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => deleteChannelMutation.mutate()}
+                        disabled={deleteChannelMutation.isPending}
+                      >
+                        {t('common.delete')}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
       {isSelected && <MediaControls channelId={channel.id} isVoiceChannel={false} />}
     </div>
