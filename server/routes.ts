@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer } from 'ws';
 import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
 
@@ -14,6 +15,26 @@ function handleError(error: unknown): string {
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
 
+  const httpServer = createServer(app);
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+
+  // WebSocket bağlantılarını saklamak için Map
+  const clients = new Map<number, WebSocket>();
+
+  wss.on('connection', (ws, req) => {
+    if (!req.session?.passport?.user) {
+      ws.close();
+      return;
+    }
+
+    const userId = req.session.passport.user;
+    clients.set(userId, ws);
+
+    ws.on('close', () => {
+      clients.delete(userId);
+    });
+  });
+
   // Friend request routes
   app.get("/api/friends/requests", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
@@ -23,6 +44,47 @@ export function registerRoutes(app: Express): Server {
     } catch (error) {
       console.error('Get friend requests error:', handleError(error));
       res.status(500).json({ message: "Failed to get friend requests" });
+    }
+  });
+
+  app.post("/api/friends", async (req, res) => {
+    if (!req.user) return res.sendStatus(401);
+
+    try {
+      const targetUser = await storage.getUserByUsername(req.body.username);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (targetUser.id === req.user.id) {
+        return res.status(400).json({ message: "Cannot add yourself as a friend" });
+      }
+
+      // Check if already friends or pending request exists
+      const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
+      if (existingFriendship) {
+        if (existingFriendship.status === 'pending') {
+          return res.status(400).json({ message: "Friend request already sent" });
+        }
+        return res.status(400).json({ message: "Already friends with this user" });
+      }
+
+      const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
+      console.log('Created friend request:', friendship);
+
+      // WebSocket üzerinden hedef kullanıcıya bildirim gönder
+      const targetWs = clients.get(targetUser.id);
+      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+        targetWs.send(JSON.stringify({
+          type: 'FRIEND_REQUEST',
+          data: friendship
+        }));
+      }
+
+      res.status(201).json(friendship);
+    } catch (error: any) {
+      console.error('Add friend error:', error);
+      res.status(500).json({ message: "Failed to send friend request" });
     }
   });
 
@@ -649,38 +711,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/friends", async (req, res) => {
-    if (!req.user) return res.sendStatus(401);
-
-    try {
-      const targetUser = await storage.getUserByUsername(req.body.username);
-      if (!targetUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      if (targetUser.id === req.user.id) {
-        return res.status(400).json({ message: "Cannot add yourself as a friend" });
-      }
-
-      // Check if already friends or pending request exists
-      const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
-      if (existingFriendship) {
-        if (existingFriendship.status === 'pending') {
-          return res.status(400).json({ message: "Friend request already sent" });
-        }
-        return res.status(400).json({ message: "Already friends with this user" });
-      }
-
-      const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
-      console.log('Created friend request:', friendship);
-
-      res.status(201).json(friendship);
-    } catch (error: any) {
-      console.error('Add friend error:', error);
-      res.status(500).json({ message: "Failed to send friend request" });
-    }
-  });
-
   app.post("/api/friends/:friendshipId/accept", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
 
@@ -737,6 +767,5 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  const httpServer = createServer(app);
   return httpServer;
 }

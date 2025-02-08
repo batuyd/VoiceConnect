@@ -15,10 +15,13 @@ import SettingsPage from "@/pages/settings-page";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { CoinDisplay } from "@/components/coin-display";
 import { useAuth } from "@/hooks/use-auth";
+import { useWebSocket } from "./hooks/use-websocket";
 import React from "react";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  // WebSocket hook'unu burada çağırıyoruz
+  useWebSocket();
 
   return (
     <div className="min-h-screen bg-gray-900">
