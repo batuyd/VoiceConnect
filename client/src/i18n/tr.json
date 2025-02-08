@@ -1,0 +1,82 @@
+{
+  "friends": {
+    "newRequest": "Yeni Arkadaşlık İsteği",
+    "requestReceived": "{username} size arkadaşlık isteği gönderdi",
+    "requestSent": "Arkadaşlık İsteği Gönderildi",
+    "requestSentDescription": "Arkadaşlık isteğiniz başarıyla gönderildi",
+    "requestError": "Arkadaşlık İsteği Hatası",
+    "requestAccepted": "Arkadaşlık İsteği Kabul Edildi",
+    "requestAcceptedDescription": "Artık arkadaşsınız",
+    "nowFriends": "{username} ile artık arkadaşsınız",
+    "acceptError": "İstek Kabul Edilirken Hata",
+    "requestRejected": "Arkadaşlık İsteği Reddedildi",
+    "requestRejectedDescription": "Arkadaşlık isteği reddedildi",
+    "rejectError": "İstek Reddedilirken Hata",
+    "removed": "Arkadaş Kaldırıldı",
+    "removedDescription": "Arkadaş listenizden kaldırıldı",
+    "removeError": "Arkadaş Kaldırılırken Hata",
+    "sentRequest": "arkadaşlık isteği gönderdi",
+    "addFriend": "Arkadaş Ekle",
+    "removeFriend": "Arkadaşı Kaldır",
+    "pending": "Bekleyen İstek",
+    "accept": "Kabul Et",
+    "reject": "Reddet",
+    "list": "Arkadaşlar",
+    "requests": "İstekler",
+    "noRequests": "Arkadaşlık isteği yok",
+    "empty": "Henüz arkadaşınız yok"
+  },
+  "auth": {
+    "login": "Giriş Yap",
+    "register": "Kayıt Ol",
+    "username": "Kullanıcı Adı",
+    "password": "Şifre",
+    "phone": "Telefon Numarası",
+    "welcomeTitle": "Platformumuza Hoş Geldiniz",
+    "welcomeDescription": "Topluluğumuza katılın, paylaşın ve gerçek zamanlı olarak diğerleriyle iletişim kurun.",
+    "errors": {
+      "usernameRequired": "Kullanıcı adı gerekli",
+      "passwordRequired": "Şifre gerekli",
+      "emailRequired": "E-posta adresi gerekli",
+      "phoneRequired": "Telefon numarası gerekli",
+      "loginFailed": "Geçersiz kullanıcı adı veya şifre",
+      "registrationFailed": "Kayıt başarısız oldu. Lütfen tekrar deneyin."
+    }
+  },
+  "error": {
+    "connectionLost": "Bağlantı Kesildi",
+    "refreshPage": "Yeniden bağlanmak için sayfayı yenileyin",
+    "connectionError": "Bağlantı Hatası",
+    "tryAgainLater": "Lütfen daha sonra tekrar deneyin"
+  },
+  "settings": {
+    "title": "Ayarlar",
+    "language": "Dil",
+    "theme": {
+      "light": "Açık Tema",
+      "dark": "Koyu Tema",
+      "system": "Sistem Teması"
+    },
+    "audio": {
+      "title": "Ses Ayarları",
+      "input": "Giriş Cihazı",
+      "output": "Çıkış Cihazı",
+      "volume": "Ses Seviyesi",
+      "selectInput": "Mikrofon seçin",
+      "selectOutput": "Hoparlör seçin",
+      "defaultDevice": "Varsayılan Cihaz",
+      "test": "Sesi Test Et"
+    }
+  },
+  "audio": {
+    "testFailed": "Ses Testi Başarısız",
+    "testFailedDesc": "Test sesi çalınamadı. Lütfen ses ayarlarınızı kontrol edin.",
+    "notSupported": "Tarayıcınız ses cihazlarını desteklemiyor",
+    "permissionDenied": "Ses cihazlarına erişim izni reddedildi",
+    "noDevices": "Ses cihazı bulunamadı",
+    "noDevicesAfterPermission": "İzin verildikten sonra ses cihazı bulunamadı",
+    "initializationError": "Ses ayarları başlatılırken hata oluştu",
+    "notInitialized": "Ses ayarları henüz başlatılmadı",
+    "testSoundError": "Test sesi çalınırken hata oluştu"
+  }
+}

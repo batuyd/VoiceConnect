@@ -15,7 +15,7 @@
     "removed": "Friend Removed",
     "removedDescription": "The friend has been removed from your friends list",
     "removeError": "Error Removing Friend",
-    "sentRequest": "Friend Request Sent",
+    "sentRequest": "sent you a friend request",
     "addFriend": "Add Friend",
     "removeFriend": "Remove Friend",
     "pending": "Pending Request",
@@ -23,7 +23,25 @@
     "reject": "Reject",
     "list": "Friends",
     "requests": "Requests",
-    "noRequests": "No friend requests"
+    "noRequests": "No friend requests",
+    "empty": "You don't have any friends yet"
+  },
+  "auth": {
+    "login": "Login",
+    "register": "Register",
+    "username": "Username",
+    "password": "Password",
+    "phone": "Phone Number",
+    "welcomeTitle": "Welcome to Our Platform",
+    "welcomeDescription": "Join our community to connect, share, and collaborate with others in real-time.",
+    "errors": {
+      "usernameRequired": "Username is required",
+      "passwordRequired": "Password is required",
+      "emailRequired": "Email is required",
+      "phoneRequired": "Phone number is required",
+      "loginFailed": "Invalid username or password",
+      "registrationFailed": "Registration failed. Please try again."
+    }
   },
   "error": {
     "connectionLost": "Connection Lost",
@@ -52,6 +70,13 @@
   },
   "audio": {
     "testFailed": "Sound Test Failed",
-    "testFailedDesc": "Failed to play test sound. Please check your audio settings."
+    "testFailedDesc": "Failed to play test sound. Please check your audio settings.",
+    "notSupported": "Your browser does not support audio devices",
+    "permissionDenied": "Permission to access audio devices was denied",
+    "noDevices": "No audio devices found",
+    "noDevicesAfterPermission": "No audio devices found after permission was granted",
+    "initializationError": "Error initializing audio settings",
+    "notInitialized": "Audio settings not initialized yet",
+    "testSoundError": "Error playing test sound"
   }
 }

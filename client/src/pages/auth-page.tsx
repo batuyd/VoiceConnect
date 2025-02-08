@@ -16,18 +16,14 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertUserSchema } from "@shared/schema";
 import { Redirect } from "wouter";
-import { Loader2, UserPlus, Check, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 export default function AuthPage() {
   const { 
     user, 
     loginMutation, 
     registerMutation, 
-    isLoading,
-    friendRequests,
-    friendRequestsLoading,
-    acceptFriendRequestMutation,
-    rejectFriendRequestMutation 
+    isLoading
   } = useAuth();
   const { t, language, setLanguage } = useLanguage();
 
@@ -77,17 +73,9 @@ export default function AuthPage() {
             </Select>
           </div>
           <Tabs defaultValue="login">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="login">{t('auth.login')}</TabsTrigger>
               <TabsTrigger value="register">{t('auth.register')}</TabsTrigger>
-              <TabsTrigger value="requests" className="relative">
-                {t('auth.friendRequests')}
-                {friendRequests.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">
-                    {friendRequests.length}
-                  </span>
-                )}
-              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="login">
@@ -196,61 +184,6 @@ export default function AuthPage() {
                     )}
                   </div>
                 </form>
-              </CardContent>
-            </TabsContent>
-
-            <TabsContent value="requests">
-              <CardContent className="pt-6">
-                {friendRequestsLoading ? (
-                  <div className="flex justify-center p-4">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                  </div>
-                ) : friendRequests.length === 0 ? (
-                  <p className="text-center text-muted-foreground">
-                    {t('auth.noFriendRequests')}
-                  </p>
-                ) : (
-                  <div className="space-y-4">
-                    {friendRequests.map((request) => (
-                      <div key={request.id} className="flex items-center justify-between p-3 bg-secondary rounded-lg">
-                        <div className="flex items-center space-x-3">
-                          <UserPlus className="h-5 w-5 text-primary" />
-                          <span>{request.sender.username}</span>
-                        </div>
-                        <div className="flex space-x-2">
-                          <Button 
-                            size="sm" 
-                            variant="ghost"
-                            disabled={acceptFriendRequestMutation.isPending}
-                            onClick={() => {
-                              acceptFriendRequestMutation.mutate(request.id);
-                            }}
-                          >
-                            {acceptFriendRequestMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Check className="h-4 w-4 text-green-500" />
-                            )}
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="ghost"
-                            disabled={rejectFriendRequestMutation.isPending}
-                            onClick={() => {
-                              rejectFriendRequestMutation.mutate(request.id);
-                            }}
-                          >
-                            {rejectFriendRequestMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <X className="h-4 w-4 text-red-500" />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </CardContent>
             </TabsContent>
           </Tabs>

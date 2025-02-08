@@ -19,14 +19,12 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
   const { toast } = useToast();
   const { t } = useLanguage();
 
-  // State management
   const [volume, setVolume] = useState<number[]>([50]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
   const [selectedOutputDevice, setSelectedOutputDevice] = useState<string>("");
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // Initialize audio devices
   useEffect(() => {
     let mounted = true;
 
@@ -34,40 +32,76 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
       if (!mounted) return;
 
       try {
-        // Step 1: Request permissions
-        console.log('Requesting audio permissions...');
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: { echoCancellation: true, noiseSuppression: true }
-        });
+        // Check if browser supports audio devices
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+          console.warn('Audio devices not supported');
+          toast({
+            description: t('audio.notSupported'),
+            variant: "destructive",
+          });
+          return;
+        }
 
-        // Cleanup test stream
-        stream.getTracks().forEach(track => track.stop());
-
-        // Step 2: Get device list
-        console.log('Getting audio devices...');
+        // Get device list first
         const devices = await navigator.mediaDevices.enumerateDevices();
+        const hasAudioDevices = devices.some(device => 
+          device.kind === 'audioinput' || device.kind === 'audiooutput'
+        );
+
+        // Only request permissions if audio devices exist
+        if (hasAudioDevices) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+              audio: { echoCancellation: true, noiseSuppression: true }
+            });
+            stream.getTracks().forEach(track => track.stop());
+          } catch (error: any) {
+            console.warn('Audio permission denied:', error);
+            toast({
+              description: t('audio.permissionDenied'),
+              variant: "destructive",
+            });
+            return;
+          }
+        } else {
+          console.warn('No audio devices found');
+          toast({
+            description: t('audio.noDevices'),
+            variant: "destructive",
+          });
+          return;
+        }
 
         if (!mounted) return;
 
-        // Step 3: Filter and set audio devices
-        const audioDevices = devices.filter(device => 
+        // Re-enumerate devices after getting permissions
+        const availableDevices = await navigator.mediaDevices.enumerateDevices();
+        const audioDevices = availableDevices.filter(device => 
           (device.kind === 'audioinput' || device.kind === 'audiooutput') && 
           device.deviceId
         );
 
+        if (audioDevices.length === 0) {
+          console.warn('No audio devices available after permission');
+          toast({
+            description: t('audio.noDevicesAfterPermission'),
+            variant: "destructive",
+          });
+          return;
+        }
+
         console.log(`Found ${audioDevices.length} audio devices`);
         setAudioDevices(audioDevices);
 
-        // Step 4: Set default devices if needed
         const defaultInput = audioDevices.find(d => d.kind === 'audioinput');
         const defaultOutput = audioDevices.find(d => d.kind === 'audiooutput');
 
-        if (defaultInput && !selectedInputDevice) {
+        if (defaultInput) {
           console.log('Setting default input device:', defaultInput.label);
           setSelectedInputDevice(defaultInput.deviceId);
         }
 
-        if (defaultOutput && !selectedOutputDevice) {
+        if (defaultOutput) {
           console.log('Setting default output device:', defaultOutput.label);
           setSelectedOutputDevice(defaultOutput.deviceId);
         }
@@ -75,52 +109,48 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         setIsInitialized(true);
 
       } catch (error: any) {
-        console.error('Audio initialization error:', {
-          name: error.name,
-          message: error.message
-        });
-
-        let errorMessage = t('audio.deviceAccessError');
-
-        if (error.name === 'NotAllowedError') {
-          errorMessage = t('audio.permissionDenied');
-        } else if (error.name === 'NotFoundError') {
-          errorMessage = t('audio.noDevicesFound');
-        }
-
+        console.error('Audio initialization error:', error);
         toast({
-          description: errorMessage,
+          description: t('audio.initializationError'),
           variant: "destructive",
         });
       }
     };
 
-    // Initial setup
     initializeAudioDevices();
 
-    // Device change handler
-    const handleDeviceChange = () => {
+    const handleDeviceChange = async () => {
       console.log('Audio devices changed, reinitializing...');
-      initializeAudioDevices();
+      await initializeAudioDevices();
     };
 
-    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    try {
+      navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    } catch (error) {
+      console.warn('Device change events not supported:', error);
+    }
 
     return () => {
       mounted = false;
-      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      try {
+        navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      } catch (error) {
+        console.warn('Could not remove device change listener:', error);
+      }
     };
   }, [toast, t]);
 
-  // Simple test sound function
   const playTestSound = async () => {
     if (!isInitialized) {
-      console.log('Audio not initialized, cannot play test sound');
+      console.warn('Audio not initialized, cannot play test sound');
+      toast({
+        description: t('audio.notInitialized'),
+        variant: "destructive",
+      });
       return;
     }
 
     try {
-      console.log('Playing test sound...');
       const audioContext = new AudioContext();
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
