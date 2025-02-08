@@ -32,14 +32,16 @@ export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
-  // Set higher limit for EventEmitter
+  // Event emitter limit artırımı
   setMaxListeners(20);
 
   // WebSocket bağlantılarını saklamak için Map
   const clients = new Map<number, WebSocket>();
 
+  // WebSocket bağlantı yönetimi
   wss.on('connection', async (ws: WebSocket, req: any) => {
     let pingInterval: NodeJS.Timeout;
+    let lastPong = Date.now();
 
     try {
       console.log('New WebSocket connection attempt');
@@ -56,6 +58,7 @@ export function registerRoutes(app: Express): Server {
         });
       });
 
+      // Kimlik doğrulama kontrolü
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
         ws.close(1008, 'Unauthorized');
@@ -65,7 +68,7 @@ export function registerRoutes(app: Express): Server {
       const userId = req.session.passport.user;
       console.log('WebSocket connected for user:', userId);
 
-      // Remove any existing connection for this user
+      // Varolan bağlantıyı kapat
       const existingWs = clients.get(userId);
       if (existingWs) {
         console.log('Closing existing connection for user:', userId);
@@ -75,23 +78,29 @@ export function registerRoutes(app: Express): Server {
 
       clients.set(userId, ws);
 
-      // Ping/Pong to keep connection alive
+      // Ping/Pong mekanizması
       pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
+          // 30 saniyeden fazla pong yanıtı gelmemişse bağlantıyı kapat
+          if (Date.now() - lastPong > 30000) {
+            console.log('No pong response, closing connection for user:', userId);
+            ws.terminate();
+            return;
+          }
           ws.ping();
         } else {
           clearInterval(pingInterval);
         }
-      }, 30000);
+      }, 15000);
 
-      // Handle connection close
-      ws.on('close', () => {
-        console.log('WebSocket disconnected for user:', userId);
+      // Bağlantı kapanma yönetimi
+      ws.on('close', (code: number, reason: string) => {
+        console.log(`WebSocket disconnected for user: ${userId}, code: ${code}, reason: ${reason}`);
         clients.delete(userId);
         clearInterval(pingInterval);
       });
 
-      // Handle errors
+      // Hata yönetimi
       ws.on('error', (error) => {
         console.error('WebSocket error for user:', userId, error);
         clients.delete(userId);
@@ -101,13 +110,18 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      // Handle pong responses
+      // Pong yanıtı yönetimi
       ws.on('pong', () => {
+        lastPong = Date.now();
         console.log('Received pong from user:', userId);
       });
 
-      // Send initial connection success message
-      sendWebSocketMessage(ws, 'CONNECTED', { userId });
+      // İlk bağlantı başarı mesajı
+      sendWebSocketMessage(ws, 'CONNECTED', { 
+        userId,
+        timestamp: Date.now()
+      });
+
     } catch (error) {
       console.error('WebSocket connection error:', error);
       if (pingInterval) {

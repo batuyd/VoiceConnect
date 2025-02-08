@@ -62,16 +62,17 @@
     "welcomeTitle": "Platformumuza Hoş Geldiniz",
     "welcomeDescription": "Topluluğumuza katılın, paylaşın ve gerçek zamanlı olarak diğerleriyle iletişim kurun.",
     "errors": {
-      "usernameRequired": "Kullanıcı adı gerekli",
+      "usernameRequired": "Kullanıcı adı zorunludur",
       "usernameTooShort": "Kullanıcı adı en az 3 karakter olmalıdır",
-      "passwordRequired": "Şifre gerekli",
+      "passwordRequired": "Şifre zorunludur",
       "passwordTooShort": "Şifre en az 6 karakter olmalıdır",
-      "emailRequired": "E-posta adresi gerekli",
+      "emailRequired": "E-posta adresi zorunludur",
       "invalidEmail": "Geçerli bir e-posta adresi girin",
-      "phoneRequired": "Telefon numarası gerekli",
+      "phoneRequired": "Telefon numarası zorunludur",
       "invalidPhone": "Geçerli bir telefon numarası girin",
+      "registrationFailed": "Kayıt işlemi başarısız oldu. Lütfen tekrar deneyin.",
       "loginFailed": "Geçersiz kullanıcı adı veya şifre",
-      "registrationFailed": "Kayıt başarısız oldu. Lütfen tekrar deneyin."
+      "logoutFailed": "Çıkış yapılamadı"
     },
     "loginSuccess": "Başarıyla giriş yapıldı",
     "registrationSuccess": "Kayıt işlemi başarılı",
