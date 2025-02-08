@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
 import session from 'express-session';
+import ytdl from 'ytdl-core';
 
 // Error handling helper
 function handleError(error: unknown): string {
@@ -11,6 +12,20 @@ function handleError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function sendWebSocketMessage(ws: WebSocket | undefined, type: string, data: any) {
+  if (ws?.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify({ type, data }));
+      console.log(`WebSocket message sent (${type}):`, data);
+      return true;
+    } catch (error) {
+      console.error(`WebSocket send error (${type}):`, error);
+      return false;
+    }
+  }
+  return false;
 }
 
 export function registerRoutes(app: Express): Server {
@@ -88,7 +103,6 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Cannot add yourself as a friend" });
       }
 
-      // Mevcut arkadaşlık durumunu kontrol et
       const existingFriendship = await storage.getFriendship(req.user.id, targetUser.id);
       if (existingFriendship) {
         if (existingFriendship.status === 'accepted') {
@@ -98,46 +112,30 @@ export function registerRoutes(app: Express): Server {
         }
       }
 
-      console.log('Creating friend request from', req.user.id, 'to', targetUser.id);
-
       const friendship = await storage.createFriendRequest(req.user.id, targetUser.id);
       console.log('Created friend request:', friendship);
 
       // Hedef kullanıcıya bildirim gönder
-      const targetWs = clients.get(targetUser.id);
-      if (targetWs?.readyState === WebSocket.OPEN) {
-        targetWs.send(JSON.stringify({
-          type: 'FRIEND_REQUEST',
-          data: {
-            id: friendship.id,
-            senderId: req.user.id,
-            receiverId: targetUser.id,
-            status: friendship.status,
-            createdAt: friendship.createdAt,
-            sender: {
-              id: req.user.id,
-              username: req.user.username
-            }
-          }
-        }));
-        console.log('WebSocket friend request notification sent to user:', targetUser.id);
-      }
+      sendWebSocketMessage(clients.get(targetUser.id), 'FRIEND_REQUEST', {
+        id: friendship.id,
+        senderId: req.user.id,
+        receiverId: targetUser.id,
+        status: friendship.status,
+        createdAt: friendship.createdAt,
+        sender: {
+          id: req.user.id,
+          username: req.user.username
+        }
+      });
 
       // Gönderen kullanıcıya da bildirim gönder
-      const senderWs = clients.get(req.user.id);
-      if (senderWs?.readyState === WebSocket.OPEN) {
-        senderWs.send(JSON.stringify({
-          type: 'FRIEND_REQUEST_SENT',
-          data: {
-            ...friendship,
-            sender: {
-              id: req.user.id,
-              username: req.user.username
-            }
-          }
-        }));
-        console.log('WebSocket friend request sent notification sent to sender:', req.user.id);
-      }
+      sendWebSocketMessage(clients.get(req.user.id), 'FRIEND_REQUEST_SENT', {
+        ...friendship,
+        sender: {
+          id: req.user.id,
+          username: req.user.username
+        }
+      });
 
       res.status(201).json(friendship);
     } catch (error: any) {
@@ -852,21 +850,14 @@ export function registerRoutes(app: Express): Server {
 
       await storage.removeFriend(req.user.id, friendId);
 
-      // WebSocket üzerinden arkadaşlık durumunun güncelllendiğini bildirme
+      // WebSocket üzerinden arkadaşlık durumunun güncellendiğini bildirme
       const targetWs = clients.get(friendId);
-      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-        try {
-          targetWs.send(JSON.stringify({            type: 'FRIENDSHIP_REMOVED',
-            data: {
-              userId: req.user.id,
-              friendId: friendId,
-              username: req.user.username
-            }
-          }));
-        } catch (wsError) {
-          console.error('WebSocket send error:', wsError);
-          // WebSocket hatası arkadaşlık silme işlemini etkilememeli
-        }
+      if (targetWs?.readyState === WebSocket.OPEN) {
+        sendWebSocketMessage(targetWs, 'FRIENDSHIP_REMOVED', {
+          userId: req.user.id,
+          friendId: friendId,
+          username: req.user.username
+        });
       }
 
       res.sendStatus(200);

@@ -6,6 +6,7 @@ import { AuthProvider } from "./hooks/use-auth";
 import { LanguageProvider } from "./hooks/use-language";
 import { ThemeProvider } from "./hooks/use-theme";
 import { AudioSettingsProvider } from "./hooks/use-audio-settings";
+import { RefreshFriendshipProvider } from "./hooks/use-friendship-refresh";
 import { ProtectedRoute } from "./lib/protected-route";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
@@ -20,8 +21,7 @@ import React from "react";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  // WebSocket hook'unu burada çağırıyoruz
-  useWebSocket();
+  const { connectionStatus } = useWebSocket();
 
   return (
     <div className="min-h-screen bg-gray-900">
@@ -58,12 +58,14 @@ function App() {
       <ThemeProvider>
         <LanguageProvider>
           <AuthProvider>
-            <AudioSettingsProvider>
-              <Layout>
-                <Router />
-              </Layout>
-              <Toaster />
-            </AudioSettingsProvider>
+            <RefreshFriendshipProvider>
+              <AudioSettingsProvider>
+                <Layout>
+                  <Router />
+                </Layout>
+                <Toaster />
+              </AudioSettingsProvider>
+            </RefreshFriendshipProvider>
           </AuthProvider>
         </LanguageProvider>
       </ThemeProvider>

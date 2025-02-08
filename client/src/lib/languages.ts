@@ -390,6 +390,9 @@ export const translations = {
       title: 'Arkadaşlarım',
       add: 'Arkadaş Ekle',
       remove: 'Arkadaşı Sil',
+      list: 'Arkadaş Listesi',
+      requests: 'Arkadaşlık İstekleri',
+      noRequests: 'Bekleyen istek yok',
       addSuccess: 'Arkadaş Eklendi',
       addSuccessDescription: '{username} arkadaş listenize eklendi.',
       addError: 'Arkadaş eklenemedi',
@@ -399,6 +402,14 @@ export const translations = {
       empty: 'Henüz arkadaşınız yok. Arkadaş ekleyerek başlayın!',
       searchPlaceholder: 'Arkadaş eklemek için kullanıcı adı girin',
       sendMessage: 'Mesaj Gönder',
+      newRequest: 'Yeni Arkadaşlık İsteği',
+      requestReceived: '{username} size arkadaşlık isteği gönderdi',
+      requestAccepted: 'Arkadaşlık İsteği Kabul Edildi',
+      nowFriends: '{username} ile artık arkadaşsınız',
+      requestRejected: 'Arkadaşlık İsteği Reddedildi',
+      requestRejectedDesc: '{username} arkadaşlık isteğinizi reddetti',
+      removed: 'Arkadaşlıktan Çıkarıldı',
+      removedDesc: '{username} sizi arkadaşlıktan çıkardı'
     },
     blocks: {
       add: 'Engelle',
@@ -452,5 +463,11 @@ export const translations = {
       noDevices: 'Ses cihazı bulunamadı',
       defaultDevice: 'Varsayılan Cihaz',
     },
+    error: {
+      connectionLost: 'Bağlantı Kesildi',
+      refreshPage: 'Lütfen sayfayı yenileyin',
+      connectionError: 'Bağlantı Hatası',
+      tryAgainLater: 'Lütfen daha sonra tekrar deneyin'
+    }
   }
 };
