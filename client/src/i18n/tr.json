@@ -87,7 +87,7 @@
   },
   "settings": {
     "title": "Ayarlar",
-    "general": "Genel",
+    "general": "Genel Ayarlar",
     "language": "Dil",
     "theme": {
       "title": "Tema Ayarları",
@@ -145,5 +145,31 @@
     "error": "Hata",
     "warning": "Uyarı",
     "info": "Bilgi"
+  },
+  "home": {
+    "welcome": "Hoş Geldiniz",
+    "selectServer": "Başlamak için bir sunucu seçin"
+  },
+  "server": {
+    "channels": "Kanallar",
+    "textChannels": "METİN KANALLARI",
+    "voiceChannels": "SESLİ KANALLAR",
+    "createServer": "Yeni sunucu oluştur",
+    "serverName": "Sunucu Adı",
+    "createChannel": "Yeni kanal oluştur",
+    "channelName": "Kanal Adı",
+    "voiceChannel": "Sesli Kanal",
+    "members": "Üyeler",
+    "join": "Katıl",
+    "leave": "Ayrıl",
+    "invite": "Arkadaşlarını Davet Et",
+    "generateInvite": "Davet Linki Oluştur",
+    "mute": "Sustur",
+    "unmute": "Susturmayı Kaldır",
+    "kick": "Kullanıcıyı At",
+    "ban": "Kullanıcıyı Yasakla",
+    "makeAdmin": "Admin Yap",
+    "removeAdmin": "Admin Yetkisini Kaldır",
+    "volume": "Ses Seviyesi"
   }
 }
