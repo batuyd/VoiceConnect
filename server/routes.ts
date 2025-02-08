@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from 'ws';
 import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
+import session from 'express-session'; // Import express-session
 
 // Error handling helper
 function handleError(error: unknown): string {
@@ -21,9 +22,15 @@ export function registerRoutes(app: Express): Server {
   // WebSocket bağlantılarını saklamak için Map
   const clients = new Map<number, WebSocket>();
 
-  wss.on('connection', (ws: WebSocket, req: any) => {
+  wss.on('connection', async (ws: WebSocket, req: any) => {
     try {
       console.log('New WebSocket connection attempt');
+
+      // Session parsing
+      const sessionParser = session(sessionSettings);
+      await new Promise((resolve) => {
+        sessionParser(req, {} as any, resolve as any);
+      });
 
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
@@ -841,7 +848,7 @@ export function registerRoutes(app: Express): Server {
         } catch (wsError) {
           console.error('WebSocket send error:', wsError);
           // WebSocket hatası arkadaşlık silme işlemini etkilememeli
-        }
+                }
       }
 
       res.sendStatus(200);
@@ -851,7 +858,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-app.delete("/api/servers/:serverId", async (req, res) => {
+  app.delete("/api/servers/:serverId", async (req, res) => {
     if (!req.user) return res.sendStatus(401);
     try {
       await storage.deleteServer(parseInt(req.params.serverId), req.user.id);
