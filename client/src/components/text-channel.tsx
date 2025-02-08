@@ -7,6 +7,17 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { MediaControls } from "./media-controls";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface TextChannelProps {
   channel: Channel;
@@ -31,6 +42,7 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
     },
     onError: (error: Error) => {
       toast({
+        title: t('server.error'),
         description: error.message,
         variant: "destructive",
       });
@@ -50,14 +62,34 @@ export function TextChannel({ channel, isOwner, onSelect, isSelected }: TextChan
           <span>{channel.name}</span>
         </button>
         {isOwner && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => deleteChannelMutation.mutate()}
-            disabled={deleteChannelMutation.isPending}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="opacity-0 group-hover:opacity-100"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('server.deleteChannelTitle')}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('server.deleteChannelDescription')}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteChannelMutation.mutate()}
+                  disabled={deleteChannelMutation.isPending}
+                >
+                  {t('common.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
       </div>
       {isSelected && <MediaControls channelId={channel.id} isVoiceChannel={false} />}

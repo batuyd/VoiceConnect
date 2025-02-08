@@ -53,6 +53,10 @@ export const translations = {
       makeAdmin: 'Make Admin',
       removeAdmin: 'Remove Admin',
       volume: 'Volume',
+      deleteChannelTitle: 'Delete Channel',
+      deleteChannelDescription: 'Are you sure you want to delete this channel? This action cannot be undone.',
+      channelDeleted: 'Channel has been deleted',
+      error: 'Error'
     },
     settings: {
       title: 'Settings',
@@ -226,6 +230,10 @@ export const translations = {
       noDevices: 'No audio devices found',
       defaultDevice: 'Default Device',
     },
+    common: {
+      cancel: 'Cancel',
+      delete: 'Delete',
+    }
   },
   tr: {
     auth: {
@@ -279,6 +287,10 @@ export const translations = {
       makeAdmin: 'Admin Yap',
       removeAdmin: 'Admin Yetkisini Kaldır',
       volume: 'Ses Seviyesi',
+      deleteChannelTitle: 'Kanalı Sil',
+      deleteChannelDescription: 'Bu kanalı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+      channelDeleted: 'Kanal silindi',
+      error: 'Hata'
     },
     settings: {
       title: 'Ayarlar',
@@ -452,5 +464,9 @@ export const translations = {
       noDevices: 'Ses cihazı bulunamadı',
       defaultDevice: 'Varsayılan Cihaz',
     },
+    common: {
+      cancel: 'İptal',
+      delete: 'Sil',
+    }
   }
 };

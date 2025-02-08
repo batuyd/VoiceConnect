@@ -36,7 +36,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
   } = useQuery<SelectUser | null>({
     queryKey: ["/api/user"],
-    queryFn: () => getQueryFn({ on401: "returnNull" })("/api/user"),
+    queryFn: async () => {
+      try {
+        const response = await getQueryFn({ on401: "returnNull" })("/api/user");
+        return response as SelectUser;
+      } catch (error) {
+        console.error("Auth error:", error);
+        return null;
+      }
+    },
     retry: false,
     staleTime: 30000,
   });
@@ -46,7 +54,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: friendRequestsLoading,
   } = useQuery<SelectUser[]>({
     queryKey: ["/api/friends/requests"],
-    queryFn: () => getQueryFn()("/api/friends/requests"),
+    queryFn: async () => {
+      try {
+        const response = await getQueryFn()("/api/friends/requests");
+        return response as SelectUser[];
+      } catch (error) {
+        console.error("Friend requests error:", error);
+        return [];
+      }
+    },
     enabled: !!user,
     refetchInterval: 30000,
   });
@@ -62,12 +78,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    if (!user?.id) {
+    if (!user) {
       cleanup();
     }
 
     return cleanup;
-  }, [user?.id]);
+  }, [user]);
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
