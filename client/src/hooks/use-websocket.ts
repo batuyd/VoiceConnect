@@ -2,7 +2,6 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from './use-toast';
 import { useLanguage } from './use-language';
-import { useAuth } from '@/hooks/use-auth';
 import { useRefreshFriendship } from './use-friendship-refresh';
 
 type WebSocketEventHandler = (data: any) => void;
@@ -23,18 +22,12 @@ export function useWebSocket(): WebSocketManager {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { t } = useLanguage();
-  const { user } = useAuth();
   const { refreshFriendshipData } = useRefreshFriendship();
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const maxReconnectAttempts = 5;
   const reconnectAttemptRef = useRef(0);
 
   const connect = useCallback(() => {
-    if (!user) {
-      console.log('No authenticated user, skipping WebSocket connection');
-      return;
-    }
-
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       console.log('WebSocket already connected');
       return;
@@ -45,7 +38,7 @@ export function useWebSocket(): WebSocketManager {
       setConnectionStatus('connecting');
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws?userId=${user.id}`;
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
       console.log('Connecting to WebSocket URL:', wsUrl);
 
       const ws = new WebSocket(wsUrl);
@@ -67,13 +60,13 @@ export function useWebSocket(): WebSocketManager {
         setConnectionStatus('disconnected');
         wsRef.current = null;
 
-        if (user && reconnectAttemptRef.current < maxReconnectAttempts) {
+        if (reconnectAttemptRef.current < maxReconnectAttempts) {
           const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000);
           reconnectAttemptRef.current++;
 
           console.log(`Attempting to reconnect... (Attempt ${reconnectAttemptRef.current}/${maxReconnectAttempts})`);
           reconnectTimeoutRef.current = setTimeout(connect, timeout);
-        } else if (reconnectAttemptRef.current >= maxReconnectAttempts) {
+        } else {
           toast({
             title: t('error.connectionLost'),
             description: t('error.refreshPage'),
@@ -172,7 +165,7 @@ export function useWebSocket(): WebSocketManager {
       console.error('Error setting up WebSocket:', error);
       setConnectionStatus('disconnected');
     }
-  }, [queryClient, toast, t, refreshFriendshipData, user]);
+  }, [queryClient, toast, t, refreshFriendshipData]);
 
   const joinChannel = useCallback((channelId: number) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -205,9 +198,7 @@ export function useWebSocket(): WebSocketManager {
   }, []);
 
   useEffect(() => {
-    if (user) {
-      connect();
-    }
+    connect();
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -216,7 +207,7 @@ export function useWebSocket(): WebSocketManager {
         wsRef.current.close();
       }
     };
-  }, [connect, user]);
+  }, [connect]);
 
   return {
     connectionStatus,

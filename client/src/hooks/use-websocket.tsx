@@ -7,7 +7,6 @@ type WebSocketEventHandler = (data: any) => void;
 
 interface WebSocketManager {
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
-  websocket: WebSocket | null;
   send: (message: any) => void;
   on: (event: string, handler: WebSocketEventHandler) => void;
   off: (event: string, handler: WebSocketEventHandler) => void;
@@ -26,6 +25,7 @@ export function useWebSocket(): WebSocketManager {
   const pongTimeoutRef = useRef<NodeJS.Timeout>();
   const reconnectAttemptsRef = useRef(0);
   const lastPongRef = useRef<number>(Date.now());
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { t } = useLanguage();
@@ -56,121 +56,99 @@ export function useWebSocket(): WebSocketManager {
     console.log(`Attempting WebSocket connection (${reconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
     setConnectionStatus('connecting');
 
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
 
-      ws.onopen = () => {
-        console.log('WebSocket connection established');
-        setConnectionStatus('connected');
-        reconnectAttemptsRef.current = 0;
-        lastPongRef.current = Date.now();
+    ws.onopen = () => {
+      console.log('WebSocket connection established');
+      setConnectionStatus('connected');
+      reconnectAttemptsRef.current = 0;
+      lastPongRef.current = Date.now();
 
-        // Start ping interval
-        pingIntervalRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' }));
+      // Start ping interval
+      pingIntervalRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
 
-            // Set pong timeout
-            pongTimeoutRef.current = setTimeout(() => {
-              const timeSinceLastPong = Date.now() - lastPongRef.current;
-              if (timeSinceLastPong > PONG_TIMEOUT) {
-                console.log('Pong timeout - reconnecting');
-                ws.close();
-              }
-            }, PONG_TIMEOUT);
+          // Set pong timeout
+          pongTimeoutRef.current = setTimeout(() => {
+            const timeSinceLastPong = Date.now() - lastPongRef.current;
+            if (timeSinceLastPong > PONG_TIMEOUT) {
+              console.log('Pong timeout - reconnecting');
+              ws.close();
+            }
+          }, PONG_TIMEOUT);
+        }
+      }, PING_INTERVAL);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket connection closed');
+      setConnectionStatus('disconnected');
+      cleanup();
+
+      if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+        reconnectAttemptsRef.current++;
+        const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+        reconnectTimeoutRef.current = setTimeout(connect, timeout);
+      } else {
+        toast({
+          title: t('error.connectionLost'),
+          description: t('error.refreshPage'),
+          variant: 'destructive'
+        });
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      if (connectionStatus !== 'connected') {
+        toast({
+          title: t('error.connectionError'),
+          description: t('error.tryAgainLater'),
+          variant: 'destructive'
+        });
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        console.log('WebSocket message received:', message);
+
+        if (message.type === 'pong') {
+          lastPongRef.current = Date.now();
+          if (pongTimeoutRef.current) {
+            clearTimeout(pongTimeoutRef.current);
           }
-        }, PING_INTERVAL);
-      };
-
-      ws.onclose = (event) => {
-        console.log('WebSocket connection closed', event.code, event.reason);
-        setConnectionStatus('disconnected');
-        cleanup();
-        wsRef.current = null;
-
-        // Don't reconnect on authentication failure
-        if (event.code === 1008) {
-          toast({
-            title: t('error.authenticationFailed'),
-            description: t('error.pleaseLogin'),
-            variant: 'destructive'
-          });
           return;
         }
 
-        if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-          reconnectAttemptsRef.current++;
-          const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), RECONNECT_INTERVAL);
-          console.log(`Scheduling reconnect in ${timeout}ms`);
-          reconnectTimeoutRef.current = setTimeout(connect, timeout);
-        } else {
-          toast({
-            title: t('error.connectionLost'),
-            description: t('error.refreshPage'),
-            variant: 'destructive'
-          });
+        // Get all handlers for this event type
+        const handlers = eventHandlersRef.current.get(message.type);
+        if (handlers) {
+          handlers.forEach(handler => handler(message.data));
         }
-      };
 
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        if (connectionStatus !== 'connected') {
-          toast({
-            title: t('error.connectionError'),
-            description: t('error.tryAgainLater'),
-            variant: 'destructive'
-          });
+        // Handle specific events that require global state updates
+        switch (message.type) {
+          case 'user_status_change':
+            queryClient.invalidateQueries({ queryKey: ['/api/users'] });
+            break;
+          case 'friend_request':
+          case 'friend_request_accepted':
+          case 'friend_request_rejected':
+            queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
+            break;
+          case 'channel_update':
+            queryClient.invalidateQueries({ queryKey: ['/api/channels'] });
+            break;
         }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          console.log('WebSocket message received:', message);
-
-          if (message.type === 'pong') {
-            lastPongRef.current = Date.now();
-            if (pongTimeoutRef.current) {
-              clearTimeout(pongTimeoutRef.current);
-            }
-            return;
-          }
-
-          // Get all handlers for this event type
-          const handlers = eventHandlersRef.current.get(message.type);
-          if (handlers) {
-            handlers.forEach(handler => handler(message.data));
-          }
-
-          // Handle specific events that require global state updates
-          switch (message.type) {
-            case 'user_status_change':
-              queryClient.invalidateQueries({ queryKey: ['/api/users'] });
-              break;
-            case 'friend_request':
-            case 'friend_request_accepted':
-            case 'friend_request_rejected':
-              queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
-              queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
-              break;
-            case 'channel_update':
-              queryClient.invalidateQueries({ queryKey: ['/api/channels'] });
-              break;
-          }
-        } catch (error) {
-          console.error('Error processing WebSocket message:', error);
-        }
-      };
-    } catch (error) {
-      console.error('Error creating WebSocket:', error);
-      setConnectionStatus('disconnected');
-      if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-        reconnectAttemptsRef.current++;
-        const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), RECONNECT_INTERVAL);
-        reconnectTimeoutRef.current = setTimeout(connect, timeout);
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
       }
-    }
+    };
   }, [cleanup, connectionStatus, queryClient, t, toast]);
 
   useEffect(() => {
@@ -180,16 +158,9 @@ export function useWebSocket(): WebSocketManager {
 
   const send = useCallback((message: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      try {
-        wsRef.current.send(JSON.stringify(message));
-        return true;
-      } catch (error) {
-        console.error('Error sending WebSocket message:', error);
-        return false;
-      }
+      wsRef.current.send(JSON.stringify(message));
     } else {
       console.warn('WebSocket is not connected, message not sent:', message);
-      return false;
     }
   }, []);
 
@@ -206,7 +177,6 @@ export function useWebSocket(): WebSocketManager {
 
   return {
     connectionStatus,
-    websocket: wsRef.current,
     send,
     on,
     off

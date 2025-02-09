@@ -82,13 +82,10 @@
     "connectionLost": "Bağlantı Kesildi",
     "refreshPage": "Yeniden bağlanmak için sayfayı yenileyin",
     "connectionError": "Bağlantı Hatası",
-    "tryAgainLater": "Sunucuya bağlanılamadı. Lütfen internet bağlantınızı kontrol edip daha sonra tekrar deneyin.",
-    "authenticationFailed": "Kimlik Doğrulama Hatası",
-    "pleaseLogin": "Lütfen tekrar giriş yapın"
+    "tryAgainLater": "Lütfen daha sonra tekrar deneyin"
   },
   "settings": {
     "title": "Ayarlar",
-    "general": "Genel Ayarlar",
     "language": "Dil",
     "theme": {
       "title": "Tema Ayarları",
@@ -174,21 +171,5 @@
     "generateInvite": "Davet Linki Oluştur",
     "selectFriend": "Arkadaş Seç",
     "sendInvite": "Davet Gönder"
-  },
-  "voice": {
-    "browserNotSupported": "Tarayıcınız ses özelliklerini desteklemiyor",
-    "permissionDenied": "Mikrofon erişimi reddedildi",
-    "noMicrophoneFound": "Mikrofon bulunamadı",
-    "streamSetupFailed": "Ses akışı başlatılamadı",
-    "connectionError": "Ses bağlantısı hatası oluştu",
-    "connectionFailed": "Ses bağlantısı başarısız oldu",
-    "signalError": "Sinyal hatası oluştu",
-    "audioPlaybackError": "Ses çalma hatası",
-    "unmute": "Sesi Aç",
-    "mute": "Sesi Kapat",
-    "connecting": "Bağlanıyor...",
-    "connected": "Bağlandı",
-    "disconnected": "Bağlantı kesildi",
-    "reconnecting": "Yeniden bağlanılıyor..."
   }
 }

@@ -1,6 +1,6 @@
 import { Volume2, VolumeX, Trash2 } from "lucide-react";
 import { Channel } from "@shared/schema";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,9 +32,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const { connectionStatus, websocket } = useWebSocket();
-  const { isConnected, peers, createPeer, cleanup } = useWebRTC(channel.id);
+  const { joinChannel } = useWebSocket();
+
+  const { isConnected, createPeer, cleanup } = useWebRTC(channel.id);
 
   const deleteChannelMutation = useMutation({
     mutationFn: async () => {
@@ -54,14 +54,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     },
   });
 
-  const setupLocalStream = useCallback(async () => {
+  const setupLocalStream = async () => {
     try {
       console.log('Setting up local stream with device:', selectedInputDevice);
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error(t('voice.browserNotSupported'));
-      }
-
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
@@ -77,123 +72,52 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       return stream;
     } catch (error) {
       console.error('Audio permission error:', error);
-      let errorMessage = t('voice.permissionDenied');
-
-      if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          errorMessage = t('voice.microphoneBlocked');
-        } else if (error.name === 'NotFoundError') {
-          errorMessage = t('voice.noMicrophoneFound');
-        }
-      }
-
       toast({
-        description: errorMessage,
+        description: t('voice.permissionDenied'),
         variant: "destructive",
       });
       return null;
     }
-  }, [selectedInputDevice, toast, t]);
+  };
 
   const handleJoinLeave = async () => {
-    if (isLoading) return;
-
-    try {
-      setIsLoading(true);
-
-      if (isJoined) {
-        console.log('Leaving voice channel');
-
-        if (localStream) {
-          localStream.getTracks().forEach(track => {
-            track.stop();
-            console.log('Stopped track:', track.kind);
-          });
-          setLocalStream(null);
-        }
-
-        cleanup();
-
-        if (websocket?.readyState === WebSocket.OPEN) {
-          websocket.send(JSON.stringify({
-            type: 'leave_channel',
-            channelId: channel.id
-          }));
-        }
-
-        setIsJoined(false);
-        setIsMuted(false);
-      } else {
-        console.log('Joining voice channel');
-
-        if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-          throw new Error(t('voice.noConnection'));
-        }
-
-        const stream = await setupLocalStream();
-        if (!stream) {
-          throw new Error(t('voice.streamSetupFailed'));
-        }
-
-        websocket.send(JSON.stringify({
-          type: 'join_channel',
-          channelId: channel.id
-        }));
-
-        try {
-          const members = await queryClient.fetchQuery({
-            queryKey: [`/api/channels/${channel.id}/members`],
-            queryFn: () => apiRequest("GET", `/api/channels/${channel.id}/members`)
-          });
-
-          for (const member of members) {
-            if (member.id !== user?.id) {
-              console.log('Creating peer connection with:', member.username);
-              await createPeer(member.id, stream, true);
-            }
-          }
-
-          setIsJoined(true);
-        } catch (error) {
-          stream.getTracks().forEach(track => track.stop());
-          throw error;
-        }
-      }
-    } catch (error) {
-      console.error('Join/Leave error:', error);
-      toast({
-        description: error instanceof Error ? error.message : t('voice.connectionError'),
-        variant: "destructive",
-      });
-
-      setIsJoined(false);
-      setIsMuted(false);
+    if (isJoined) {
+      console.log('Leaving voice channel');
       if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+        localStream.getTracks().forEach(track => {
+          track.stop();
+          console.log('Stopped track:', track.kind);
+        });
         setLocalStream(null);
       }
-    } finally {
-      setIsLoading(false);
+      cleanup();
+      setIsJoined(false);
+      setIsMuted(false);
+    } else {
+      console.log('Joining voice channel');
+      const stream = await setupLocalStream();
+      if (stream) {
+        joinChannel(channel.id); 
+        for (const member of channelMembers) {
+          if (member.id !== user?.id) {
+            console.log('Creating peer connection with:', member.username);
+            await createPeer(member.id, true);
+          }
+        }
+        setIsJoined(true);
+      }
     }
   };
 
-  const toggleMute = useCallback(() => {
+  const toggleMute = () => {
     if (localStream) {
       localStream.getAudioTracks().forEach(track => {
-        track.enabled = !isMuted;
+        track.enabled = !isMuted; 
         console.log('Track enabled:', track.enabled);
       });
       setIsMuted(!isMuted);
-
-      if (websocket?.readyState === WebSocket.OPEN) {
-        websocket.send(JSON.stringify({
-          type: 'mute_status',
-          channelId: channel.id,
-          isMuted: !isMuted
-        }));
-      }
     }
-  }, [localStream, isMuted, websocket, channel.id]);
+  };
 
   useEffect(() => {
     return () => {
@@ -209,30 +133,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined,
-    refetchInterval: 5000
+    refetchInterval: 5000 
   });
-
-  useEffect(() => {
-    if (websocket) {
-      const handleMessage = (event: MessageEvent) => {
-        try {
-          const message = JSON.parse(event.data);
-          if (message.type === 'user_joined' && message.data.channelId === channel.id) {
-            refetchMembers();
-          } else if (message.type === 'user_left' && message.data.channelId === channel.id) {
-            refetchMembers();
-          } else if (message.type === 'mute_status' && message.data.channelId === channel.id) {
-            refetchMembers();
-          }
-        } catch (error) {
-          console.error('WebSocket message error:', error);
-        }
-      };
-
-      websocket.addEventListener('message', handleMessage);
-      return () => websocket.removeEventListener('message', handleMessage);
-    }
-  }, [websocket, channel.id, refetchMembers]);
 
   const currentMemberStatus = channelMembers.find(member => member.id === user?.id);
   const isCurrentUserMuted = currentMemberStatus?.isMuted || isMuted;
@@ -259,10 +161,9 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             variant={isJoined ? "destructive" : "default"}
             size="sm"
             onClick={handleJoinLeave}
-            disabled={isLoading}
             className="w-20"
           >
-            {isLoading ? "..." : isJoined ? t('server.leave') : t('server.join')}
+            {isJoined ? t('server.leave') : t('server.join')}
           </Button>
 
           {isOwner && (
@@ -285,7 +186,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               variant="ghost"
               size="sm"
               onClick={toggleMute}
-              disabled={!localStream}
               className={isMuted ? "text-red-400" : "text-green-400"}
             >
               {isMuted ? t('voice.unmute') : t('voice.mute')}
@@ -302,7 +202,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
                   </Avatar>
                   <span className="text-sm">{member.username}</span>
                   {member.isMuted && <VolumeX className="h-3 w-3 text-red-400" />}
-                  {peers[member.id] && <span className="w-2 h-2 rounded-full bg-green-500" />}
                 </div>
               ))}
             </div>
