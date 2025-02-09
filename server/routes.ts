@@ -32,13 +32,13 @@ function sendWebSocketMessage(ws: WebSocketClient | undefined, type: string, dat
 }
 
 export function registerRoutes(app: Express): Server {
-  const sessionMiddleware = session({
+  const sessionParser = session({
     ...sessionSettings,
     resave: false,
     saveUninitialized: false
   });
 
-  app.use(sessionMiddleware);
+  app.use(sessionParser);
   setupAuth(app);
 
   const httpServer = createServer(app);
@@ -59,150 +59,161 @@ export function registerRoutes(app: Express): Server {
         }
         return ws.terminate();
       }
-
       ws.isAlive = false;
       ws.ping();
     });
   }, 30000);
 
-  wss.on('connection', async (ws: WebSocketClient, req: any) => {
-    try {
-      ws.isAlive = true;
-      ws.on('pong', heartbeat);
+  wss.on('connection', (ws: WebSocketClient, req: any) => {
+    console.log('New WebSocket connection attempt');
 
-      // Parse session
-      await new Promise<void>((resolve, reject) => {
-        sessionMiddleware(req, {} as any, (err: any) => {
-          if (err) {
-            console.error('Session parsing error:', err);
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-      });
-
-      // Check authentication
-      if (!req.session?.passport?.user) {
-        console.log('WebSocket connection rejected: No authenticated user');
-        ws.close(1008, 'Unauthorized');
+    // Parse session
+    sessionParser(req, {} as any, async (err: any) => {
+      if (err) {
+        console.error('Session parsing error:', err);
+        ws.close(1011, 'Session error');
         return;
       }
 
-      const userId = req.session.passport.user;
-      ws.userId = userId;
+      try {
+        ws.isAlive = true;
+        ws.on('pong', heartbeat);
 
-      // Handle existing connection
-      const existingWs = clients.get(userId);
-      if (existingWs) {
-        console.log('Closing existing connection for user:', userId);
-        existingWs.close(1000, 'New connection established');
-        clients.delete(userId);
-      }
-
-      clients.set(userId, ws);
-
-      // Set up event handlers
-      ws.on('close', () => {
-        console.log(`WebSocket disconnected for user: ${userId}`);
-        clients.delete(userId);
-      });
-
-      ws.on('error', (error) => {
-        console.error('WebSocket error for user:', userId, error);
-        clients.delete(userId);
-      });
-
-      ws.on('message', async (message: string) => {
-        try {
-          const data = JSON.parse(message.toString());
-          console.log('Received message from user:', userId, data);
-
-          switch (data.type) {
-            case 'ping':
-              sendWebSocketMessage(ws, 'pong', { timestamp: Date.now() });
-              break;
-
-            case 'join_channel':
-              try {
-                const channelId = data.channelId;
-                const channel = await storage.getChannel(channelId);
-
-                if (!channel) {
-                  sendWebSocketMessage(ws, 'error', { message: 'Channel not found' });
-                  return;
-                }
-
-                // Kullanıcının kanala erişim iznini kontrol et
-                const canAccess = await storage.canAccessChannel(channelId, userId);
-                if (!canAccess) {
-                  sendWebSocketMessage(ws, 'error', { message: 'Access denied' });
-                  return;
-                }
-
-                console.log(`User ${userId} joined channel ${channelId}`);
-                ws.channelId = channelId;
-
-                sendWebSocketMessage(ws, 'channel_joined', { 
-                  channelId,
-                  timestamp: Date.now()
-                });
-
-                // Diğer kullanıcılara yeni katılımcıyı bildir
-                wss.clients.forEach((client: WebSocketClient) => {
-                  if (client.channelId === channelId && client.userId !== userId) {
-                    sendWebSocketMessage(client, 'user_joined', {
-                      userId,
-                      channelId,
-                      timestamp: Date.now()
-                    });
-                  }
-                });
-              } catch (error) {
-                console.error('Error joining channel:', error);
-                sendWebSocketMessage(ws, 'error', { message: 'Failed to join channel' });
-              }
-              break;
-
-            case 'leave_channel':
-              if (ws.channelId) {
-                const oldChannelId = ws.channelId;
-                ws.channelId = undefined;
-
-                // Diğer kullanıcılara ayrılan kullanıcıyı bildir
-                wss.clients.forEach((client: WebSocketClient) => {
-                  if (client.channelId === oldChannelId && client.userId !== userId) {
-                    sendWebSocketMessage(client, 'user_left', {
-                      userId,
-                      channelId: oldChannelId,
-                      timestamp: Date.now()
-                    });
-                  }
-                });
-              }
-              break;
-
-            default:
-              console.log('Unknown message type:', data.type);
-          }
-        } catch (error) {
-          console.error('Error processing message:', error);
-          sendWebSocketMessage(ws, 'error', { message: 'Invalid message format' });
+        // Check authentication
+        if (!req.session?.passport?.user) {
+          console.log('WebSocket connection rejected: No authenticated user');
+          ws.close(1008, 'Unauthorized');
+          return;
         }
-      });
 
-      // Send connection confirmation
-      sendWebSocketMessage(ws, 'CONNECTED', {
-        userId,
-        timestamp: Date.now()
-      });
+        const userId = req.session.passport.user;
+        ws.userId = userId;
+        console.log('WebSocket connected for user:', userId);
 
-    } catch (error) {
-      console.error('WebSocket connection error:', error);
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close(1011, 'Internal Server Error');
+        // Handle existing connection
+        const existingWs = clients.get(userId);
+        if (existingWs) {
+          console.log('Closing existing connection for user:', userId);
+          existingWs.close(1000, 'New connection established');
+          clients.delete(userId);
+        }
+
+        clients.set(userId, ws);
+
+        // Event handlers
+        ws.on('close', () => {
+          console.log(`WebSocket disconnected for user: ${userId}`);
+          clients.delete(userId);
+        });
+
+        ws.on('error', (error) => {
+          console.error('WebSocket error for user:', userId, error);
+          clients.delete(userId);
+        });
+
+        // Send initial connection confirmation
+        sendWebSocketMessage(ws, 'CONNECTED', {
+          userId,
+          timestamp: Date.now()
+        });
+
+        ws.on('message', async (message: string) => {
+          try {
+            const data = JSON.parse(message.toString());
+            console.log('Received message from user:', userId, data);
+
+            switch (data.type) {
+              case 'ping':
+                sendWebSocketMessage(ws, 'pong', { timestamp: Date.now() });
+                break;
+
+              case 'join_channel':
+                try {
+                  const channelId = data.channelId;
+                  const channel = await storage.getChannel(channelId);
+
+                  if (!channel) {
+                    sendWebSocketMessage(ws, 'error', { message: 'Channel not found' });
+                    return;
+                  }
+
+                  // Check channel access permission
+                  const canAccess = await storage.canAccessChannel(channelId, userId);
+                  if (!canAccess) {
+                    sendWebSocketMessage(ws, 'error', { message: 'Access denied' });
+                    return;
+                  }
+
+                  console.log(`User ${userId} joined channel ${channelId}`);
+                  ws.channelId = channelId;
+
+                  sendWebSocketMessage(ws, 'channel_joined', {
+                    channelId,
+                    timestamp: Date.now()
+                  });
+
+                  // Notify other users about new participant
+                  wss.clients.forEach((client: WebSocketClient) => {
+                    if (client.channelId === channelId && client.userId !== userId) {
+                      sendWebSocketMessage(client, 'user_joined', {
+                        userId,
+                        channelId,
+                        timestamp: Date.now()
+                      });
+                    }
+                  });
+                } catch (error) {
+                  console.error('Error joining channel:', error);
+                  sendWebSocketMessage(ws, 'error', { message: 'Failed to join channel' });
+                }
+                break;
+
+              case 'leave_channel':
+                if (ws.channelId) {
+                  const oldChannelId = ws.channelId;
+                  ws.channelId = undefined;
+
+                  // Notify other users about participant leaving
+                  wss.clients.forEach((client: WebSocketClient) => {
+                    if (client.channelId === oldChannelId && client.userId !== userId) {
+                      sendWebSocketMessage(client, 'user_left', {
+                        userId,
+                        channelId: oldChannelId,
+                        timestamp: Date.now()
+                      });
+                    }
+                  });
+                }
+                break;
+
+              case 'webrtc_signal':
+                if (data.targetUserId && data.signal) {
+                  const targetWs = clients.get(data.targetUserId);
+                  if (targetWs?.readyState === WebSocket.OPEN) {
+                    sendWebSocketMessage(targetWs, 'webrtc_signal', {
+                      userId,
+                      signal: data.signal
+                    });
+                  }
+                }
+                break;
+
+              default:
+                console.log('Unknown message type:', data.type);
+            }
+          } catch (error) {
+            console.error('Error processing message:', error);
+            sendWebSocketMessage(ws, 'error', { message: 'Invalid message format' });
+          }
+        });
+
+      } catch (error) {
+        console.error('WebSocket connection error:', error);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1011, 'Internal Server Error');
+        }
       }
-    }
+    });
   });
 
   wss.on('close', () => {
@@ -859,7 +870,7 @@ export function registerRoutes(app: Express): Server {
       res.sendStatus(200);
     } catch (error) {
       console.error('Clear media queue error:', handleError(error));
-      res.status(400).json({ error: handleError(error) });
+      res.status(400).json({ error: handlehandleError(error) });
     }
   });
 
@@ -897,7 +908,7 @@ export function registerRoutes(app: Express): Server {
       res.json(friends);
     } catch (error) {
       console.error('Get friends error:', handleError(error));
-            res.status(500).json({ message: "Failed to get friends" });
+      res.status(500).json({ message: "Failed to get friends" });
     }
   });
 

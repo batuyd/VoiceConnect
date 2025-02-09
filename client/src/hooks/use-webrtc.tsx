@@ -18,6 +18,8 @@ export function useWebRTC(channelId: number) {
   const [isConnected, setIsConnected] = useState(false);
   const [peers, setPeers] = useState<Record<number, PeerConnection>>({});
   const localStreamRef = useRef<MediaStream | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const maxReconnectAttempts = 3;
 
   const createPeer = useCallback(async (targetUserId: number, localStream: MediaStream, initiator: boolean): Promise<RTCPeerConnection> => {
     try {
@@ -28,7 +30,9 @@ export function useWebRTC(channelId: number) {
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:global.stun.twilio.com:3478' }
         ],
-        iceTransportPolicy: 'all'
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'balanced',
+        rtcpMuxPolicy: 'require'
       };
 
       const peerConnection = new RTCPeerConnection(config);
@@ -60,10 +64,20 @@ export function useWebRTC(channelId: number) {
         if (peerConnection.connectionState === 'connected') {
           console.log('WebRTC peer connected');
           setIsConnected(true);
-        } else if (peerConnection.connectionState === 'disconnected' || 
-                  peerConnection.connectionState === 'failed') {
-          console.log('WebRTC peer disconnected or failed');
-          cleanupPeer(targetUserId);
+          reconnectAttemptRef.current = 0;
+        } else if (peerConnection.connectionState === 'failed') {
+          console.log('WebRTC peer connection failed');
+          if (reconnectAttemptRef.current < maxReconnectAttempts) {
+            reconnectAttemptRef.current++;
+            console.log(`Attempting to reconnect (${reconnectAttemptRef.current}/${maxReconnectAttempts})`);
+            createPeer(targetUserId, localStream, initiator).catch(console.error);
+          } else {
+            cleanupPeer(targetUserId);
+            toast({
+              description: t('voice.connectionFailed'),
+              variant: "destructive",
+            });
+          }
         }
       };
 
@@ -116,6 +130,10 @@ export function useWebRTC(channelId: number) {
 
           audioElement.play().catch(error => {
             console.error('Error playing remote audio:', error);
+            toast({
+              description: t('voice.audioPlaybackError'),
+              variant: "destructive",
+            });
           });
         }
       };
@@ -180,8 +198,12 @@ export function useWebRTC(channelId: number) {
       }
     } catch (error) {
       console.error('Error handling incoming signal:', error);
+      toast({
+        description: t('voice.signalError'),
+        variant: "destructive",
+      });
     }
-  }, [peers, createPeer, websocket]);
+  }, [peers, createPeer, websocket, toast, t]);
 
   const cleanupPeer = useCallback((userId: number) => {
     console.log('Cleaning up peer:', userId);
@@ -226,6 +248,7 @@ export function useWebRTC(channelId: number) {
     }
 
     setIsConnected(false);
+    reconnectAttemptRef.current = 0;
   }, [peers, cleanupPeer]);
 
   // WebSocket mesajlarını dinle

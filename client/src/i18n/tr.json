@@ -171,5 +171,19 @@
     "generateInvite": "Davet Linki Oluştur",
     "selectFriend": "Arkadaş Seç",
     "sendInvite": "Davet Gönder"
+  },
+  "voice": {
+    "browserNotSupported": "Tarayıcınız ses özelliklerini desteklemiyor",
+    "permissionDenied": "Mikrofon erişimi reddedildi",
+    "microphoneBlocked": "Mikrofon engellendi. Lütfen tarayıcı izinlerini kontrol edin",
+    "noMicrophoneFound": "Mikrofon bulunamadı",
+    "noConnection": "Sunucu bağlantısı kurulamadı",
+    "streamSetupFailed": "Ses akışı başlatılamadı",
+    "connectionError": "Bağlantı hatası oluştu",
+    "connectionFailed": "Bağlantı başarısız oldu",
+    "signalError": "Sinyal hatası oluştu",
+    "audioPlaybackError": "Ses çalma hatası",
+    "unmute": "Sesi Aç",
+    "mute": "Sesi Kapat"
   }
 }

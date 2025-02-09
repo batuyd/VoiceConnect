@@ -32,7 +32,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const { connectionStatus, websocket, joinChannel } = useWebSocket();
+  const [isLoading, setIsLoading] = useState(false);
+  const { connectionStatus, websocket } = useWebSocket();
   const { isConnected, peers, createPeer, cleanup } = useWebRTC(channel.id);
 
   const deleteChannelMutation = useMutation({
@@ -57,9 +58,8 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
     try {
       console.log('Setting up local stream with device:', selectedInputDevice);
 
-      // Önce ses izinlerini kontrol et
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('getUserMedia is not supported');
+        throw new Error(t('voice.browserNotSupported'));
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -77,8 +77,18 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       return stream;
     } catch (error) {
       console.error('Audio permission error:', error);
+      let errorMessage = t('voice.permissionDenied');
+
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError') {
+          errorMessage = t('voice.microphoneBlocked');
+        } else if (error.name === 'NotFoundError') {
+          errorMessage = t('voice.noMicrophoneFound');
+        }
+      }
+
       toast({
-        description: t('voice.permissionDenied'),
+        description: errorMessage,
         variant: "destructive",
       });
       return null;
@@ -86,53 +96,84 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   }, [selectedInputDevice, toast, t]);
 
   const handleJoinLeave = async () => {
-    if (isJoined) {
-      console.log('Leaving voice channel');
+    if (isLoading) return;
 
-      // Ses akışını temizle
-      if (localStream) {
-        localStream.getTracks().forEach(track => {
-          track.stop();
-          console.log('Stopped track:', track.kind);
-        });
-        setLocalStream(null);
-      }
+    try {
+      setIsLoading(true);
 
-      // WebRTC bağlantılarını temizle
-      cleanup();
+      if (isJoined) {
+        console.log('Leaving voice channel');
 
-      // WebSocket üzerinden kanaldan ayrıldığını bildir
-      if (websocket?.readyState === WebSocket.OPEN) {
+        if (localStream) {
+          localStream.getTracks().forEach(track => {
+            track.stop();
+            console.log('Stopped track:', track.kind);
+          });
+          setLocalStream(null);
+        }
+
+        cleanup();
+
+        if (websocket?.readyState === WebSocket.OPEN) {
+          websocket.send(JSON.stringify({
+            type: 'leave_channel',
+            channelId: channel.id
+          }));
+        }
+
+        setIsJoined(false);
+        setIsMuted(false);
+      } else {
+        console.log('Joining voice channel');
+
+        if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+          throw new Error(t('voice.noConnection'));
+        }
+
+        const stream = await setupLocalStream();
+        if (!stream) {
+          throw new Error(t('voice.streamSetupFailed'));
+        }
+
         websocket.send(JSON.stringify({
-          type: 'leave_channel',
+          type: 'join_channel',
           channelId: channel.id
         }));
+
+        try {
+          const members = await queryClient.fetchQuery({
+            queryKey: [`/api/channels/${channel.id}/members`],
+            queryFn: () => apiRequest("GET", `/api/channels/${channel.id}/members`)
+          });
+
+          for (const member of members) {
+            if (member.id !== user?.id) {
+              console.log('Creating peer connection with:', member.username);
+              await createPeer(member.id, stream, true);
+            }
+          }
+
+          setIsJoined(true);
+        } catch (error) {
+          stream.getTracks().forEach(track => track.stop());
+          throw error;
+        }
       }
+    } catch (error) {
+      console.error('Join/Leave error:', error);
+      toast({
+        description: error instanceof Error ? error.message : t('voice.connectionError'),
+        variant: "destructive",
+      });
 
       setIsJoined(false);
       setIsMuted(false);
-    } else {
-      console.log('Joining voice channel');
-      const stream = await setupLocalStream();
-      if (stream) {
-        // WebSocket üzerinden kanala katıl
-        joinChannel(channel.id);
-
-        // Mevcut üyelerle WebRTC bağlantısı kur
-        const members = await queryClient.fetchQuery({
-          queryKey: [`/api/channels/${channel.id}/members`],
-          queryFn: () => apiRequest("GET", `/api/channels/${channel.id}/members`)
-        });
-
-        for (const member of members) {
-          if (member.id !== user?.id) {
-            console.log('Creating peer connection with:', member.username);
-            await createPeer(member.id, stream, true);
-          }
-        }
-
-        setIsJoined(true);
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -143,8 +184,16 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
         console.log('Track enabled:', track.enabled);
       });
       setIsMuted(!isMuted);
+
+      if (websocket?.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+          type: 'mute_status',
+          channelId: channel.id,
+          isMuted: !isMuted
+        }));
+      }
     }
-  }, [localStream, isMuted]);
+  }, [localStream, isMuted, websocket, channel.id]);
 
   useEffect(() => {
     return () => {
@@ -165,26 +214,23 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   useEffect(() => {
     if (websocket) {
-      const handleUserJoined = (data: any) => {
-        if (data.channelId === channel.id) {
-          refetchMembers();
+      const handleMessage = (event: MessageEvent) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'user_joined' && message.data.channelId === channel.id) {
+            refetchMembers();
+          } else if (message.type === 'user_left' && message.data.channelId === channel.id) {
+            refetchMembers();
+          } else if (message.type === 'mute_status' && message.data.channelId === channel.id) {
+            refetchMembers();
+          }
+        } catch (error) {
+          console.error('WebSocket message error:', error);
         }
       };
 
-      const handleUserLeft = (data: any) => {
-        if (data.channelId === channel.id) {
-          refetchMembers();
-        }
-      };
-
-      websocket.addEventListener('message', (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'user_joined') {
-          handleUserJoined(message.data);
-        } else if (message.type === 'user_left') {
-          handleUserLeft(message.data);
-        }
-      });
+      websocket.addEventListener('message', handleMessage);
+      return () => websocket.removeEventListener('message', handleMessage);
     }
   }, [websocket, channel.id, refetchMembers]);
 
@@ -213,9 +259,10 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
             variant={isJoined ? "destructive" : "default"}
             size="sm"
             onClick={handleJoinLeave}
+            disabled={isLoading}
             className="w-20"
           >
-            {isJoined ? t('server.leave') : t('server.join')}
+            {isLoading ? "..." : isJoined ? t('server.leave') : t('server.join')}
           </Button>
 
           {isOwner && (
@@ -238,6 +285,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
               variant="ghost"
               size="sm"
               onClick={toggleMute}
+              disabled={!localStream}
               className={isMuted ? "text-red-400" : "text-green-400"}
             >
               {isMuted ? t('voice.unmute') : t('voice.mute')}
