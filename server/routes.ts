@@ -34,7 +34,12 @@ export function registerRoutes(app: Express): Server {
   const sessionMiddleware = session({
     ...sessionSettings,
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
   });
 
   app.use(sessionMiddleware);
@@ -67,6 +72,7 @@ export function registerRoutes(app: Express): Server {
 
   wss.on('connection', async (ws: WebSocketClient, req: any) => {
     try {
+      console.log('New WebSocket connection attempt');
       ws.isAlive = true;
       ws.on('pong', heartbeat);
 
@@ -85,12 +91,14 @@ export function registerRoutes(app: Express): Server {
       // Check authentication
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
+        console.log('Session data:', req.session);
         ws.close(1008, 'Unauthorized');
         return;
       }
 
       const userId = req.session.passport.user;
       ws.userId = userId;
+      console.log(`WebSocket authenticated for user: ${userId}`);
 
       // Handle existing connection
       const existingWs = clients.get(userId);
@@ -864,7 +872,7 @@ export function registerRoutes(app: Express): Server {
       res.json(friends);
     } catch (error) {
       console.error('Get friends error:', handleError(error));
-            res.status(500).json({ message: "Failed to get friends" });
+      res.status(500).json({ message: "Failed to get friends" });
     }
   });
 

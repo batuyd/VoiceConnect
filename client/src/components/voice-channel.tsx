@@ -33,7 +33,6 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const { joinChannel } = useWebSocket();
-
   const { isConnected, createPeer, cleanup } = useWebRTC(channel.id);
 
   const deleteChannelMutation = useMutation({
@@ -56,8 +55,12 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
 
   const setupLocalStream = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error(t('voice.browserNotSupported'));
+      }
+
       console.log('Setting up local stream with device:', selectedInputDevice);
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const constraints = {
         audio: {
           deviceId: selectedInputDevice ? { exact: selectedInputDevice } : undefined,
           echoCancellation: true,
@@ -65,15 +68,28 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
           autoGainControl: true
         },
         video: false
-      });
+      };
+
+      console.log('Requesting audio permissions with constraints:', constraints);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       console.log('Local stream setup successful');
       setLocalStream(stream);
       return stream;
     } catch (error) {
       console.error('Audio permission error:', error);
+      let errorMessage = t('voice.permissionDenied');
+
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError') {
+          errorMessage = t('voice.microphoneAccessDenied');
+        } else if (error.name === 'NotFoundError') {
+          errorMessage = t('voice.noMicrophoneFound');
+        }
+      }
+
       toast({
-        description: t('voice.permissionDenied'),
+        description: errorMessage,
         variant: "destructive",
       });
       return null;
@@ -97,25 +113,48 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
       console.log('Joining voice channel');
       const stream = await setupLocalStream();
       if (stream) {
-        joinChannel(channel.id); 
-        for (const member of channelMembers) {
-          if (member.id !== user?.id) {
-            console.log('Creating peer connection with:', member.username);
-            await createPeer(member.id, true);
+        try {
+          // WebSocket üzerinden kanala katılma
+          joinChannel(channel.id);
+
+          // Diğer kullanıcılarla peer bağlantıları kurma
+          for (const member of channelMembers) {
+            if (member.id !== user?.id) {
+              console.log('Creating peer connection with:', member.username);
+              await createPeer(member.id, true);
+            }
           }
+
+          setIsJoined(true);
+          toast({
+            description: t('voice.joinedChannel'),
+          });
+        } catch (error) {
+          console.error('Failed to join channel:', error);
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+          }
+          toast({
+            description: t('voice.failedToJoin'),
+            variant: "destructive",
+          });
         }
-        setIsJoined(true);
       }
     }
   };
 
   const toggleMute = () => {
     if (localStream) {
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = !isMuted; 
-        console.log('Track enabled:', track.enabled);
+      const tracks = localStream.getAudioTracks();
+      tracks.forEach(track => {
+        track.enabled = !isMuted;
+        console.log(`Track ${track.label} enabled:`, track.enabled);
       });
       setIsMuted(!isMuted);
+
+      toast({
+        description: !isMuted ? t('voice.muted') : t('voice.unmuted'),
+      });
     }
   };
 
@@ -133,7 +172,7 @@ export function VoiceChannel({ channel, isOwner }: VoiceChannelProps) {
   const { data: channelMembers = [], refetch: refetchMembers } = useQuery<ChannelMember[]>({
     queryKey: [`/api/channels/${channel.id}/members`],
     enabled: isJoined,
-    refetchInterval: 5000 
+    refetchInterval: 5000
   });
 
   const currentMemberStatus = channelMembers.find(member => member.id === user?.id);

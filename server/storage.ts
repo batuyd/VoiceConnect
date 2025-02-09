@@ -687,8 +687,36 @@ export class DatabaseStorage implements IStorage {
   async removeUserFromPrivateChannel(channelId: number, userId: number): Promise<void> {
     throw new Error("Method not implemented.");
   }
+
   async canAccessChannel(channelId: number, userId: number): Promise<boolean> {
-    throw new Error("Method not implemented.");
+    try {
+      // Kanalı getir
+      const channel = await this.getChannel(channelId);
+      if (!channel) {
+        console.log(`Channel ${channelId} not found`);
+        return false;
+      }
+
+      // Sunucu üyeliğini kontrol et
+      const members = await this.getServerMembers(channel.serverId);
+      const isMember = members.some(member => member.id === userId);
+
+      if (!isMember) {
+        console.log(`User ${userId} is not a member of server ${channel.serverId}`);
+        return false;
+      }
+
+      // Eğer kanal public ise ve kullanıcı sunucu üyesi ise erişim izni ver
+      if (!channel.isPrivate) {
+        return true;
+      }
+
+      // Private kanal için özel izinleri kontrol et
+      return channel.allowedUsers.includes(userId);
+    } catch (error) {
+      console.error('Error checking channel access:', error);
+      return false;
+    }
   }
 
   // Media related methods (These methods will need to be implemented using the database)
@@ -970,7 +998,7 @@ export class DatabaseStorage implements IStorage {
                 eq(friendships.receiverId, userId2)
               ),
               and(
-                eq(friendships.senderId, userId2),
+                eq(friendships.senderId,userId2),
                 eq(friendships.receiverId, userId1)
               )
             ),
@@ -979,19 +1007,15 @@ export class DatabaseStorage implements IStorage {
         );
 
       if (!friendship) {
-        console.log('No active friendship found between users');
+        console.log('No active friendship found');
         return undefined;
       }
 
       console.log('Found friendship:', friendship);
-      const { sender, ...friendshipData } = friendship;
-      return {
-        ...friendshipData,
-        sender
-      };
+      return friendship;
     } catch (error) {
-      console.error('Error in getFriendshipBetweenUsers:', error);
-      throw error;
+      console.error('Error finding friendship:', error);
+      return undefined;
     }
   }
 }
