@@ -52,39 +52,55 @@ export function registerRoutes(app: Express): Server {
     server: httpServer, 
     path: '/ws',
     verifyClient: async (info, callback) => {
-      console.log('WebSocket connection verification started');
-      console.log('Headers:', info.req.headers);
+      try {
+        console.log('WebSocket connection verification started');
+        console.log('Headers:', JSON.stringify(info.req.headers, null, 2));
 
-      // Parse cookies
-      const cookies = info.req.headers.cookie?.split(';').reduce((acc: any, cookie) => {
-        const [key, value] = cookie.trim().split('=');
-        acc[key] = value;
-        return acc;
-      }, {});
+        // Parse cookies
+        const cookieHeader = info.req.headers.cookie;
+        console.log('Cookie header:', cookieHeader);
 
-      console.log('Parsed cookies:', cookies);
+        const cookies = cookieHeader?.split(';').reduce((acc: any, cookie) => {
+          const [key, value] = cookie.trim().split('=');
+          acc[key] = value;
+          return acc;
+        }, {});
 
-      if (!cookies?.sid) {
-        console.log('No session cookie found');
-        callback(false, 401, 'Unauthorized');
-        return;
+        console.log('Parsed cookies:', cookies);
+
+        if (!cookies?.sid) {
+          console.log('No session cookie found');
+          callback(false, 401, 'Unauthorized');
+          return;
+        }
+
+        // Apply session middleware
+        await new Promise<void>((resolve, reject) => {
+          sessionMiddleware(info.req as any, {} as any, (err) => {
+            if (err) {
+              console.error('Session middleware error:', err);
+              reject(err);
+              return;
+            }
+            resolve();
+          });
+        });
+
+        const session = (info.req as any).session;
+        console.log('Session data:', JSON.stringify(session, null, 2));
+
+        if (!session?.passport?.user) {
+          console.log('No authenticated user found in session');
+          callback(false, 401, 'Unauthorized');
+          return;
+        }
+
+        console.log('WebSocket connection authorized for user:', session.passport.user);
+        callback(true);
+      } catch (error) {
+        console.error('WebSocket verification error:', error);
+        callback(false, 500, 'Internal Server Error');
       }
-
-      // Apply session middleware
-      await new Promise<void>((resolve) => {
-        sessionMiddleware(info.req as any, {} as any, () => resolve());
-      });
-
-      const session = (info.req as any).session;
-      console.log('Session data:', session);
-
-      if (!session?.passport?.user) {
-        console.log('No authenticated user found in session');
-        callback(false, 401, 'Unauthorized');
-        return;
-      }
-
-      callback(true);
     }
   });
 

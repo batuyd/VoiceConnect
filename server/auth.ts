@@ -7,7 +7,6 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { insertUserSchema, User as SelectUser } from "@shared/schema";
 import { ZodError } from "zod";
-import { sendEmail, emailTemplates } from "./services/email";
 
 declare global {
   namespace Express {
@@ -39,7 +38,7 @@ export const sessionSettings: session.SessionOptions = {
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
   },
   rolling: true, // Refresh session with each request
@@ -47,6 +46,7 @@ export const sessionSettings: session.SessionOptions = {
 };
 
 export function setupAuth(app: Express) {
+  // Trust first proxy in production
   if (app.get("env") === "production") {
     app.set("trust proxy", 1);
     sessionSettings.cookie!.secure = true;
@@ -100,25 +100,20 @@ export function setupAuth(app: Express) {
   app.post("/api/register", async (req, res, next) => {
     try {
       const validatedData = insertUserSchema.parse(req.body);
-
       const existingUser = await storage.getUserByUsername(validatedData.username);
       if (existingUser) {
         return res.status(400).json({ message: "Username already exists" });
       }
-
       const existingEmail = await storage.getUserByEmail(validatedData.email);
       if (existingEmail) {
         return res.status(400).json({ message: "Email already exists" });
       }
-
       const hashedPassword = await hashPassword(validatedData.password);
-
       const user = await storage.createUser({
         ...validatedData,
         password: hashedPassword,
         avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(validatedData.username)}`
       });
-
       req.login(user, (err) => {
         if (err) {
           console.error('Login error after registration:', err);
@@ -143,17 +138,14 @@ export function setupAuth(app: Express) {
         console.error('Login error:', err);
         return next(err);
       }
-
       if (!user) {
         return res.status(401).json({ message: info?.message || "Authentication failed" });
       }
-
       req.login(user, (err) => {
         if (err) {
           console.error('Session creation error:', err);
           return next(err);
         }
-
         req.session.save((err) => {
           if (err) {
             console.error('Session save error:', err);
@@ -169,14 +161,11 @@ export function setupAuth(app: Express) {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-
-    const sessionId = req.sessionID;
     req.logout((err) => {
       if (err) {
         console.error('Logout error:', err);
         return next(err);
       }
-
       req.session.destroy((err) => {
         if (err) {
           console.error('Session destruction error:', err);
@@ -195,5 +184,6 @@ export function setupAuth(app: Express) {
     res.json(req.user);
   });
 
+  // Return the sessionMiddleware for use in WebSocket authentication
   return sessionMiddleware;
 }

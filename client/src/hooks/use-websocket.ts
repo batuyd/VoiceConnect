@@ -52,6 +52,7 @@ export function useWebSocket(): WebSocketManager {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = undefined;
         }
+        // Refresh friendship data after successful connection
         refreshFriendshipData();
       };
 
@@ -60,13 +61,14 @@ export function useWebSocket(): WebSocketManager {
         setConnectionStatus('disconnected');
         wsRef.current = null;
 
-        if (reconnectAttemptRef.current < maxReconnectAttempts) {
+        // Only attempt to reconnect if not a clean closure
+        if (event.code !== 1000 && reconnectAttemptRef.current < maxReconnectAttempts) {
           const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000);
           reconnectAttemptRef.current++;
 
           console.log(`Attempting to reconnect... (Attempt ${reconnectAttemptRef.current}/${maxReconnectAttempts})`);
           reconnectTimeoutRef.current = setTimeout(connect, timeout);
-        } else {
+        } else if (event.code !== 1000) {
           toast({
             title: t('error.connectionLost'),
             description: t('error.refreshPage'),
@@ -91,6 +93,18 @@ export function useWebSocket(): WebSocketManager {
           const message = JSON.parse(event.data);
           console.log('WebSocket message received:', message);
 
+          // Handle system-level messages first
+          if (message.type === 'error' && message.data?.message) {
+            console.error('WebSocket error message:', message.data);
+            toast({
+              title: t('error.websocketError'),
+              description: message.data.message,
+              variant: 'destructive'
+            });
+            return;
+          }
+
+          // Notify registered handlers
           const handlers = eventHandlersRef.current.get(message.type);
           if (handlers) {
             handlers.forEach(handler => {
@@ -102,59 +116,49 @@ export function useWebSocket(): WebSocketManager {
             });
           }
 
+          // Handle specific message types
           switch (message.type) {
+            case 'CONNECTED':
+              console.log('Connection confirmed with user ID:', message.data.userId);
+              break;
+
             case 'FRIEND_REQUEST':
-              console.log('Friend request received:', message.data);
-              refreshFriendshipData();
-              toast({
-                title: t('friends.newRequest'),
-                description: t('friends.requestReceived', { username: message.data.sender?.username }),
-                variant: 'default'
-              });
-              break;
-
             case 'FRIEND_REQUEST_ACCEPTED':
-              console.log('Friend request accepted:', message.data);
-              refreshFriendshipData();
-              toast({
-                title: t('friends.requestAccepted'),
-                description: t('friends.nowFriends', { username: message.data.username }),
-                variant: 'default'
-              });
-              break;
-
             case 'FRIEND_REQUEST_REJECTED':
-              console.log('Friend request rejected:', message.data);
-              refreshFriendshipData();
-              toast({
-                title: t('friends.requestRejected'),
-                description: t('friends.requestRejectedDesc', { username: message.data.username }),
-                variant: 'default'
-              });
-              break;
-
             case 'FRIENDSHIP_REMOVED':
-              console.log('Friendship removed:', message.data);
               refreshFriendshipData();
-              toast({
-                title: t('friends.removed'),
-                description: t('friends.removedDesc', { username: message.data.username }),
-                variant: 'default'
-              });
+              // Show appropriate notification
+              const notifications = {
+                'FRIEND_REQUEST': {
+                  title: t('friends.newRequest'),
+                  description: t('friends.requestReceived', { username: message.data.sender?.username })
+                },
+                'FRIEND_REQUEST_ACCEPTED': {
+                  title: t('friends.requestAccepted'),
+                  description: t('friends.nowFriends', { username: message.data.username })
+                },
+                'FRIEND_REQUEST_REJECTED': {
+                  title: t('friends.requestRejected'),
+                  description: t('friends.requestRejectedDesc', { username: message.data.username })
+                },
+                'FRIENDSHIP_REMOVED': {
+                  title: t('friends.removed'),
+                  description: t('friends.removedDesc', { username: message.data.username })
+                }
+              };
+              const notification = notifications[message.type];
+              if (notification) {
+                toast({
+                  title: notification.title,
+                  description: notification.description,
+                  variant: 'default'
+                });
+              }
               break;
 
             case 'channel_joined':
               console.log('Successfully joined channel:', message.data);
               queryClient.invalidateQueries({ queryKey: [`/api/channels/${message.data.channelId}`] });
-              break;
-
-            case 'error':
-              console.error('WebSocket error message:', message.data);
-              toast({
-                title: t('error.websocketError'),
-                description: message.data.message,
-                variant: 'destructive'
-              });
               break;
           }
         } catch (error) {
@@ -178,6 +182,7 @@ export function useWebSocket(): WebSocketManager {
     }
   }, []);
 
+  // Event handler registration methods
   const on = useCallback((event: string, handler: WebSocketEventHandler) => {
     if (!eventHandlersRef.current.has(event)) {
       eventHandlersRef.current.set(event, new Set());
@@ -197,6 +202,7 @@ export function useWebSocket(): WebSocketManager {
     }
   }, []);
 
+  // Connect on component mount
   useEffect(() => {
     connect();
     return () => {
