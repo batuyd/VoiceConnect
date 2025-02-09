@@ -14,7 +14,7 @@ export function useWebRTC(channelId: number) {
   const { selectedInputDevice } = useAudioSettings();
   const { toast } = useToast();
   const { t } = useLanguage();
-  const { websocket, send } = useWebSocket();
+  const { websocket, send, connectionStatus } = useWebSocket();
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [peers, setPeers] = useState<Record<number, PeerConnection>>({});
@@ -22,11 +22,34 @@ export function useWebRTC(channelId: number) {
   const reconnectAttemptRef = useRef(0);
   const maxReconnectAttempts = 3;
 
-  // Mikrofon izni ve stream başlatma
+  // WebSocket bağlantı durumunu izle
+  useEffect(() => {
+    if (connectionStatus !== 'connected') {
+      cleanup(); // WebSocket bağlantısı kesildiğinde temizlik yap
+      setIsConnected(false);
+      toast({
+        title: t('voice.connectionError'),
+        description: t('voice.reconnecting'),
+        variant: "destructive",
+      });
+      return;
+    }
+  }, [connectionStatus, toast, t]);
+
   const initializeStream = useCallback(async () => {
     try {
       if (!navigator.mediaDevices) {
         throw new Error(t('voice.browserNotSupported'));
+      }
+
+      if (connectionStatus !== 'connected') {
+        throw new Error(t('voice.connectionError'));
+      }
+
+      // Önce ses iznini kontrol et
+      const permissionResult = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      if (permissionResult.state === 'denied') {
+        throw new Error(t('voice.permissionDenied'));
       }
 
       const constraints: MediaStreamConstraints = {
@@ -34,6 +57,7 @@ export function useWebRTC(channelId: number) {
         video: false
       };
 
+      console.log('Requesting media stream with constraints:', constraints);
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       if (isMuted) {
@@ -49,23 +73,26 @@ export function useWebRTC(channelId: number) {
 
       if (error.name === 'NotAllowedError') {
         toast({
-          description: t('voice.permissionDenied'),
+          title: t('voice.permissionDenied'),
+          description: t('error.tryAgainLater'),
           variant: "destructive",
         });
       } else if (error.name === 'NotFoundError') {
         toast({
-          description: t('voice.noMicrophoneFound'),
+          title: t('voice.noMicrophoneFound'),
+          description: t('error.tryAgainLater'),
           variant: "destructive",
         });
       } else {
         toast({
-          description: t('voice.streamSetupFailed'),
+          title: t('voice.streamSetupFailed'),
+          description: error.message || t('error.tryAgainLater'),
           variant: "destructive",
         });
       }
       throw error;
     }
-  }, [selectedInputDevice, isMuted, toast, t]);
+  }, [selectedInputDevice, isMuted, connectionStatus, toast, t]);
 
   const createPeer = useCallback(async (targetUserId: number, localStream: MediaStream, initiator: boolean): Promise<RTCPeerConnection> => {
     try {
