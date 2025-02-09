@@ -14,7 +14,7 @@ import HomePage from "@/pages/home-page";
 import ProfilePage from "@/pages/profile-page";
 import SettingsPage from "@/pages/settings-page";
 import { SettingsDialog } from "@/components/settings-dialog";
-import { CoinDisplay } from "@/components/coin-display";
+import { UserStatsDrawer } from "@/components/user-stats-drawer";
 import { useAuth } from "@/hooks/use-auth";
 import { useWebSocket } from "./hooks/use-websocket";
 import React from "react";
@@ -28,9 +28,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       {children}
       {user && (
         <>
-          <div className="fixed top-4 right-4 z-50">
-            <CoinDisplay />
-          </div>
+          <UserStatsDrawer />
           <div className="fixed bottom-4 right-4 z-50">
             <SettingsDialog />
           </div>
