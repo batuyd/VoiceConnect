@@ -22,70 +22,68 @@ export function UserStatsDrawer() {
   return (
     <Drawer.Root>
       <Drawer.Trigger asChild>
-        <Button variant="outline" size="icon" className="fixed bottom-4 right-4">
+        <Button variant="outline" size="icon" className="fixed right-0 top-1/2 transform -translate-y-1/2 rounded-l-lg rounded-r-none border-r-0">
           <Trophy className="h-4 w-4" />
         </Button>
       </Drawer.Trigger>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/40" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 mt-24 flex h-[80%] flex-col rounded-t-[10px] bg-background">
-          <div className="flex-1 overflow-y-auto rounded-t-[10px] bg-background p-4">
-            <div className="mx-auto w-full max-w-md">
-              <Drawer.Title className="mb-4 text-lg font-medium">
-                {t('profile.stats')}
-              </Drawer.Title>
-              
-              <div className="space-y-4">
-                {/* Coins Section */}
-                <div className="rounded-lg border p-4">
-                  <div className="flex items-center gap-2">
-                    <CoinsIcon className="h-5 w-5 text-yellow-500" />
-                    <h3 className="font-medium">{t('profile.coins')}</h3>
-                  </div>
-                  <p className="mt-2 text-2xl font-bold">{coins?.balance || 0}</p>
-                </div>
+        <Drawer.Content className="fixed right-0 top-0 h-full w-[300px] bg-background shadow-lg">
+          <div className="flex h-full flex-col overflow-y-auto p-4">
+            <Drawer.Title className="mb-4 text-lg font-medium">
+              {t('profile.stats')}
+            </Drawer.Title>
 
-                {/* Achievements Section */}
-                <div className="rounded-lg border p-4">
-                  <div className="flex items-center gap-2">
-                    <Trophy className="h-5 w-5 text-purple-500" />
-                    <h3 className="font-medium">{t('profile.achievements')}</h3>
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    {achievements?.map((achievement) => (
-                      <div key={achievement.type} className="flex justify-between">
-                        <span>{t(`achievements.${achievement.type}`)}</span>
-                        <span>{achievement.progress}</span>
-                      </div>
-                    ))}
-                  </div>
+            <div className="space-y-4">
+              {/* Coins Section */}
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2">
+                  <CoinsIcon className="h-5 w-5 text-yellow-500" />
+                  <h3 className="font-medium">{t('profile.coins')}</h3>
                 </div>
+                <p className="mt-2 text-2xl font-bold">{coins?.balance || 0}</p>
+              </div>
 
-                {/* Daily Rewards Section */}
-                <div className="rounded-lg border p-4">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-green-500" />
-                    <h3 className="font-medium">{t('profile.dailyRewards')}</h3>
-                  </div>
-                  <Button
-                    className="mt-2 w-full"
-                    onClick={() => {
-                      // Implement daily reward claim logic
-                    }}
-                  >
-                    {t('profile.claimReward')}
-                  </Button>
+              {/* Achievements Section */}
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2">
+                  <Trophy className="h-5 w-5 text-purple-500" />
+                  <h3 className="font-medium">{t('profile.achievements')}</h3>
                 </div>
+                <div className="mt-2 space-y-2">
+                  {achievements?.map((achievement) => (
+                    <div key={achievement.type} className="flex justify-between">
+                      <span>{t(`achievements.${achievement.type}`)}</span>
+                      <span>{achievement.progress}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-                {/* Gift Shop Section */}
-                <div className="rounded-lg border p-4">
-                  <div className="flex items-center gap-2">
-                    <GiftIcon className="h-5 w-5 text-red-500" />
-                    <h3 className="font-medium">{t('profile.giftShop')}</h3>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {/* Add gift shop items here */}
-                  </div>
+              {/* Daily Rewards Section */}
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-green-500" />
+                  <h3 className="font-medium">{t('profile.dailyRewards')}</h3>
+                </div>
+                <Button
+                  className="mt-2 w-full"
+                  onClick={() => {
+                    // Implement daily reward claim logic
+                  }}
+                >
+                  {t('profile.claimReward')}
+                </Button>
+              </div>
+
+              {/* Gift Shop Section */}
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2">
+                  <GiftIcon className="h-5 w-5 text-red-500" />
+                  <h3 className="font-medium">{t('profile.giftShop')}</h3>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {/* Add gift shop items here */}
                 </div>
               </div>
             </div>

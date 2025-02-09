@@ -14,7 +14,7 @@ import HomePage from "@/pages/home-page";
 import ProfilePage from "@/pages/profile-page";
 import SettingsPage from "@/pages/settings-page";
 import { SettingsDialog } from "@/components/settings-dialog";
-import { UserStatsDrawer } from "@/components/user-stats-drawer";
+import { HoverPanel } from "@/components/hover-panel";
 import { useAuth } from "@/hooks/use-auth";
 import { useWebSocket } from "./hooks/use-websocket";
 import React from "react";
@@ -28,7 +28,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       {children}
       {user && (
         <>
-          <UserStatsDrawer />
+          <HoverPanel />
           <div className="fixed bottom-4 right-4 z-50">
             <SettingsDialog />
           </div>

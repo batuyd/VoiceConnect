@@ -6,6 +6,7 @@ import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
 import session from 'express-session';
 import ytdl from 'ytdl-core';
+import cookieParser from 'cookie-parser';
 
 interface WebSocketClient extends WebSocket {
   isAlive: boolean;
@@ -43,10 +44,49 @@ export function registerRoutes(app: Express): Server {
   });
 
   app.use(sessionMiddleware);
+  app.use(cookieParser());
   setupAuth(app);
 
   const httpServer = createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({ 
+    server: httpServer, 
+    path: '/ws',
+    verifyClient: async (info, callback) => {
+      console.log('WebSocket connection verification started');
+      console.log('Headers:', info.req.headers);
+
+      // Parse cookies
+      const cookies = info.req.headers.cookie?.split(';').reduce((acc: any, cookie) => {
+        const [key, value] = cookie.trim().split('=');
+        acc[key] = value;
+        return acc;
+      }, {});
+
+      console.log('Parsed cookies:', cookies);
+
+      if (!cookies?.sid) {
+        console.log('No session cookie found');
+        callback(false, 401, 'Unauthorized');
+        return;
+      }
+
+      // Apply session middleware
+      await new Promise<void>((resolve) => {
+        sessionMiddleware(info.req as any, {} as any, () => resolve());
+      });
+
+      const session = (info.req as any).session;
+      console.log('Session data:', session);
+
+      if (!session?.passport?.user) {
+        console.log('No authenticated user found in session');
+        callback(false, 401, 'Unauthorized');
+        return;
+      }
+
+      callback(true);
+    }
+  });
 
   setMaxListeners(20);
 
@@ -72,26 +112,12 @@ export function registerRoutes(app: Express): Server {
 
   wss.on('connection', async (ws: WebSocketClient, req: any) => {
     try {
-      console.log('New WebSocket connection attempt');
+      console.log('New WebSocket connection established');
       ws.isAlive = true;
       ws.on('pong', heartbeat);
 
-      // Parse session
-      await new Promise<void>((resolve, reject) => {
-        sessionMiddleware(req, {} as any, (err: any) => {
-          if (err) {
-            console.error('Session parsing error:', err);
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-      });
-
-      // Check authentication
       if (!req.session?.passport?.user) {
         console.log('WebSocket connection rejected: No authenticated user');
-        console.log('Session data:', req.session);
         ws.close(1008, 'Unauthorized');
         return;
       }
@@ -110,7 +136,6 @@ export function registerRoutes(app: Express): Server {
 
       clients.set(userId, ws);
 
-      // Set up event handlers
       ws.on('close', () => {
         console.log(`WebSocket disconnected for user: ${userId}`);
         clients.delete(userId);
