@@ -870,7 +870,7 @@ export function registerRoutes(app: Express): Server {
       res.sendStatus(200);
     } catch (error) {
       console.error('Clear media queue error:', handleError(error));
-      res.status(400).json({ error: handlehandleError(error) });
+      res.status(400).json({ error: handleError(error) });
     }
   });
 

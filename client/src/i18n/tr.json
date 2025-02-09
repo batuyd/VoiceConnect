@@ -68,7 +68,7 @@
       "passwordTooShort": "Şifre en az 6 karakter olmalıdır",
       "emailRequired": "E-posta adresi zorunludur",
       "invalidEmail": "Geçerli bir e-posta adresi girin",
-      "phoneRequired": "Telefon numarası zorunludur",
+      "phoneRequired": "Telefon numarası zorunludur", 
       "invalidPhone": "Geçerli bir telefon numarası girin",
       "loginFailed": "Geçersiz kullanıcı adı veya şifre",
       "registrationFailed": "Kayıt işlemi başarısız oldu. Lütfen tekrar deneyin."
@@ -86,6 +86,7 @@
   },
   "settings": {
     "title": "Ayarlar",
+    "general": "Genel Ayarlar",
     "language": "Dil",
     "theme": {
       "title": "Tema Ayarları",

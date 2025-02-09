@@ -7,6 +7,7 @@ type WebSocketEventHandler = (data: any) => void;
 
 interface WebSocketManager {
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
+  websocket: WebSocket | null;
   send: (message: any) => void;
   on: (event: string, handler: WebSocketEventHandler) => void;
   off: (event: string, handler: WebSocketEventHandler) => void;
@@ -86,6 +87,7 @@ export function useWebSocket(): WebSocketManager {
       console.log('WebSocket connection closed');
       setConnectionStatus('disconnected');
       cleanup();
+      wsRef.current = null;
 
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
         reconnectAttemptsRef.current++;
@@ -177,6 +179,7 @@ export function useWebSocket(): WebSocketManager {
 
   return {
     connectionStatus,
+    websocket: wsRef.current,
     send,
     on,
     off
