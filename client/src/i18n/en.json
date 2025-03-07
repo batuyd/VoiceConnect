@@ -124,5 +124,11 @@
     "error": "Error",
     "warning": "Warning",
     "info": "Information"
+  },
+  "channel": {
+    "joinVoice": "Join Voice Channel",
+    "voiceChannelDesc": "Click to join the voice chat",
+    "selectChannel": "Select a Channel",
+    "channelDesc": "Select a channel to start chatting"
   }
 }

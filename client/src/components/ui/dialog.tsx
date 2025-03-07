@@ -51,6 +51,11 @@ const DialogContent = React.forwardRef<
 ))
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
+interface DialogContentProps extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
+  Description?: string;
+  'aria-describedby'?: string;
+}
+
 const DialogHeader = ({
   className,
   ...props
@@ -117,4 +122,5 @@ export {
   DialogFooter,
   DialogTitle,
   DialogDescription,
+  type DialogContentProps, // Ensure this is exported
 }

@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLanguage } from "@/hooks/use-language";
 import { Button } from "@/components/ui/button";
-import { Server } from "@shared/schema";
+import { Server } from "@shared/schema"; // Friend tipini buradan kaldırıyoruz
 import { Plus, User, LogOut, Trash2, MoreVertical, UserPlus } from "lucide-react";
 import {
   Dialog,
@@ -26,6 +26,13 @@ import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+// Friend tipini burada tanımlıyoruz
+interface Friend {
+  id: number;
+  username: string;
+  avatar?: string;
+}
+
 export function ServerList({ 
   onServerSelect, 
   selectedServer 
@@ -46,7 +53,7 @@ export function ServerList({
     queryKey: ["/api/servers"],
   });
 
-  const { data: friends = [] } = useQuery({
+  const { data: friends = [] } = useQuery<Friend[]>({
     queryKey: ['/api/friends'],
   });
 

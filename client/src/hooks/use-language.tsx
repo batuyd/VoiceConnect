@@ -44,8 +44,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       console.error('Failed to save language preference:', error);
       toast({
         variant: 'destructive',
-        title: translations[language].error.title,
-        description: translations[language].error.languagePreference,
+        title: translations[language]?.auth?.errors?.registrationFailed || 'Error',
+        description: translations['en']?.auth?.errors?.registrationFailed || 'Failed to save language preference',
       });
     }
   }, [language, toast]);

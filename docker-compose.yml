@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"   # Backend API
+      - "3000:3000"   # Frontend
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: 65458598
+      POSTGRES_DB: myappdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - .:/usr/src/app  # Ana klasörü konteynere bağla
+      - /usr/src/app/node_modules  # node_modules'ü hariç tut
+
+volumes:
+  postgres_data:
+
+
+

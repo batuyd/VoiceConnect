@@ -1,12 +1,27 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { setMaxListeners } from 'events';
-import { WebSocketServer, WebSocket } from 'ws';
+import { setMaxListeners } from "events";
+import { WebSocketServer, WebSocket } from "ws";
 import { setupAuth, sessionSettings } from "./auth";
 import { storage } from "./storage";
-import session from 'express-session';
-import ytdl from 'ytdl-core';
-import cookieParser from 'cookie-parser';
+import session from "express-session";
+import ytdl from "ytdl-core";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
+import cookie from "cookie";
+import pgSession from "connect-pg-simple";
+import pkg from "pg";
+import bcrypt from "bcrypt"; // bcrypt modülünü ekleyin
+
+// Tip tanımlamalarını ekleyin
+import "cors";
+import "cookie";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 interface WebSocketClient extends WebSocket {
   isAlive: boolean;
@@ -18,13 +33,17 @@ function handleError(error: unknown): string {
   return String(error);
 }
 
-function sendWebSocketMessage(ws: WebSocketClient | undefined, type: string, data: any) {
+function sendWebSocketMessage(
+  ws: WebSocketClient | undefined,
+  type: string,
+  data: any
+) {
   if (ws?.readyState === WebSocket.OPEN) {
     try {
       ws.send(JSON.stringify({ type, data }));
       return true;
     } catch (error) {
-      console.error(`WebSocket send error (${type}):`, error);
+      console.error(`❌ WebSocket gönderme hatası (${type}):`, error);
       return false;
     }
   }
@@ -32,78 +51,141 @@ function sendWebSocketMessage(ws: WebSocketClient | undefined, type: string, dat
 }
 
 export function registerRoutes(app: Express): Server {
-  const sessionMiddleware = session({
-    ...sessionSettings,
+    const sessionMiddleware = session({
+    secret: process.env.SESSION_SECRET || "65458598_super_secret_key!@#$",
     resave: false,
     saveUninitialized: false,
+    proxy: true, // Reverse proxy kullanımında gerekli
     cookie: {
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
-    }
+      secure: false, // Geliştirme ortamında false olmalı
+      httpOnly: false,
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000, // 24 saat
+    },
   });
 
-  app.use(sessionMiddleware);
+
+  console.log("✅ Oturum Middleware Yüklendi!");
+  console.log(
+    "🔐 Oturum Secret:",
+    process.env.SESSION_SECRET ? "Bulundu" : "BULUNAMADI!"
+  );
+  console.log("📢 Oturum Durumu:", sessionMiddleware);
+
+  // ✅ CORS Middleware'i Güncelle
+  app.use(
+    cors({
+      origin: "http://localhost:3000", // Frontend hangi portta çalışıyorsa ona göre ayarla
+      credentials: true, // 🍪 Çerezlerin gönderilmesine izin ver
+      methods: ["GET", "POST", "PUT", "DELETE"],
+      allowedHeaders: ["Content-Type", "Authorization"]
+    })
+  );
+
   app.use(cookieParser());
+  app.use(sessionMiddleware);
   setupAuth(app);
 
   const httpServer = createServer(app);
-  const wss = new WebSocketServer({ 
-    server: httpServer, 
-    path: '/ws',
-    verifyClient: async (info, callback) => {
-      try {
-        console.log('WebSocket connection verification started');
-        console.log('Headers:', JSON.stringify(info.req.headers, null, 2));
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: "/ws",
+    clientTracking: true,
+    verifyClient: (info, done) => {
+      const cookies = cookie.parse(info.req.headers.cookie || "");
+      console.log("📢 WebSocket İçin Gelen Çerezler:", cookies);
 
-        // Parse cookies
-        const cookieHeader = info.req.headers.cookie;
-        console.log('Cookie header:', cookieHeader);
-
-        const cookies = cookieHeader?.split(';').reduce((acc: any, cookie) => {
-          const [key, value] = cookie.trim().split('=');
-          acc[key] = value;
-          return acc;
-        }, {});
-
-        console.log('Parsed cookies:', cookies);
-
-        if (!cookies?.sid) {
-          console.log('No session cookie found');
-          callback(false, 401, 'Unauthorized');
-          return;
-        }
-
-        // Apply session middleware
-        await new Promise<void>((resolve, reject) => {
-          sessionMiddleware(info.req as any, {} as any, (err) => {
-            if (err) {
-              console.error('Session middleware error:', err);
-              reject(err);
-              return;
-            }
-            resolve();
-          });
-        });
-
-        const session = (info.req as any).session;
-        console.log('Session data:', JSON.stringify(session, null, 2));
-
-        if (!session?.passport?.user) {
-          console.log('No authenticated user found in session');
-          callback(false, 401, 'Unauthorized');
-          return;
-        }
-
-        console.log('WebSocket connection authorized for user:', session.passport.user);
-        callback(true);
-      } catch (error) {
-        console.error('WebSocket verification error:', error);
-        callback(false, 500, 'Internal Server Error');
+      if (!cookies["connect.sid"]) {
+        console.log("❌ Oturum çerezi eksik, bağlantı reddedildi!");
+        return done(false, 401, "Unauthorized");
       }
+      done(true);
     }
   });
 
+wss.on("connection", async (ws: WebSocketClient, req) => {
+    try {
+        console.log("🔍 Yeni WebSocket bağlantısı denendi...");
+        console.log("📢 WebSocket Başlıkları:", req.headers);
+        console.log("📢 Gelen Çerezler:", req.headers.cookie || "❌ Çerez Yok!");
+
+        if (!req.headers.cookie) {
+            console.log("❌ WebSocket bağlantısı için çerez bulunamadı. Bağlantı kapatılıyor!");
+            ws.close(1008, "Çerez eksik!");
+            return;
+        }
+
+        // Çerezleri ayrıştır
+        const cookies = cookie.parse(req.headers.cookie || "");
+        console.log("📢 Ayrıştırılan Çerezler:", cookies);
+
+        const sessionId = cookies["connect.sid"];
+        if (!sessionId) {
+            console.log("❌ Oturum çerezi bulunamadı, bağlantı kapatılıyor!");
+            ws.close(1008, "Yetkisiz erişim");
+            return;
+        }
+
+        // Oturum Middleware uygulaması
+        await new Promise<void>((resolve, reject) => {
+            sessionMiddleware(req as any, {} as any, (err) => {
+                if (err) {
+                    console.error("❌ Oturum middleware hatası:", err);
+                    ws.close(1011, "İç Sunucu Hatası");
+                    reject(err);
+                    return;
+                }
+                resolve();
+            });
+        });
+
+        const session = (req as any).session;
+        console.log("📢 Oturum Verisi:", JSON.stringify(session, null, 2));
+
+        if (!session?.passport?.user) {
+            console.log("❌ Yetkilendirilmiş kullanıcı oturumda bulunamadı, bağlantı kapatılıyor!");
+            ws.close(1008, "Yetkisiz erişim");
+            return;
+        }
+
+        console.log("✅ WebSocket bağlantısı yetkilendirildi, kullanıcı ID:", session.passport.user);
+        ws.userId = session.passport.user; // Kullanıcı ID'sini WebSocket nesnesine ekle
+
+        // Ping-pong ile bağlantı kontrolü
+        ws.isAlive = true;
+        ws.on("pong", () => {
+            ws.isAlive = true;
+        });
+
+        // WebSocket mesajlarını dinle
+        ws.on("message", (message) => {
+            console.log("📩 WebSocket mesajı alındı:", message.toString());
+        });
+
+        ws.on("close", () => {
+            console.log(`❌ Kullanıcı ${ws.userId} WebSocket bağlantısını kapattı.`);
+        });
+
+    } catch (error) {
+        console.error("❌ WebSocket bağlantı hatası:", error);
+        ws.close(1011, "İç Sunucu Hatası");
+    }
+});
+
+  // Ping-Pong mekanizması ile bağlantı kontrolü
+  setInterval(() => {
+    wss.clients.forEach((ws) => {
+      const client = ws as WebSocketClient;
+      if (!client.isAlive) {
+        console.log("⚠️ WebSocket bağlantısı yanıt vermedi, kapatılıyor...");
+        return client.terminate();
+      }
+      client.isAlive = false;
+      client.ping();
+    });
+  }, 30000);
+
+  // **Ekstra Kodlar İçin Boşluk**
   setMaxListeners(20);
 
   const clients = new Map<number, WebSocketClient>();
@@ -113,16 +195,17 @@ export function registerRoutes(app: Express): Server {
   }
 
   const interval = setInterval(() => {
-    wss.clients.forEach((ws: WebSocketClient) => {
-      if (ws.isAlive === false) {
-        if (ws.userId) {
-          clients.delete(ws.userId);
+    wss.clients.forEach((ws) => {
+      const client = ws as WebSocketClient;
+      if (client.isAlive === false) {
+        if (client.userId) {
+          clients.delete(client.userId);
         }
-        return ws.terminate();
+        return client.terminate();
       }
 
-      ws.isAlive = false;
-      ws.ping();
+      client.isAlive = false;
+      client.ping();
     });
   }, 30000);
 
@@ -130,11 +213,11 @@ export function registerRoutes(app: Express): Server {
     try {
       console.log('New WebSocket connection established');
       ws.isAlive = true;
-      ws.on('pong', heartbeat);
+      ws.on('pong', heartbeat.bind(ws as WebSocketClient));
 
-      if (!req.session?.passport?.user) {
-        console.log('WebSocket connection rejected: No authenticated user');
-        ws.close(1008, 'Unauthorized');
+      if (!req.session || !req.session.passport || !req.session.passport.user) {
+        console.log('❌ WebSocket bağlantısı reddedildi: Kimlik doğrulama başarısız');
+        ws.close(1008, 'Yetkisiz erişim');
         return;
       }
 
@@ -202,8 +285,8 @@ export function registerRoutes(app: Express): Server {
               console.log('Unknown message type:', data.type);
           }
         } catch (error) {
-          console.error('Error processing message:', error);
-          sendWebSocketMessage(ws, 'error', { message: 'Invalid message format' });
+          console.error('❌ WebSocket mesajı işlenirken hata oluştu:', error);
+          sendWebSocketMessage(ws, 'error', { message: 'Geçersiz mesaj formatı veya içeriği' });
         }
       });
 
@@ -1029,6 +1112,78 @@ export function registerRoutes(app: Express): Server {
       res.status(400).json({ error: handleError(error) });
     }
   });
+  
+  app.use(express.static(path.join(__dirname, "../dist/public")));
 
-  return httpServer;
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(__dirname, "../dist/public", "index.html"));
+  });
+
+// WebSocket zaman aşımı kodu buraya eklenmeli
+setInterval(() => {
+  wss.clients.forEach((ws) => {
+    const client = ws as WebSocketClient;
+    if (!(ws as WebSocketClient).isAlive) {
+      console.log("❌ WebSocket bağlantısı zaman aşımına uğradı, kapatılıyor.");
+      return ws.terminate();
+    }
+    (ws as WebSocketClient).isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+app.post("/api/register", async (req, res) => {
+  const { username, password, email, phone } = req.body;
+  console.log("📢 Kayıt işlemi başladı:", req.body);
+
+  try {
+    // Form doğrulama
+    if (!username || !password || !email || !phone) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+    console.log("✅ Form doğrulandı:", req.body);
+
+    // Kullanıcı adı kontrolü
+    const existingUser = await storage.getUserByUsername(username);
+    if (existingUser) {
+      return res.status(400).json({ message: "Username already exists" });
+    }
+    console.log("🔍 Kullanıcı adı ile sorgulanıyor:", username);
+
+    // Şifre hashleme
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Yeni kullanıcı oluşturma
+    const newUser = await storage.createUser({
+      username,
+      password: hashedPassword,
+      email,
+      phone,
+      avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}`
+    });
+    console.log("✅ Yeni kullanıcı oluşturuldu:", newUser);
+
+    // Veritabanına eklenen kullanıcıyı kontrol et
+    const createdUser = await storage.getUserByUsername(username);
+    if (!createdUser) {
+      throw new Error("Kullanıcı veritabanına eklenemedi");
+    }
+    console.log("✅ Kullanıcı veritabanına eklendi:", createdUser);
+
+    // Oturum açma
+    req.login(newUser, (err) => {
+      if (err) {
+        console.error("❌ Oturum açma hatası:", err);
+        return res.status(500).json({ message: "Internal Server Error" });
+      }
+      console.log("✅ Kullanıcı oturumu açıldı:", newUser);
+      res.status(201).json(newUser);
+    });
+  } catch (error) {
+    console.error("❌ Genel hata:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+return httpServer;
 }

@@ -35,8 +35,9 @@ export const getQueryFn = <TData = unknown>({
   on401,
 }: {
   on401: UnauthorizedBehavior;
-}): QueryFunction<TData, readonly [string]> => {
-  return async ({ queryKey: [url] }) => {
+}): QueryFunction<TData, readonly unknown[]> => {
+  return async ({ queryKey }) => {
+    const [url] = queryKey as [string];
     const res = await fetch(url, {
       credentials: "include",
     });

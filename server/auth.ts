@@ -30,11 +30,11 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export const sessionSettings: session.SessionOptions = {
-  secret: process.env.REPL_ID!,
+  secret: process.env.SESSION_SECRET || "65458598_super_secret_key!@#$",
   resave: false,
   saveUninitialized: false,
   store: storage.sessionStore,
-  cookie: {
+  cookie: {// secure: false, httpOnly: true, sameSite: 'lax' }
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     httpOnly: true,
@@ -60,17 +60,24 @@ export function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username: string, password: string, done) => {
       try {
+		console.log("🔍 Kullanıcı giriş yapıyor:", username);
         const user = await storage.getUserByUsername(username);
+		console.log("📢 Veritabanından çekilen kullanıcı:", user);
+		
         if (!user) {
+		  console.log("❌ Kullanıcı bulunamadı:", username);
           return done(null, false, { message: "Invalid username or password" });
         }
 
         const isValidPassword = await comparePasswords(password, user.password);
+		console.log("🔑 Şifre karşılaştırma sonucu:", isValidPassword);
         if (!isValidPassword) {
+		  console.log("❌ Yanlış şifre girildi:", password);
           return done(null, false, { message: "Invalid username or password" });
         }
 
         await storage.updateLastActive(user.id);
+		console.log("✅ Kullanıcı giriş yaptı:", user.username);
         return done(null, user);
       } catch (error) {
         console.error('Authentication error:', error);
@@ -99,35 +106,56 @@ export function setupAuth(app: Express) {
 
   app.post("/api/register", async (req, res, next) => {
     try {
+	  console.log("📢 Kayıt işlemi başladı:", req.body);
+		
       const validatedData = insertUserSchema.parse(req.body);
+	  console.log("✅ Form doğrulandı:", validatedData);
+	  
       const existingUser = await storage.getUserByUsername(validatedData.username);
       if (existingUser) {
+	  console.log("❌ Kullanıcı adı zaten kayıtlı:", validatedData.username);	  
         return res.status(400).json({ message: "Username already exists" });
       }
+	  
       const existingEmail = await storage.getUserByEmail(validatedData.email);
       if (existingEmail) {
+	  console.log("❌ Email zaten kayıtlı:", validatedData.email);	  
         return res.status(400).json({ message: "Email already exists" });
       }
+	  
       const hashedPassword = await hashPassword(validatedData.password);
+	  console.log("🔐 Şifre Hashlendi!");
+	  
       const user = await storage.createUser({
         ...validatedData,
         password: hashedPassword,
         avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(validatedData.username)}`
       });
+	  console.log("✅ Kullanıcı veritabanına eklendi:", user);
+	  
       req.login(user, (err) => {
         if (err) {
           console.error('Login error after registration:', err);
           return next(err);
         }
-        res.status(201).json(user);
+		console.log("✅ Kullanıcı giriş yaptı.");
+        req.session.save((err) => {
+          if (err) {
+            console.error('Session save error:', err);
+            return next(err);
+          }
+          res.status(201).json(user);
+        });
       });
     } catch (error) {
       if (error instanceof ZodError) {
+		console.error("❌ Validation error:", error.errors);  
         return res.status(400).json({ 
           message: "Validation error",
           errors: error.errors 
         });
       }
+	  console.error("❌ Genel hata:", error);
       next(error);
     }
   });

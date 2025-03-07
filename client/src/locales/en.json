@@ -1,0 +1,13 @@
+{
+  "auth": {
+    "loginSuccess": "Successfully logged in",
+    "errors": {
+      "loginFailed": "Login failed",
+      "registrationFailed": "Registration failed",
+      "logoutFailed": "Logout failed",
+      "generic": "An error occurred"
+    },
+    "registrationSuccess": "Successfully registered",
+    "logoutSuccess": "Successfully logged out"
+  }
+}

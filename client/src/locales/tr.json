@@ -1,0 +1,75 @@
+{
+  "auth": {
+    "loginSuccess": "Başarıyla giriş yaptınız",
+    "errors": {
+      "loginFailed": "Giriş başarısız",
+      "registrationFailed": "Kayıt başarısız",
+      "logoutFailed": "Çıkış başarısız",
+      "generic": "Bir hata oluştu"
+    },
+    "registrationSuccess": "Başarıyla kayıt oldunuz",
+    "logoutSuccess": "Başarıyla çıkış yaptınız"
+  },
+  "settings": {
+    "general": "Genel",
+    "effects": "Efektler",
+    "theme": {
+      "title": "Tema",
+      "light": "Açık",
+      "dark": "Koyu",
+      "system": "Sistem"
+    },
+    "audio": {
+      "input": "Giriş",
+      "selectInput": "Giriş seç",
+      "output": "Çıkış",
+      "selectOutput": "Çıkış seç",
+      "quality": "Kalite",
+      "selectQuality": "Kalite seç",
+      "qualityLow": "Düşük",
+      "qualityMedium": "Orta",
+      "qualityHigh": "Yüksek",
+      "volume": "Ses seviyesi"
+    },
+    "audioEffects": {
+      "voice": "Ses",
+      "selectVoice": "Ses seç",
+      "voiceNone": "Yok",
+      "voicePitchUp": "Ses tonu yükselt",
+      "voicePitchDown": "Ses tonu düşür",
+      "voiceRobot": "Robot sesi",
+      "voiceEcho": "Eko",
+      "noiseSuppression": "Gürültü engelleme",
+      "selectNoiseSuppression": "Gürültü engelleme seç",
+      "noiseSuppressionOff": "Kapalı",
+      "noiseSuppressionLow": "Düşük",
+      "noiseSuppressionMedium": "Orta",
+      "noiseSuppressionHigh": "Yüksek"
+    }
+  },
+  "friends": {
+    "newRequest": "Yeni arkadaşlık isteği",
+    "requestReceived": "{username} size arkadaşlık isteği gönderdi",
+    "acceptSuccess": "Arkadaşlık isteği kabul edildi",
+    "acceptError": "Arkadaşlık isteği kabul edilemedi",
+    "rejectSuccess": "Arkadaşlık isteği reddedildi",
+    "rejectError": "Arkadaşlık isteği reddedilemedi",
+    "nowFriends": "{username} ile artık arkadaşsınız",
+    "requestRejected": "Arkadaşlık isteği reddedildi",
+    "requestRejectedDesc": "{username} arkadaşlık isteğinizi reddetti",
+    "removed": "Arkadaşlıktan çıkarıldı",
+    "removedDesc": "{username} sizi arkadaşlıktan çıkardı"
+  },
+  "server": {
+    "inviteFriend": "Arkadaş davet et",
+    "selectFriend": "Arkadaş seç",
+    "sendInvite": "Davet gönder"
+  },
+  "error": {
+    "connectionLost": "Bağlantı kaybedildi",
+    "refreshPage": "Lütfen sayfayı yenileyin",
+    "connectionError": "Bağlantı hatası",
+    "tryAgainLater": "Lütfen daha sonra tekrar deneyin",
+    "websocketError": "WebSocket hatası"
+  }
+}

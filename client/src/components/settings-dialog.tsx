@@ -77,7 +77,7 @@ export function SettingsDialog() {
             </TabsTrigger>
             <TabsTrigger value="effects">
               <Wand2 className="h-4 w-4 mr-2" />
-              {t('settings.effects')}
+              {t('settings.effects.title')}
             </TabsTrigger>
           </TabsList>
 

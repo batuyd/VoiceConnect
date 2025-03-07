@@ -1,184 +1,197 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { useToast } from './use-toast';
-import { useLanguage } from './use-language';
+import { useEffect, useRef, useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "./use-toast";
+import { useLanguage } from "./use-language";
+import { useRefreshFriendship } from "./use-friendship-refresh";
 
 type WebSocketEventHandler = (data: any) => void;
 
 interface WebSocketManager {
-  connectionStatus: 'connecting' | 'connected' | 'disconnected';
-  send: (message: any) => void;
+  connectionStatus: "connecting" | "connected" | "disconnected";
+  websocket: WebSocket | null;
   on: (event: string, handler: WebSocketEventHandler) => void;
   off: (event: string, handler: WebSocketEventHandler) => void;
+  send: (message: any) => void;
+  joinChannel: (channelId: number) => void;
 }
 
-const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_INTERVAL = 5000;
-const PING_INTERVAL = 30000;
-const PONG_TIMEOUT = 10000;
+// Basit bir kontrol: Eğer localStorage'da accessToken varsa giriş yapılmış gibi kabul ediyoruz
+function isAuthenticated(): boolean {
+  return !!localStorage.getItem("accessToken");
+}
 
 export function useWebSocket(): WebSocketManager {
   const wsRef = useRef<WebSocket | null>(null);
   const eventHandlersRef = useRef<Map<string, Set<WebSocketEventHandler>>>(new Map());
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
-  const pingIntervalRef = useRef<NodeJS.Timeout>();
-  const pongTimeoutRef = useRef<NodeJS.Timeout>();
-  const reconnectAttemptsRef = useRef(0);
-  const lastPongRef = useRef<number>(Date.now());
-
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { t } = useLanguage();
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
-
-  const cleanup = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current);
-    }
-    if (pongTimeoutRef.current) {
-      clearTimeout(pongTimeoutRef.current);
-    }
-  }, []);
+  const { refreshFriendshipData } = useRefreshFriendship();
+  const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
+  const maxReconnectAttempts = 5;
+  const reconnectAttemptRef = useRef(0);
 
   const connect = useCallback(() => {
-    cleanup();
-
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    // Kullanıcı giriş yapmadıysa WebSocket başlatma
+    if (!isAuthenticated()) {
+      console.log("⚠️ Kullanıcı giriş yapmadı, WebSocket başlatılmadı!");
       return;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    // Eğer zaten bağlıysa tekrardan bağlanma
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log("✅ WebSocket zaten bağlı");
+      return;
+    }
 
-    console.log(`Attempting WebSocket connection (${reconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
-    setConnectionStatus('connecting');
+    try {
+      console.log("🔄 WebSocket bağlantısı kuruluyor...");
+      setConnectionStatus("connecting");
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+      // ws veya wss protokolünü seç
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//localhost:5000/ws`;
+      console.log("🌐 Bağlanılan WebSocket URL:", wsUrl);
 
-    ws.onopen = () => {
-      console.log('WebSocket connection established');
-      setConnectionStatus('connected');
-      reconnectAttemptsRef.current = 0;
-      lastPongRef.current = Date.now();
+      // Tarayıcıda ek parametre kullanmadan WebSocket aç
+      const socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
 
-      // Start ping interval
-      pingIntervalRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
+      socket.onopen = () => {
+        console.log("✅ WebSocket bağlantısı başarıyla kuruldu");
+        setConnectionStatus("connected");
+        reconnectAttemptRef.current = 0;
 
-          // Set pong timeout
-          pongTimeoutRef.current = setTimeout(() => {
-            const timeSinceLastPong = Date.now() - lastPongRef.current;
-            if (timeSinceLastPong > PONG_TIMEOUT) {
-              console.log('Pong timeout - reconnecting');
-              ws.close();
-            }
-          }, PONG_TIMEOUT);
+        // Tekrar bağlanma bekliyorsak iptal et
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = undefined;
         }
-      }, PING_INTERVAL);
-    };
 
-    ws.onclose = () => {
-      console.log('WebSocket connection closed');
-      setConnectionStatus('disconnected');
-      cleanup();
+        // Örn: Arkadaşlık verilerini yenileyelim
+        refreshFriendshipData();
+      };
 
-      if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-        reconnectAttemptsRef.current++;
-        const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
-        reconnectTimeoutRef.current = setTimeout(connect, timeout);
-      } else {
-        toast({
-          title: t('error.connectionLost'),
-          description: t('error.refreshPage'),
-          variant: 'destructive'
-        });
-      }
-    };
+      socket.onclose = (event) => {
+        console.log("❌ WebSocket bağlantısı kapandı:", event);
+        setConnectionStatus("disconnected");
+        wsRef.current = null;
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      if (connectionStatus !== 'connected') {
-        toast({
-          title: t('error.connectionError'),
-          description: t('error.tryAgainLater'),
-          variant: 'destructive'
-        });
-      }
-    };
+        // 1000 => normal closure
+        if (event.code !== 1000 && reconnectAttemptRef.current < maxReconnectAttempts) {
+          const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000);
+          reconnectAttemptRef.current++;
 
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log('WebSocket message received:', message);
+          console.log(`⏳ Tekrar bağlanmaya çalışılıyor... (Deneme ${reconnectAttemptRef.current}/${maxReconnectAttempts})`);
+          reconnectTimeoutRef.current = setTimeout(connect, timeout);
+        } else if (event.code !== 1000) {
+          toast({
+            title: t("error.connectionLost"),
+            description: t("error.refreshPage"),
+            variant: "destructive",
+          });
+        }
+      };
 
-        if (message.type === 'pong') {
-          lastPongRef.current = Date.now();
-          if (pongTimeoutRef.current) {
-            clearTimeout(pongTimeoutRef.current);
+      socket.onerror = (error) => {
+        console.error("⚠️ WebSocket bağlantı hatası:", error);
+        if (reconnectAttemptRef.current === 0) {
+          toast({
+            title: t("error.connectionError"),
+            description: t("error.tryAgainLater"),
+            variant: "destructive",
+          });
+        }
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          console.log("📩 WebSocket mesajı alındı:", message);
+
+          if (message.type === "error" && message.data?.message) {
+            console.error("⚠️ WebSocket hata mesajı:", message.data);
+            toast({
+              title: t("error.websocketError"),
+              description: message.data.message,
+              variant: "destructive",
+            });
+            return;
           }
-          return;
-        }
 
-        // Get all handlers for this event type
-        const handlers = eventHandlersRef.current.get(message.type);
-        if (handlers) {
-          handlers.forEach(handler => handler(message.data));
-        }
+          // Olay dinleyicilerini çalıştır
+          const handlers = eventHandlersRef.current.get(message.type);
+          if (handlers) {
+            handlers.forEach((handler) => {
+              try {
+                handler(message.data);
+              } catch (error) {
+                console.error("❌ Mesaj işleyici hatası:", error);
+              }
+            });
+          }
 
-        // Handle specific events that require global state updates
-        switch (message.type) {
-          case 'user_status_change':
-            queryClient.invalidateQueries({ queryKey: ['/api/users'] });
-            break;
-          case 'friend_request':
-          case 'friend_request_accepted':
-          case 'friend_request_rejected':
-            queryClient.invalidateQueries({ queryKey: ['/api/friends'] });
-            queryClient.invalidateQueries({ queryKey: ['/api/friends/requests'] });
-            break;
-          case 'channel_update':
-            queryClient.invalidateQueries({ queryKey: ['/api/channels'] });
-            break;
+          // Bazı özel mesaj türleri (örn. CONNECTED, channel_joined)
+          switch (message.type) {
+            case "CONNECTED":
+              console.log("✅ Kullanıcı bağlantısı onaylandı, ID:", message.data.userId);
+              break;
+
+            case "channel_joined":
+              console.log("✅ Kanal başarıyla katılındı:", message.data);
+              queryClient.invalidateQueries({ queryKey: [`/api/channels/${message.data.channelId}`] });
+              break;
+          }
+        } catch (error) {
+          console.error("❌ WebSocket mesaj işleme hatası:", error);
         }
-      } catch (error) {
-        console.error('Error processing WebSocket message:', error);
-      }
-    };
-  }, [cleanup, connectionStatus, queryClient, t, toast]);
+      };
+    } catch (error) {
+      console.error("❌ WebSocket bağlantı hatası:", error);
+      setConnectionStatus("disconnected");
+    }
+  }, [queryClient, toast, t, refreshFriendshipData]);
 
   useEffect(() => {
-    connect();
-    return cleanup;
-  }, [connect, cleanup]);
-
-  const send = useCallback((message: any) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-    } else {
-      console.warn('WebSocket is not connected, message not sent:', message);
+    if (isAuthenticated()) {
+      connect();
     }
-  }, []);
-
-  const on = useCallback((event: string, handler: WebSocketEventHandler) => {
-    if (!eventHandlersRef.current.has(event)) {
-      eventHandlersRef.current.set(event, new Set());
-    }
-    eventHandlersRef.current.get(event)?.add(handler);
-  }, []);
-
-  const off = useCallback((event: string, handler: WebSocketEventHandler) => {
-    eventHandlersRef.current.get(event)?.delete(handler);
-  }, []);
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [connect]);
 
   return {
     connectionStatus,
-    send,
-    on,
-    off
+    websocket: wsRef.current,
+    on: (event: string, handler: WebSocketEventHandler) => {
+      if (!eventHandlersRef.current.has(event)) {
+        eventHandlersRef.current.set(event, new Set());
+      }
+      eventHandlersRef.current.get(event)?.add(handler);
+    },
+    off: (event: string, handler: WebSocketEventHandler) => {
+      eventHandlersRef.current.get(event)?.delete(handler);
+    },
+    send: (message: any) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(message));
+      } else {
+        console.warn("⚠️ Mesaj gönderme başarısız: WebSocket bağlı değil");
+      }
+    },
+    joinChannel: (channelId: number) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "join_channel", channelId }));
+      } else {
+        console.warn("⚠️ Kanal katılım başarısız: WebSocket bağlı değil");
+      }
+    },
   };
 }

@@ -48,11 +48,15 @@ export function ChannelList({
     queryKey: [`/api/servers/${serverId}`],
   });
 
+  console.log("server:", server);
+  console.log("user:", user);
+
   const { data: friends = [] } = useQuery<User[]>({
     queryKey: ["/api/friends"],
   });
 
   const isOwner = server?.ownerId === user?.id;
+  console.log("isOwner:", isOwner);
 
   const createChannelMutation = useMutation({
     mutationFn: async (data: typeof newChannel) => {

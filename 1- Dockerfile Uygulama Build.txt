@@ -1,0 +1,38 @@
+Aşağıdaki komutu çalıştırarak Docker imajını build et
+docker build -t myapp .
+
+Docker konteyneri içinde başlatmak için şu komutu kullanın:
+docker run --env-file .env -p 5000:5000 myapp
+
+🛠 1️⃣ Tüm Eski Konteynerleri Temizleyelim
+Şu komutu çalıştırarak tüm Exited durumundaki konteynerleri silebiliriz:
+
+bash
+Kopyala
+Düzenle
+docker rm $(docker ps -aq)
+📌 Bu komut, tüm kapanmış (Exited) konteynerleri kaldıracaktır.
+
+👉 Silinen konteynerler tekrar çalıştırılamaz, ama zaten bozuk oldukları için bir sorun yok!
+
+🔄 2️⃣ Docker’ı Baştan Build Edelim
+📌 Eski hatalı build’leri temizleyelim:
+
+bash
+Kopyala
+Düzenle
+docker stop myapp
+docker rm myapp
+docker system prune -f
+📌 Yeni sürümle Docker build yapalım:
+
+bash
+Kopyala
+Düzenle
+docker build --no-cache -t myapp .
+📌 Şimdi konteyneri çalıştırıp test edelim:
+
+bash
+Kopyala
+Düzenle
+docker run --env-file .env -p 4000:4000 myapp

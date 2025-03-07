@@ -124,16 +124,16 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
 
     switch (audioQuality) {
       case 'low':
-        constraints.sampleRate = 22050;
-        constraints.channelCount = 1;
+        constraints.sampleRate = 22050 as number;
+        constraints.channelCount = 1 as number;
         break;
       case 'medium':
-        constraints.sampleRate = 44100;
-        constraints.channelCount = 1;
+        constraints.sampleRate = 44100 as number;
+        constraints.channelCount = 1 as number;
         break;
       case 'high':
-        constraints.sampleRate = 48000;
-        constraints.channelCount = 2;
+        constraints.sampleRate = 48000 as number;
+        constraints.channelCount = 2 as number;
         break;
     }
 
@@ -169,7 +169,7 @@ export function AudioSettingsProvider({ children }: { children: React.ReactNode 
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
         const processedStream = applyAudioEffects(mediaStream);
 
-        audioContext = new AudioContext({ sampleRate: constraints.sampleRate });
+        audioContext = new AudioContext({ sampleRate: constraints.sampleRate as number });
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 2048;
         microphone = audioContext.createMediaStreamSource(processedStream);
